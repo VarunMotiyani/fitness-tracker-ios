@@ -12,9 +12,10 @@
 
 ## Global Constraints
 
-- **Swift tools version:** `swift-tools-version: 6.0`. Requires a Swift 6.0+ toolchain (bundled with Xcode 16+/26).
+- **Swift tools version:** `swift-tools-version: 6.2` (bumped from 6.0 during Task 1 — `.iOS(.v26)` needs PackageDescription 6.2+). Requires a Swift 6.2+ toolchain (installed: 6.3.3).
 - **Language mode:** `.v6` for every target — strict concurrency checking is complete/on.
 - **Platforms:** `.iOS(.v26)`, `.macOS(.v14)`. The macOS floor exists only so `swift test` runs on the dev machine.
+- **Swift Testing dependency (Ruling 5, Task 1):** `Package.swift` declares an explicit, version-pinned dependency `.package(url: "https://github.com/swiftlang/swift-testing.git", .upToNextMinor(from: "6.1.0"))`, and every test target lists `.product(name: "Testing", package: "swift-testing")`. This is required because the dev machine runs Command Line Tools only (no full Xcode), which ships the Testing macro plugin but not the `Testing` library module. Do not remove this dependency in Phase 1a. `FitnessCore/Package.resolved` is committed (final-review fix) to pin swift-testing 6.1.3 / swift-syntax 601.0.1 across machines.
 - **No Apple UI/persistence frameworks** in this package: no `import SwiftUI`, `import UIKit`, `import SwiftData`, `import Combine`. Foundation only.
 - **Every public type is `Sendable`.** Prefer `struct` + `enum`; value semantics throughout.
 - **Every type that crosses the AI boundary is `Codable`:** `WeeklyPlan`, `PlannedSession`, `PlannedItem`, `RepRange`, `MuscleVolumeTarget`, `PlanSource`, and every enum they contain.
