@@ -13,8 +13,13 @@ Design phase. Nothing built yet. This repo currently holds the design docs.
 
 ## Documentation
 
+**New here? Read [docs/HANDOFF.md](docs/HANDOFF.md) first** — one read gives full
+context (project, every decision, current state, how to work here, what's next).
+It's kept up to date as the project moves.
+
 | Doc | What's in it |
 |-----|--------------|
+| [docs/HANDOFF.md](docs/HANDOFF.md) | **Start here** — full session/project digest for any new device or agent |
 | [docs/00-overview.md](docs/00-overview.md) | The problem, the vision, goals and non-goals |
 | [docs/01-brainstorm-summary.md](docs/01-brainstorm-summary.md) | What we discussed, every decision and why |
 | [docs/02-product-design.md](docs/02-product-design.md) | How the app behaves: adaptation model, onboarding, InBody, session flow, feedback loop, notifications |
@@ -24,6 +29,7 @@ Design phase. Nothing built yet. This repo currently holds the design docs.
 | [docs/06-decisions.md](docs/06-decisions.md) | Decision register — every settled choice, terse, in one table |
 | [docs/07-exercise-dataset-research.md](docs/07-exercise-dataset-research.md) | Web research comparing exercise datasets (free-exercise-db, wger, ExerciseDB, …) and why free-exercise-db won |
 | [docs/08-api-cost-analysis.md](docs/08-api-cost-analysis.md) | LLM call cost modelling — token volume, cost by model class, levers, scenarios |
+| [docs/09-tooling-skills-plugins.md](docs/09-tooling-skills-plugins.md) | Claude Code skills & plugins for the build — what to use, install, and build custom |
 
 ## Read order
 
