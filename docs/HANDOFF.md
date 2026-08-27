@@ -1,6 +1,6 @@
 # HANDOFF — Read This First
 
-_Living document. Last updated: 2026-08-28._
+_Living document. Last updated: 2026-08-28 (Phase 1a complete)._
 
 **Purpose:** one read = full context. If you're a new agent/session on any
 device, read this top to bottom before doing anything. It captures the project,
@@ -43,12 +43,13 @@ simplicity: no backend, no accounts, on-device storage, bring-your-own API key.
 
 | | |
 |---|---|
-| **Phase** | Design complete. **Phase 1a plan written**, not yet executed. No code yet. |
-| **Next action** | Execute `docs/superpowers/plans/2026-08-28-phase-1a-fitnesscore-foundation.md` (14 TDD tasks) via `superpowers:subagent-driven-development` or `executing-plans`. |
-| **Phase 1 split** | **1a** `FitnessCore` package (pure Swift, no Xcode needed) → **1b** app shell + SwiftData + onboarding + plan view (needs Xcode) → **1c** LLM adapters + `PlanCoordinator` + cost metering. |
+| **Phase** | **Phase 1a COMPLETE & MERGED** — `FitnessCore` Swift package on `main` (5 modules, 35/35 tests, zero warnings). PR #1 merged (`7f6deb3`); branch deleted. |
+| **Next action** | Plan **Phase 1b** (app shell + SwiftData + onboarding + read-only plan view; needs full Xcode) via `superpowers:writing-plans`. Carry the "Known Phase 1b follow-ups" from `FitnessCore/README.md` + the `sessionLengthMinutes` / empty-session items into that plan. |
+| **Phase 1 split** | **1a** ✅ merged → **1b** app shell + SwiftData + onboarding + plan view (needs Xcode) → **1c** LLM adapters + `PlanCoordinator` + cost metering. |
 | **Repo** | `github.com/VarunMotiyani/fitness-tracker-ios` (public) |
-| **Branch** | `main` |
+| **Branch** | `main` (Phase 1a merged at `7f6deb3`) |
 | **Uncommitted** | Check `git status` — doc edits are often pending; the user controls when they're committed. |
+| **FitnessCore build note** | CLT-only toolchain ⇒ `Package.swift` pins `swiftlang/swift-testing` as an explicit dep (`Package.resolved` committed). First `swift test` builds swift-syntax from source (~min). Drop the dep once full Xcode is installed (1b). |
 
 ---
 
@@ -190,6 +191,7 @@ defaults.
 
 ### Environment
 - iPhone 14 on **iOS 26**, Apple Watch Series 10, iPhone 17 Pro planned.
+- **Xcode 26.6 installed & active** (`xcode-select -p` → `/Applications/Xcode.app/...`); iOS 26.5 simulator runtime present. Swift 6.3.3. Full Xcode bundles `Testing.framework` → the `swift-testing` package dep can be dropped from `FitnessCore` in Phase 1b.
 
 ### Skills / plugins (see [09](09-tooling-skills-plugins.md) for the full list)
 - **Use now:** `superpowers:writing-plans` (next), `test-driven-development`,
@@ -231,6 +233,10 @@ RuleEngine + Validator.
 14. Wrote this handoff doc.
 15. Split Phase 1 into 1a/1b/1c. Wrote the **Phase 1a** plan (`FitnessCore`
     package, 14 TDD tasks) via `superpowers:writing-plans`.
+16. **Executed Phase 1a** via `superpowers:subagent-driven-development` on branch
+    `phase-1a-fitnesscore` — 14 tasks, fresh implementer + reviewer per task, one
+    fix loop (swift-testing dep), Opus final review. `FitnessCore` package: 5
+    modules, 35/35 tests, zero warnings. **PR #1 merged to `main` (`7f6deb3`).**
 
 ---
 
