@@ -16,7 +16,8 @@ record.
    rely on **GymVisual / commercial media** that needs a paid licence — parked as
    a later media-layer upgrade. `wger` (CC-BY-SA, ~845) kept as an
    attribution-required gap-filler if the subset has holes. License text goes in
-   the repo when the catalog is added.
+   the repo when the catalog is added. Full comparison + pricing notes:
+   [07-exercise-dataset-research.md](07-exercise-dataset-research.md).
 2. **Curation list.** Which ~100–150 exercises make the v1 catalog? Should cover
    every movement pattern × equipment type Varun has. Draft this from his
    equipment checklist once onboarding is filled in.

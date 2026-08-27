@@ -47,8 +47,8 @@ Status: **Settled** unless marked **Provisional** (holds until revisited) or
 
 | # | Decision | Status | Notes |
 |---|----------|--------|-------|
-| C1 | **Exercise catalog base = `yuhonas/free-exercise-db`** — ~873 exercises, Unlicense (public domain), static start/end JPGs | Settled | Most comprehensive dataset that is genuinely free to bundle (web research 2026-08-27) |
-| C2 | Animated-GIF datasets (ExerciseDB, hasaneyldrm, MuscleWiki) rejected — all GymVisual/commercial media needing a paid licence | Settled | Parked as a later media-layer upgrade |
+| C1 | **Exercise catalog base = `yuhonas/free-exercise-db`** — ~873 exercises, Unlicense (public domain), static start/end JPGs | Settled | Most comprehensive dataset that is genuinely free to download & bundle. Full comparison: [07-exercise-dataset-research.md](07-exercise-dataset-research.md) |
+| C2 | Bigger datasets rejected: **ExerciseDB** = paid hosted API (~$10–50+/mo), API-access/hotlink model, needs a backend, can't bundle offline; **`hasaneyldrm`** / **MuscleWiki** = proprietary GymVisual-class media needing a paid licence | Settled | Animated media parked as a later one-time-licence media-layer upgrade, not an API subscription |
 | C3 | `wger` (CC-BY-SA) is the attribution-required **gap-filler** if the subset has holes | Provisional | Use only if needed |
 | C4 | v1 catalog = curated **~100–150-exercise subset** remapped to the app's own `Exercise` schema | Settled | Exact list is Q2, needs Varun's equipment checklist |
 | C5 | **Media layer is swappable** — `Exercise` schema separates media refs from exercise data, so paid animated media can drop in later without touching logic | Settled | |
