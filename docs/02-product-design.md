@@ -160,12 +160,47 @@ Local only (no server). All toggleable. Not guilt-heavy by default.
 
 ---
 
-## 9. Scope boundaries (v1)
+## 9. AI model, cost, and offline
+
+### 9.1 Choosing / changing the model
+Settings holds a list of **provider profiles** you manage yourself. Each is a
+name + provider type (OpenAI-compatible, Gemini, Anthropic, or on-device) +
+base URL + model ID + API key + per-token prices. One is active; switching is
+instant. When a new provider or model appears, you add or edit a profile — **no
+app update needed**. Most new services work as an OpenAI-compatible profile;
+adopting a new model on a provider you already have is just changing the model
+ID.
+
+### 9.2 Real-time cost
+Every AI call is metered and priced from the active profile's rates:
+- a **month-to-date `$` figure always visible** on the Plan screen;
+- a **one-liner after each generation** — *"Coach updated · ~$0.004"*;
+- **Settings → Usage & Cost**: month-to-date and all-time totals, a breakdown by
+  call type (weekly plan / adjust / session / swap / feedback / InBody), a
+  30-day sparkline, and call count + average cost.
+
+### 9.3 Budget
+Optional monthly USD budget. Soft warning banner at 80% and 100%. A toggle —
+**"Pause AI when over budget"** (default off): when on, hitting 100% switches the
+app to the rule-engine plan (no AI calls) until the month rolls over; when off,
+you just see the banner and calls continue.
+
+### 9.4 Offline
+The current week's plan and every planned session are stored on device, so with
+no connectivity you can still **browse upcoming workouts, run a full session, log
+sets, and do manual swaps**. Only generating or adapting a plan, and AI-assisted
+swaps, need the network — those wait until you're back online. An indicator shows
+when you're viewing the cached plan.
+
+---
+
+## 10. Scope boundaries (v1)
 
 **In:** onboarding, exercise catalog, AI plan generation, rolling adaptation,
 pre-session check, in-gym session view + set logging, machine-occupied swap,
 history + progression, InBody photo ingestion + trend, local notifications,
-BYO API key, month-to-date cost estimate.
+user-managed provider profiles, real-time cost metering + optional budget,
+offline plan viewing & session running.
 
 **Not in v1:** food/calorie/macro tracking · Apple Watch app · HealthKit sync ·
 iCloud multi-device sync · social/sharing · video content · multi-user · program

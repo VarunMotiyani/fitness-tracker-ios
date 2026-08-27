@@ -48,7 +48,9 @@ record.
    Flash-class, GPT-mini-class, Claude Haiku-class, an OpenRouter-style router, a
    local model. Must have (or degrade gracefully without) a vision path for the
    InBody call. Sizing to test against: ~150 calls/month, ~1M tokens/month
-   (see `03` §6.5). Also: what month-to-date spend triggers a warning banner?
+   (see `03` §6.5; full cost modelling in
+   [08-api-cost-analysis.md](08-api-cost-analysis.md)). Also: what month-to-date
+   spend triggers a warning banner?
    - **Note:** consumer chat subscriptions (Gemini Pro/Advanced, ChatGPT
      Go/Plus) do **not** grant API access — no supported way to route the app
      through them. Viable zero/low-cost paths: Gemini API **free tier**, or an
@@ -62,9 +64,12 @@ record.
     `03` §6) the right minimal set? Does any realistic candidate provider fail to
     support the nesting depth of the `WeeklyPlan` schema — and if so, is the
     Validator + retry path enough to cover it?
-20. **Cost meter accuracy.** Token→price mapping differs per model and changes
-    over time. Store `pricePerMTokIn/Out` in settings and update by hand, or
-    fetch a small pricing table?
+20. ~~**Cost meter accuracy.**~~ **RESOLVED:** per-token prices
+    (`pricePerMTokIn/Out/Cached`) are **editable fields on each
+    `ProviderProfile`**, updated by hand. No pricing-table fetch — keeps the app
+    backend-free and the numbers are stable enough. `costUSD` is frozen onto each
+    `AICallRecord` at write time so old records stay accurate after a price edit.
+    (See [06-decisions.md](06-decisions.md) A11–A13.)
 
 ## InBody
 

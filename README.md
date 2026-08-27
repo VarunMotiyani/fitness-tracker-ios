@@ -23,6 +23,7 @@ Design phase. Nothing built yet. This repo currently holds the design docs.
 | [docs/05-open-questions.md](docs/05-open-questions.md) | Decisions still to make (resolved ones struck through) |
 | [docs/06-decisions.md](docs/06-decisions.md) | Decision register — every settled choice, terse, in one table |
 | [docs/07-exercise-dataset-research.md](docs/07-exercise-dataset-research.md) | Web research comparing exercise datasets (free-exercise-db, wger, ExerciseDB, …) and why free-exercise-db won |
+| [docs/08-api-cost-analysis.md](docs/08-api-cost-analysis.md) | LLM call cost modelling — token volume, cost by model class, levers, scenarios |
 
 ## Read order
 

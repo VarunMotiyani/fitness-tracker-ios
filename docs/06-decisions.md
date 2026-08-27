@@ -35,13 +35,16 @@ Status: **Settled** unless marked **Provisional** (holds until revisited) or
 | A2 | **No backend server.** All data on-device via **SwiftData** | Settled | |
 | A3 | **Bring-your-own API key**, stored in **Keychain** | Settled | |
 | A4 | AI access via a **provider-agnostic `LLMProvider` protocol** (`complete` + `completeWithImage`) | Settled | |
-| A5 | Concrete LLM provider + model | Deferred | Criteria: reasoning quality, latency, cost/call. Candidates: Gemini Flash-class, GPT-mini-class, Claude Haiku-class, router, local. Build one provisional adapter in Phase 1 (Q8) |
+| A5 | Concrete LLM provider + model | Deferred | Criteria: reasoning quality, latency, cost/call. Candidates: Gemini Flash-class, GPT-mini-class, Claude Haiku-class, router, local. Cost modelling: [08-api-cost-analysis.md](08-api-cost-analysis.md). Seed one provisional profile in Phase 1 (Q8) |
 | A6 | Consumer chat subscriptions (Gemini Pro, ChatGPT Go/Plus) **cannot** be used — no API access. Free paths: Gemini API free tier, or on-device Foundation Models (needs Apple-Intelligence hardware) | Settled | |
 | A7 | **Validation layer** on every AI response; fail → retry once with errors → fall back to rule engine alone | Settled | User always gets a workout |
 | A8 | Every AI call is **structured request → structured JSON** (schema-constrained), never loose prose | Settled | |
 | A9 | **Min deployment target: iOS 26** | Settled | Varun's iPhone 14 runs iOS 26; no reason to support older (Q18) |
 | A10 | **Project structure:** Xcode app target + local **`FitnessCore` Swift package** (RuleEngine, Validator, Catalog, LLM protocol) with no Apple-UI deps | Settled | Fast unit tests without a simulator (Q17) |
-| A11 | Cost meter: accumulate token usage into `monthToDateTokenCost`, shown in Settings, reset monthly; per-token price stored in settings | Settled | Maintenance approach is Q20 |
+| A11 | **User-managed `ProviderProfile`s.** The active model is a runtime-editable profile (name, adapterKind, baseURL, key, modelID, vision flag, prices), not a build constant. Four adapters ship: `openAICompatible` / `gemini` / `anthropic` / `appleOnDevice`. New vendor/model = add/edit a profile, no app update | Settled | `openAICompatible` covers most future vendors. Vision falls back to a designated profile if the active model lacks it |
+| A12 | **Real-time cost metering.** One `AICallRecord` per call, `costUSD` from the active profile's prices. Always-visible month-to-date `$` chip + after-generation one-liner in Phase 1; full Usage & Cost screen (per-type breakdown, 30-day sparkline) in Phase 4 | Settled | Replaces the earlier single-counter idea |
+| A13 | **Budget control.** Optional `monthlyBudgetUSD`, soft warning at 80% / 100%, plus a **`pauseAIWhenOverBudget` toggle** (default off) → at 100% switch to rule-engine-only until month rollover | Settled | Phase 4 |
+| A14 | **Offline plan viewing & session running.** Active `WeeklyPlan` + sessions in SwiftData → browse/run/log/manual-swap all work offline; only generation/adjust/AI-swap need network (they queue). Offline indicator shown | Settled | Falls out of the SwiftData-first design; made an explicit guarantee |
 
 ## Content / data
 

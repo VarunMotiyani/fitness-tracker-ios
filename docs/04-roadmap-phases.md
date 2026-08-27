@@ -15,22 +15,32 @@ Guiding rule: don't start a phase until the previous one runs on Varun's phone.
 **Goal:** open the app, answer onboarding, get a real weekly plan you can read.
 
 **Build:**
-- SwiftData models (profile, equipment, limitations, weekly plan).
+- SwiftData models (profile, equipment, limitations, weekly plan,
+  `ProviderProfile`, `AICallRecord`).
 - Onboarding flow (all fields from §2 of product design).
 - Bundled exercise catalog (~100–150 exercises + images) + `CatalogStore`.
 - `RuleEngine`: split templates + volume landmarks (progression can be stubbed).
-- `LLMProvider` protocol + **one provisional adapter** (fastest to stand up — not
-  a committed choice) + `AIClient` + `WeeklyPlan` JSON decode. Real
-  provider/model selection is deferred research (open question Q8).
+- `LLMProvider` protocol + **all four adapters** (`openAICompatible`, `gemini`,
+  `anthropic`, `appleOnDevice`) against **one provisional seeded profile**
+  (fastest model to stand up — not a committed choice, Q8) + `AIClient` +
+  `WeeklyPlan` JSON decode.
 - `Validator`: catalog-id + exclusion + volume-band checks.
 - `PlanCoordinator`: generate → validate → retry-once → rule-engine fallback.
-- Plan view: read-only week, sessions, exercises, targets, "why this plan".
-- Settings: paste API key (Keychain), pick provider + model.
+- Plan view: read-only week, sessions, exercises, targets, "why this plan" —
+  reads from SwiftData, works offline.
+- **Cost metering:** `AICallRecord` written per call, `costUSD` from the active
+  profile's prices, after-generation one-liner, month-to-date `$` chip on the
+  Plan screen.
+- Settings: manage provider profiles (add/edit/activate, paste key to Keychain,
+  set model ID + prices); basic month-to-date + all-time cost totals.
 
-**Done when:** onboarding → a validated, sensible weekly plan appears, and a
-forced AI failure still produces a fallback plan.
+**Done when:** onboarding → a validated, sensible weekly plan appears; a forced
+AI failure still produces a fallback plan; each generation shows its cost and the
+month-to-date figure updates; switching the active provider profile takes effect
+on the next call.
 
-**Not yet:** logging, session runner, swaps, InBody, notifications.
+**Not yet:** logging, session runner, swaps, InBody, notifications, the full
+Usage & Cost screen, budget cap.
 
 ---
 
@@ -85,11 +95,14 @@ configuration, and Swap keeps a session moving in one tap.
   segmental imbalance → bias unilateral work.
 - Local notifications: session reminders, inactivity nudge, monthly InBody
   reminder, rest-timer alerts. All toggleable.
-- Month-to-date API cost readout in Settings.
-- Polish: empty states, error copy, offline banner, first-run guidance.
+- **Full Settings → Usage & Cost screen:** breakdown by call type, 30-day
+  sparkline, call count + average, editable price fields per profile.
+- **Budget cap:** optional `monthlyBudgetUSD`, 80% / 100% warning banners, and
+  the `pauseAIWhenOverBudget` toggle (100% → rule-engine-only until rollover).
+- Polish: empty states, error copy, offline indicator, first-run guidance.
 
-**Done when:** monthly scan upload takes seconds, produces a readable trend, and
-notifications behave.
+**Done when:** monthly scan upload takes seconds, produces a readable trend,
+notifications behave, and the cost screen + budget toggle work end to end.
 
 ---
 

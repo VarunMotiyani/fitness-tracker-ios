@@ -125,10 +125,32 @@ Illustrative — field names will firm up in the implementation plan.
 `percentOfIdeal`.
 
 ### AppSettings
-`apiKeyRef` (Keychain ref), `notificationPrefs`, `monthToDateTokenCost`,
-`llmProvider` (enum: gemini / openai / anthropic / router / local — extensible),
-`modelName`, `pricePerMTokIn` / `pricePerMTokOut` (so the cost meter is right for
-whatever model is chosen).
+`notificationPrefs`, `activeProviderProfileID`, `visionProviderProfileID?`
+(fallback for InBody if the active model has no vision), `monthlyBudgetUSD?`,
+`pauseAIWhenOverBudget` (bool, default false), `historyWindowWeeks`.
+
+### ProviderProfile
+User-managed (add / edit / delete / activate in Settings). Lets a new
+provider or model be adopted with **no app update**.
+`id`, `displayName`, `adapterKind` (enum: `openAICompatible` / `gemini` /
+`anthropic` / `appleOnDevice`), `baseURL?` (for `openAICompatible`),
+`apiKeyRef` (Keychain), `modelID` (free text), `supportsVision` (bool),
+`pricePerMTokIn`, `pricePerMTokOut`, `pricePerMTokCached`, `createdAt`.
+- The four `adapterKind`s are the only code paths that ship. Because almost every
+  new vendor (OpenRouter, Groq, DeepSeek, xAI, new OpenAI/Gemini/Anthropic
+  models…) exposes an OpenAI-compatible endpoint, "add a provider" = new profile
+  with `openAICompatible` + base URL + model ID + key + prices. "New model, same
+  provider" = edit `modelID`.
+- Ships with one seeded profile for the provisional Phase-1 model.
+
+### AICallRecord
+One row per LLM call — the real-time cost ledger.
+`timestamp`, `callType` (enum: `weeklyPlan` / `adjust` / `finalize` / `swap` /
+`feedback` / `inbody`), `providerDisplayName`, `modelID`, `inputTokens`,
+`outputTokens`, `cachedTokens`, `costUSD` (computed at write time from the
+profile's price fields), `success` (bool), `usedFallback` (bool).
+- Aggregations (month-to-date, all-time, per-`callType`, 30-day series) are
+  computed from this table, not stored as counters.
 
 ---
 
@@ -245,28 +267,45 @@ protocol LLMProvider {
     ) async throws -> LLMResult<T>
 }
 
-struct LLMResult<T> { let value: T; let inputTokens: Int; let outputTokens: Int; let rawJSON: String }
+struct LLMResult<T> {
+    let value: T
+    let inputTokens: Int
+    let outputTokens: Int
+    let cachedTokens: Int
+    let rawJSON: String
+}
 ```
 
-- **No committed provider or model.** Selection criteria: reasoning quality,
-  latency, cost per call. Candidates to benchmark later: Gemini Flash-class,
-  GPT-mini-class, Claude Haiku-class, an OpenRouter-style router, or a local
-  model. Decision tracked in [05-open-questions.md](05-open-questions.md) Q8.
+- **Four adapters ship**, one per `ProviderProfile.adapterKind`:
+  `openAICompatible`, `gemini`, `anthropic`, `appleOnDevice`. No committed
+  default model — selection criteria (reasoning quality, latency, cost/call) and
+  candidates tracked in [05-open-questions.md](05-open-questions.md) Q8;
+  cost modelling in [08-api-cost-analysis.md](08-api-cost-analysis.md).
+- **The active model is a `ProviderProfile` chosen at runtime** (§3), not a
+  build-time constant. A new vendor or model is adopted by adding/editing a
+  profile in Settings — no app update. `openAICompatible` covers almost all
+  future vendors (OpenRouter, Groq, DeepSeek, xAI, new first-party models…).
+- `AIClient` resolves the active profile, picks the matching adapter, injects
+  `baseURL` / `modelID` / key, and writes an `AICallRecord` (§3) after every
+  call. `PlanCoordinator`, `RuleEngine`, `Validator`, request builders: untouched
+  by any of this.
 - Each adapter maps the single `JSONSchema` to its provider's native structured
   output (`responseSchema` / `response_format` / tool-use) and normalizes token
-  counts into `LLMResult` for the cost meter.
-- `provider` and `modelName` are `AppSettings` values — switching is config only;
-  `PlanCoordinator`, `RuleEngine`, `Validator`, and every request builder are
-  untouched.
-- **Phase 1 builds one provisional adapter** (whichever is fastest to stand up)
-  purely to develop and test against. It is not a commitment.
+  counts (incl. cached) into `LLMResult`.
+- **InBody vision:** if the active profile's `supportsVision` is false, `AIClient`
+  routes `completeWithImage` to `AppSettings.visionProviderProfileID` if set,
+  else surfaces "current model can't read images — pick one that can."
+- **Phase 1** builds the four adapters against **one provisional seeded profile**
+  (whichever model is fastest to stand up). Not a commitment.
 - Adapters live behind the app's own request/response structs, so a provider that
   lacks strict schema enforcement is handled by the existing Validator +
   retry-once path (§7) rather than special-casing.
 
 ### 6.5 Call-volume & token estimate (deliberately high-side)
 
-Sizing figures for provider selection and the token/cost meter. Assumes ~5
+Sizing figures for provider selection and the token/cost meter. Full cost
+modelling by model class in [08-api-cost-analysis.md](08-api-cost-analysis.md).
+Assumes ~5
 sessions/week (~22/month — the user's stated ceiling; real usage is often lower),
 near-daily app opens, ~3 swaps per session. No prompt caching applied.
 
@@ -332,14 +371,29 @@ rule. The user always gets a workout. `WeeklyPlan.source` records `ai` vs.
 | Situation | Behaviour |
 |-----------|-----------|
 | **No API key** | Onboarding blocks on adding one, with a link to where to get it. Everything except AI calls still works. |
-| **Offline** | Current week + today's session are cached in SwiftData → training and logging work fully offline. Plan regeneration queues and runs on reconnect. |
+| **Offline** | The active `WeeklyPlan` and every `PlannedSession` live in SwiftData. **Browsing planned workouts, running a session, logging sets, and manual (rule-engine) swaps all work fully offline.** Only generation / adjustment / AI-swap need network — those queue and run on reconnect. An offline indicator shows the cached plan is in use. |
 | **API error / timeout / rate limit** | One retry → rule-engine fallback → quiet "coach unavailable, used the backup plan" note. Logs are saved locally first, never at risk. |
 | **AI response fails validation** | §7 — retry with errors, then fallback. |
 | **Bad InBody photo** (low confidence) | Skip the confirm screen's pre-fill; open manual entry instead. |
 | **Catalog gap** (AI wants an exercise we don't have) | Rejected by Validator; retry asks for an in-catalog choice. |
 
-**Cost visibility:** every AI call's token usage is accumulated into
-`monthToDateTokenCost`, shown in Settings, reset monthly.
+### 8.1 Real-time cost tracking
+
+Every LLM call writes an `AICallRecord` (§3) with token counts and a `costUSD`
+computed from the active `ProviderProfile`'s price fields. Surfaces:
+
+- **Persistent** — a month-to-date `$` chip in the app (Plan screen header).
+- **Per generation** — a one-line note after a plan/adjust/swap:
+  *"Coach updated · ~$0.004"*.
+- **Settings → Usage & Cost** — month-to-date + all-time totals, breakdown by
+  `callType`, 30-day sparkline, call count and average cost/call. The editable
+  price fields live on each `ProviderProfile`.
+
+**Budget control (optional):** `AppSettings.monthlyBudgetUSD`. Soft warning
+banner at 80% and 100% of it. Toggle `pauseAIWhenOverBudget` (default **off**):
+when on and the month's cost reaches 100%, `PlanCoordinator` stops making AI
+calls and uses the rule-engine fallback until month rollover; when off, calls
+continue and only the banner shows.
 
 ---
 
@@ -350,8 +404,10 @@ rule. The user always gets a workout. `WeeklyPlan.source` records `ai` vs.
 | **RuleEngine** (templates, landmarks, progression, load caps, swap search, rest-gap) | Plain unit tests. Highest coverage — this is the safety-critical code. No AI, no UI. |
 | **Validator** | Unit tests with hand-built good/bad `WeeklyPlan` fixtures for each of the 6 checks. |
 | **AI response handling** | Recorded / mocked JSON: valid, malformed, invalid exercise id, unsafe load jump → assert retry-then-fallback. |
+| **Provider adapters** | Against recorded HTTP fixtures per `adapterKind`: schema mapping, token/cached-count normalization into `LLMResult`, vision-unsupported routing. |
+| **Cost ledger** | `costUSD` computed correctly from profile prices; month-to-date / per-`callType` aggregations; `pauseAIWhenOverBudget` gates AI calls at 100%. |
 | **InBodyExtractor** | Mocked vision responses + a handful of real scan photos checked by hand during development. |
-| **PersistenceStore** | SwiftData round-trip tests for the core models. |
+| **PersistenceStore** | SwiftData round-trip tests for the core models (incl. `ProviderProfile`, `AICallRecord`). |
 | **Acceptance** | Varun running real sessions in his actual gym. The real test. |
 
 ---
