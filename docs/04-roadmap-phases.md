@@ -12,6 +12,18 @@ Guiding rule: don't start a phase until the previous one runs on Varun's phone.
 
 ## Phase 1 — "Give me a plan"
 
+> **Split during execution into 1a / 1b / 1c** (see `HANDOFF.md` for the current
+> breakdown and status):
+> - **1a ✅ merged** — `FitnessCore` Swift package (domain, catalog, rule engine,
+>   validation, `LLMProvider` contract). 35 tests.
+> - **1b ✅ (branch pending merge)** — `FitnessTracker` app: onboarding →
+>   rule-engine plan → read-only plan view, offline, no AI. SwiftData persistence,
+>   Settings scaffold. 12 app unit tests.
+> - **1c** — AI integration: `LLMProvider` adapters, provisional profile,
+>   `AIClient`, `PlanCoordinator` (generate → validate → fallback), `AICallRecord`
+>   + cost chip, provider-profile UI. The "Build" list below from
+>   `ProviderProfile` / `AICallRecord` / cost onward is 1c.
+
 **Goal:** open the app, answer onboarding, get a real weekly plan you can read.
 
 **Build:**

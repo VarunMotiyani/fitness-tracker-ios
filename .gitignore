@@ -21,7 +21,6 @@ xcuserdata/
 .build/
 .swiftpm/
 Package.resolved
-!FitnessCore/Package.resolved
 
 # CocoaPods / Carthage (if ever used)
 Pods/
