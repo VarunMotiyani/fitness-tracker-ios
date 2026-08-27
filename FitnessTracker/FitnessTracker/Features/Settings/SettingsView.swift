@@ -4,6 +4,7 @@ import ExerciseCatalog
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
     @Query private var profiles: [UserProfile]
     @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
 
@@ -55,8 +56,13 @@ struct SettingsView: View {
     }
 
     private func startOver() {
-        for plan in plans { context.delete(plan) }
-        for profile in profiles { context.delete(profile) }
+        // Pop back to the root first, then delete — so we don't sit on a
+        // Settings screen whose profile no longer exists.
+        dismiss()
+        let staleProfiles = Array(profiles)
+        let stalePlans = Array(plans)
+        for plan in stalePlans { context.delete(plan) }
+        for profile in staleProfiles { context.delete(profile) }
         try? context.save()
     }
 }
