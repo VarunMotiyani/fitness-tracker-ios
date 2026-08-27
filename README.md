@@ -20,7 +20,8 @@ Design phase. Nothing built yet. This repo currently holds the design docs.
 | [docs/02-product-design.md](docs/02-product-design.md) | How the app behaves: adaptation model, onboarding, InBody, session flow, feedback loop, notifications |
 | [docs/03-technical-architecture.md](docs/03-technical-architecture.md) | Stack, data model, AI contract, validation layer, failure handling, testing |
 | [docs/04-roadmap-phases.md](docs/04-roadmap-phases.md) | Phase-by-phase build plan |
-| [docs/05-open-questions.md](docs/05-open-questions.md) | Decisions still to make |
+| [docs/05-open-questions.md](docs/05-open-questions.md) | Decisions still to make (resolved ones struck through) |
+| [docs/06-decisions.md](docs/06-decisions.md) | Decision register — every settled choice, terse, in one table |
 
 ## Read order
 
