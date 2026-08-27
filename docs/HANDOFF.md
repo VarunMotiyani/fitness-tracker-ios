@@ -1,6 +1,6 @@
 # HANDOFF — Read This First
 
-_Living document. Last updated: 2026-08-27._
+_Living document. Last updated: 2026-08-28._
 
 **Purpose:** one read = full context. If you're a new agent/session on any
 device, read this top to bottom before doing anything. It captures the project,
@@ -43,8 +43,9 @@ simplicity: no backend, no accounts, on-device storage, bring-your-own API key.
 
 | | |
 |---|---|
-| **Phase** | Design complete. **No code written yet.** Repo holds design docs only. |
-| **Next action** | Freeze the spec → run `superpowers:writing-plans` for the **Phase 1** implementation plan. |
+| **Phase** | Design complete. **Phase 1a plan written**, not yet executed. No code yet. |
+| **Next action** | Execute `docs/superpowers/plans/2026-08-28-phase-1a-fitnesscore-foundation.md` (14 TDD tasks) via `superpowers:subagent-driven-development` or `executing-plans`. |
+| **Phase 1 split** | **1a** `FitnessCore` package (pure Swift, no Xcode needed) → **1b** app shell + SwiftData + onboarding + plan view (needs Xcode) → **1c** LLM adapters + `PlanCoordinator` + cost metering. |
 | **Repo** | `github.com/VarunMotiyani/fitness-tracker-ios` (public) |
 | **Branch** | `main` |
 | **Uncommitted** | Check `git status` — doc edits are often pending; the user controls when they're committed. |
@@ -66,6 +67,7 @@ simplicity: no backend, no accounts, on-device storage, bring-your-own API key.
 | [07-exercise-dataset-research.md](07-exercise-dataset-research.md) | Web research: exercise datasets compared, why `free-exercise-db` won |
 | [08-api-cost-analysis.md](08-api-cost-analysis.md) | LLM cost modelling by model class, levers, scenarios |
 | [09-tooling-skills-plugins.md](09-tooling-skills-plugins.md) | Claude Code skills/plugins to use, install, and build custom |
+| [superpowers/plans/](superpowers/plans/) | Implementation plans. **1a** = `2026-08-28-phase-1a-fitnesscore-foundation.md` (14 TDD tasks, no Xcode needed). |
 
 ---
 
@@ -227,6 +229,8 @@ RuleEngine + Validator.
     real-time cost metering, budget toggle, explicit offline guarantee.
 13. Researched skills/plugins (doc 09).
 14. Wrote this handoff doc.
+15. Split Phase 1 into 1a/1b/1c. Wrote the **Phase 1a** plan (`FitnessCore`
+    package, 14 TDD tasks) via `superpowers:writing-plans`.
 
 ---
 
