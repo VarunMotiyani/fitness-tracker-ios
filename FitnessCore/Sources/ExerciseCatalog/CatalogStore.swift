@@ -34,6 +34,6 @@ public struct CatalogStore: Sendable {
     public func exercises(primaryMuscle: MuscleGroup,
                           availableEquipment: Set<Equipment>) -> [Exercise] {
         all.filter { $0.primaryMuscle == primaryMuscle && availableEquipment.contains($0.equipment) }
-           .sorted { $0.name < $1.name }
+           .sorted { ($0.name, $0.id) < ($1.name, $1.id) }
     }
 }
