@@ -11,20 +11,17 @@ let package = Package(
         .library(name: "PlanValidation", targets: ["PlanValidation"]),
         .library(name: "LLMKit", targets: ["LLMKit"]),
     ],
-    dependencies: [
-        .package(url: "https://github.com/apple/swift-testing.git", from: "0.0.0"),
-    ],
     targets: [
         .target(name: "FitnessDomain"),
         .target(name: "ExerciseCatalog", dependencies: ["FitnessDomain"]),
         .target(name: "RuleEngine", dependencies: ["FitnessDomain", "ExerciseCatalog"]),
         .target(name: "PlanValidation", dependencies: ["FitnessDomain", "ExerciseCatalog", "RuleEngine"]),
         .target(name: "LLMKit", dependencies: ["FitnessDomain"]),
-        .testTarget(name: "FitnessDomainTests", dependencies: ["FitnessDomain", .product(name: "Testing", package: "swift-testing")]),
-        .testTarget(name: "ExerciseCatalogTests", dependencies: ["ExerciseCatalog", .product(name: "Testing", package: "swift-testing")]),
-        .testTarget(name: "RuleEngineTests", dependencies: ["RuleEngine", "ExerciseCatalog", .product(name: "Testing", package: "swift-testing")]),
-        .testTarget(name: "PlanValidationTests", dependencies: ["PlanValidation", .product(name: "Testing", package: "swift-testing")]),
-        .testTarget(name: "LLMKitTests", dependencies: ["LLMKit", .product(name: "Testing", package: "swift-testing")]),
+        .testTarget(name: "FitnessDomainTests", dependencies: ["FitnessDomain"]),
+        .testTarget(name: "ExerciseCatalogTests", dependencies: ["ExerciseCatalog"]),
+        .testTarget(name: "RuleEngineTests", dependencies: ["RuleEngine", "ExerciseCatalog"]),
+        .testTarget(name: "PlanValidationTests", dependencies: ["PlanValidation"]),
+        .testTarget(name: "LLMKitTests", dependencies: ["LLMKit"]),
     ],
     swiftLanguageModes: [.v6]
 )
