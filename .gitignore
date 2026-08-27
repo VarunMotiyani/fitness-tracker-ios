@@ -21,6 +21,7 @@ xcuserdata/
 .build/
 .swiftpm/
 Package.resolved
+!FitnessCore/Package.resolved
 
 # CocoaPods / Carthage (if ever used)
 Pods/
@@ -35,3 +36,6 @@ fastlane/test_output
 *.xcconfig.local
 Secrets.plist
 .env
+
+# Superpowers SDD scratch (ledgers, briefs, review packages)
+.superpowers/
