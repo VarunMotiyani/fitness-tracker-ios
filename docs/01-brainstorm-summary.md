@@ -183,6 +183,25 @@ catalog, cached plans) · Keychain (API key) · direct HTTPS to the LLM provider
 (`LLMProvider` protocol, concrete provider/model TBD), no backend · bundled JSON
 catalog + images · UserNotifications.
 
+### Native Swift vs React Native (decided: native Swift/SwiftUI)
+
+- **Considered:** React Native / Expo — attractive if the user already had deep
+  RN muscle, since it would speed the language ramp.
+- **Decision: native Swift/SwiftUI.** Reasons:
+  - Zero cross-platform payoff — one user, one iPhone; RN's whole value prop is
+    unused.
+  - On-device inference (Apple Foundation Models) is Swift-only — it's the
+    zero-cost model path once the user is on Apple-Intelligence hardware.
+  - HealthKit, local notifications, camera (InBody), SwiftData all first-class
+    in Swift, all friction in RN.
+  - Keeps a future watchOS app (wrist-during-workout: current set / target /
+    rest timer / live HR) possible with no rewrite — RN cannot build watchOS.
+  - Form-heavy + list-heavy UI is SwiftUI's sweet spot.
+  - LLM calls are plain HTTPS — no advantage to RN there.
+- **Note:** reading Watch data (post-session HR/calories via HealthKit) does NOT
+  require a watchOS app; that's a phone-app feature, deferred to Phase 4. The
+  watchOS app itself is "Later".
+
 ### Testing approach (agreed)
 
 Heavy unit coverage on rule engine + validation layer (safety-critical) · AI
