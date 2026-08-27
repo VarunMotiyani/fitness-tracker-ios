@@ -66,9 +66,14 @@ approaches → sectioned design → spec docs → implementation plan.
 - **No backend server.** All data on-device (SwiftData). AI calls go straight
   from app to model API with the user's key in Keychain. No hosting, no login,
   private.
-- **Bundled exercise catalog** (~100–150 exercises from an open dataset with
-  instruction images), tagged with primary/secondary muscles, required
-  equipment, difficulty. Expandable (a ~800-exercise open dataset exists).
+- **Bundled exercise catalog** — curated ~100–150-exercise subset of
+  **`yuhonas/free-exercise-db`** (~873 exercises, **public domain / Unlicense**,
+  static start/end JPGs), remapped to the app's schema, tagged with
+  primary/secondary muscles, required equipment, difficulty. Chosen because it's
+  the most comprehensive dataset that is genuinely free to bundle — the animated
+  GIF datasets (ExerciseDB, hasaneyldrm, MuscleWiki) are all GymVisual/commercial
+  media. Media layer kept swappable so a paid animated set can drop in later.
+  `wger` (CC-BY-SA) available for gap-fill if needed.
 
 ### Adaptation model
 
@@ -178,10 +183,13 @@ alerts. All toggleable; not guilt-heavy by default.
 
 ### Tech stack (agreed)
 
-SwiftUI, iOS 17+, iPhone only · SwiftData (profile, history, InBody series,
-catalog, cached plans) · Keychain (API key) · direct HTTPS to the LLM provider
-(`LLMProvider` protocol, concrete provider/model TBD), no backend · bundled JSON
-catalog + images · UserNotifications.
+SwiftUI, iOS 26+ (min deployment = the user's only device), iPhone only ·
+SwiftData (profile, history, InBody series, catalog, cached plans) · Keychain
+(API key) · direct HTTPS to the LLM provider (`LLMProvider` protocol, concrete
+provider/model TBD), no backend · bundled JSON catalog + images ·
+UserNotifications · **project structure:** Xcode app target + local `FitnessCore`
+Swift package holding the pure logic (RuleEngine, Validator, Catalog, LLM
+protocol) so it tests without a simulator.
 
 ### Native Swift vs React Native (decided: native Swift/SwiftUI)
 

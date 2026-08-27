@@ -101,7 +101,9 @@ notifications behave.
 - Light nutrition layer: protein target readout, not full calorie tracking.
 - Faithful named-program mode (hard-coded 5/3/1 etc.).
 - Deeper segmental-imbalance programming.
-- Catalog expansion toward the full ~800-exercise dataset.
+- Catalog expansion toward the full ~873-exercise `free-exercise-db` set; and/or
+  a paid animated-media layer (GymVisual-class GIFs) swapped in behind the
+  existing `Exercise` schema.
 
 ---
 

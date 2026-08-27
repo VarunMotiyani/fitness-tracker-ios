@@ -11,7 +11,7 @@ Behaviour is in [02-product-design.md](02-product-design.md). This doc is the
 
 | Layer | Choice | Why |
 |-------|--------|-----|
-| UI | **SwiftUI**, iOS 17+ | Native, first-party, fastest path for an experienced engineer on their first iOS app. |
+| UI | **SwiftUI**, iOS 26+ | Native, first-party, fastest path for an experienced engineer on their first iOS app. Min-deployment = iOS 26 because the user's only device (iPhone 14) is on iOS 26; no reason to support older. |
 | Local storage | **SwiftData** | Profile, training history, InBody series, catalog, cached plans. No server needed. |
 | Secrets | **Keychain** | Stores the user's model API key. |
 | AI | **Direct HTTPS** to an LLM provider behind an `LLMProvider` protocol; provider/model **TBD** (research pending) | No backend, no proxy, no auth service. User pays per use on their own key. Provider + model are runtime config; any adapter (Gemini / OpenAI / Anthropic / router / local) plugs in. |
@@ -134,14 +134,30 @@ whatever model is chosen).
 
 ## 4. Exercise catalog
 
-- Sourced from an open dataset (e.g. a public-domain / permissively licensed
-  exercise DB with instruction images). License recorded in the repo.
-- **v1: a curated ~100–150 exercises** covering every major movement pattern
-  across barbell / dumbbell / machine / cable / bodyweight.
-- Shipped as `catalog.json` + an image asset folder in the app bundle.
+- **Base dataset: `yuhonas/free-exercise-db`** — ~873 exercises, **Unlicense
+  (public domain, no attribution)**, so it can be bundled with zero legal risk.
+  Fields: `id, name, force, level, mechanic, equipment, primaryMuscles,
+  secondaryMuscles, instructions, category, images[]`. Media is **static JPGs**
+  (typically a start-position and end-position frame per exercise) — not
+  animated.
+- **Why not the GIF datasets:** the comprehensive animated sets (ExerciseDB API,
+  `hasaneyldrm/exercises-dataset`, MuscleWiki) all use **GymVisual-licensed or
+  otherwise commercial media** — not redistributable without a paid license.
+  Deferred as a possible later upgrade (see below).
+- **Gap-fill (optional):** `wger` exercise data is **CC-BY-SA** (attribution +
+  share-alike) — usable for entries free-exercise-db lacks, with an attribution
+  file. Only if needed.
+- **v1: a curated ~100–150-exercise subset** of the base dataset covering every
+  major movement pattern across barbell / dumbbell / machine / cable /
+  bodyweight, mapped to the app's own `Exercise` schema (see §3).
+- Shipped as `catalog.json` + an image asset folder in the app bundle. Actual
+  license text of the source(s) committed to the repo.
 - `CatalogStore` loads it once, indexes by `id`, `primaryMuscle`,
   `requiredEquipment`, `movementPattern`.
-- Growth path: pull more entries from the ~800-exercise dataset as gaps show up.
+- **Media layer is swappable.** The `Exercise` schema separates media refs
+  (`imageAssetNames[]`) from exercise data, so a future paid GymVisual/animated
+  media licence can replace the images without touching planning, validation, or
+  the rest of the catalog.
 - **Hard rule:** the AI may only prescribe `exerciseID`s that exist in the
   catalog. Anything else is rejected by the Validator.
 
@@ -154,9 +170,14 @@ Pure functions. No network, no storage.
 - **Split templates** — full body, upper/lower, PPL, Arnold. Each defines session
   count, per-session focus muscles, and set/rep scheme bands. The engine picks a
   template from experience + weekly capacity + goal.
-- **Volume landmarks** — per muscle group, per experience level: weekly min /
-  target / max working-set counts. All AI plans and adaptations are clamped into
-  this band.
+- **Volume landmarks** — a hardcoded table of **weekly working-set counts per
+  muscle group per experience level** (a minimum below which growth stalls, a
+  productive target range, and a ceiling above which it's junk volume / poor
+  recovery). Values seeded from a published strength-training reference
+  (Renaissance Periodization-style MEV/MAV/MRV landmarks) and tuned later from
+  real logs — the exact numbers are a config table, not logic. Every AI plan and
+  adaptation is clamped into this band: it's what stops the model prescribing 2
+  sets or 35 sets for a muscle group.
 - **Progression rule** — given last logged performance vs. target and the
   feedback rating: `easy` + hit reps → +load (capped); `right` → repeat or small
   bump; `brutal` / missed reps → hold or −load. Per-session load-increase cap
@@ -335,27 +356,35 @@ rule. The user always gets a workout. `WeeklyPlan.source` records `ai` vs.
 
 ---
 
-## 10. Repo layout (proposed)
+## 10. Project structure
+
+**Xcode app project + local Swift packages** for the pure-logic modules. The
+domain logic (`RuleEngine`, `Validator`, catalog model + `CatalogStore`, the
+`LLMProvider` protocol and request/response types) lives in a local SPM package
+with no UIKit/SwiftUI/SwiftData dependency, so it builds and tests on its own in
+seconds without the app or a simulator. The Xcode target holds SwiftUI views,
+SwiftData models, persistence, notifications, and the concrete provider adapter,
+and depends on the package.
 
 ```
 fitness-tracker-ios/
 ├── README.md
-├── docs/                     # these design docs
-├── App/
+├── docs/                       # these design docs
+├── FitnessCore/                # local Swift package — pure, no Apple UI frameworks
+│   ├── Sources/
+│   │   ├── RuleEngine/         # templates, volume landmarks, progression, swap search, rest-gap
+│   │   ├── Validation/         # Validator
+│   │   ├── Catalog/            # Exercise model + CatalogStore + catalog.json loader
+│   │   └── LLM/                # LLMProvider protocol, JSONSchema, request/response structs
+│   └── Tests/                  # fast unit tests for all of the above
+├── App/                        # Xcode app target
 │   ├── FitnessTrackerApp.swift
-│   ├── Models/               # SwiftData @Model types
-│   ├── Catalog/              # catalog.json + images + CatalogStore
-│   ├── RuleEngine/           # pure logic + tests
-│   ├── AI/                   # LLMProvider protocol + adapters (1 provisional in Phase 1), AIClient, request builders, response structs
-│   ├── Validation/           # Validator + tests
-│   ├── Coordination/         # PlanCoordinator
-│   ├── Persistence/          # PersistenceStore
+│   ├── Models/                 # SwiftData @Model types
+│   ├── AI/                     # concrete provider adapter(s) + AIClient (1 provisional in Phase 1)
+│   ├── Coordination/           # PlanCoordinator
+│   ├── Persistence/            # PersistenceStore
 │   ├── Notifications/
-│   └── Features/             # SwiftUI views by feature
-│       ├── Onboarding/
-│       ├── Plan/
-│       ├── Session/
-│       ├── InBody/
-│       └── Settings/
-└── FitnessTrackerTests/
+│   ├── Resources/              # catalog.json + image assets
+│   └── Features/               # SwiftUI views: Onboarding / Plan / Session / InBody / Settings
+└── AppTests/                   # SwiftData round-trip, coordinator, adapter tests
 ```

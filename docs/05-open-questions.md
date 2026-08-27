@@ -3,14 +3,20 @@
 _Date: 2026-08-27_
 
 Decisions not yet made. None block starting Phase 1; most resolve during
-implementation planning.
+implementation planning. Items struck through are **RESOLVED** and kept for the
+record.
 
 ## Content & licensing
 
-1. **Which exercise dataset?** Candidates: `free-exercise-db` (yuhonas) —
-   permissive, ~800 exercises with images; wger — AGPL, careful about license
-   implications for a bundled app. Need to pick one and record the license in the
-   repo before bundling.
+1. ~~**Which exercise dataset?**~~ **RESOLVED (web research, 2026-08-27):**
+   `yuhonas/free-exercise-db` — ~873 exercises, **Unlicense (public domain, no
+   attribution)**, static start/end JPGs. It's the most comprehensive dataset
+   that is genuinely free to bundle. The larger animated-GIF datasets
+   (`ExerciseDB` API ~11k, `hasaneyldrm/exercises-dataset` 1,324, MuscleWiki) all
+   rely on **GymVisual / commercial media** that needs a paid licence — parked as
+   a later media-layer upgrade. `wger` (CC-BY-SA, ~845) kept as an
+   attribution-required gap-filler if the subset has holes. License text goes in
+   the repo when the catalog is added.
 2. **Curation list.** Which ~100–150 exercises make the v1 catalog? Should cover
    every movement pattern × equipment type Varun has. Draft this from his
    equipment checklist once onboarding is filled in.
@@ -19,8 +25,13 @@ implementation planning.
 
 ## Engine / programming
 
-4. **Volume landmark source.** Which published set-count ranges per muscle group
-   per experience level do we encode? Pick a reference and cite it.
+4. ~~**Volume landmark source.**~~ **RESOLVED:** seed the weekly working-set
+   table from **Renaissance Periodization-style MEV/MAV/MRV landmarks** (per
+   muscle group, split by beginner / intermediate). Stored as a config table,
+   tuned later from real logs. _Context: "volume landmarks" = how many hard sets
+   per muscle per week is too few to grow (MEV), a productive range (MAV), and
+   the point where more is counterproductive (MRV). The engine clamps every AI
+   plan into this band so it can't prescribe 2 sets or 35 sets for a muscle._
 5. **Load estimation for brand-new lifts** with no history — bodyweight-ratio
    heuristics, an onboarding "estimate your working weight" step, or start
    deliberately light and ramp fast?
@@ -70,9 +81,13 @@ implementation planning.
 
 ## Project / tooling
 
-16. **Git.** This directory is not a git repo yet. Initialize before Phase 1?
-17. **Xcode project vs Swift Package.** App target structure — plain Xcode
-    project, or SPM modules for RuleEngine/Validator to keep them testable in
-    isolation?
-18. **Minimum iOS version.** Design says iOS 17+ (SwiftData). Confirm the iPhone
-    14 is on iOS 17 or later.
+16. ~~**Git.**~~ **RESOLVED:** repo initialised and pushed to
+    `github.com/VarunMotiyani/fitness-tracker-ios` (2026-08-27).
+17. ~~**Xcode project vs Swift Package.**~~ **RESOLVED:** Xcode app target **+ a
+    local `FitnessCore` Swift package** holding the pure logic (RuleEngine,
+    Validator, Catalog, LLM protocol) with no Apple-UI dependency, so it
+    unit-tests in seconds without a simulator. See `03` §10.
+18. ~~**Minimum iOS version.**~~ **RESOLVED:** user's iPhone 14 is on **iOS 26**
+    → min deployment target **iOS 26**. (On-device Foundation Models still needs
+    Apple-Intelligence hardware, i.e. the future iPhone 17 Pro, not the 14 —
+    unchanged.)
