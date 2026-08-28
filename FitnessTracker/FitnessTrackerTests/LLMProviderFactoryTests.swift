@@ -24,4 +24,11 @@ struct LLMProviderFactoryTests {
             _ = try LLMProviderFactory.make(kind: .gemini, baseURL: nil, apiKey: nil, modelID: "m")
         }
     }
+
+    @Test func schemelessBaseURLThrowsInvalidBaseURL() {
+        #expect(throws: LLMProviderFactory.FactoryError.invalidBaseURL) {
+            _ = try LLMProviderFactory.make(kind: .openAICompatible,
+                baseURL: "api.openai.com/v1", apiKey: "k", modelID: "m")
+        }
+    }
 }
