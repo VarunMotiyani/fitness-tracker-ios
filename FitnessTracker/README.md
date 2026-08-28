@@ -119,6 +119,6 @@ Open `FitnessTracker.xcodeproj` in Xcode 26+, pick an iPhone (iOS 26) simulator,
   real equipment list).
 - The engine/validator gaps in `FitnessCore/README.md` ("Known Phase 1b
   follow-ups": empty sessions, zero-volume blind spot, `sessionLengthMinutes`)
-  are carried into the Phase 1c plan.
+  are carried into the Phase 2 plan.
 - Onboarding can currently only exclude whole muscle groups; per-exercise "won't
   do" arrives with the injury feature.

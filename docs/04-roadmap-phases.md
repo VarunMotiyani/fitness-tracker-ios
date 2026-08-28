@@ -35,7 +35,9 @@ Guiding rule: don't start a phase until the previous one runs on Varun's phone.
 - SwiftData models (profile, equipment, limitations, weekly plan,
   `ProviderProfile`, `AICallRecord`).
 - Onboarding flow (all fields from §2 of product design).
-- Bundled exercise catalog (~100–150 exercises + images) + `CatalogStore`.
+- Bundled exercise catalog — a ~20-exercise **stub** (no images yet);
+  full ~100–150-exercise curation deferred (see `FitnessTracker/README.md`
+  "Known follow-ups") + `CatalogStore`.
 - `RuleEngine`: split templates + volume landmarks (progression can be stubbed).
 - `LLMProvider` protocol + **three adapters shipped** (`openAICompatible`,
   `gemini`, `appleOnDevice`; native `anthropic` / Vertex / Bedrock deferred —
@@ -52,10 +54,11 @@ Guiding rule: don't start a phase until the previous one runs on Varun's phone.
 - Settings: manage provider profiles (add/edit/activate, paste key to Keychain,
   set model ID + prices); basic month-to-date + all-time cost totals.
 
-**Done when (met):** onboarding → a validated, sensible weekly plan appears; a
-forced AI failure still produces a fallback plan; each generation shows its cost
-and the month-to-date figure updates; switching the active provider profile takes
-effect on the next call.
+**Done when (met via unit tests + code review; interactive simulator
+click-through still pending on Varun at branch-finish):** onboarding → a
+validated, sensible weekly plan appears; a forced AI failure still produces a
+fallback plan; each generation shows its cost and the month-to-date figure
+updates; switching the active provider profile takes effect on the next call.
 
 **Not in Phase 1:** logging, session runner, swaps, InBody, notifications, the
 full Usage & Cost screen, budget cap.

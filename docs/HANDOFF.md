@@ -105,15 +105,18 @@ simplicity: no backend, no accounts, on-device storage, bring-your-own API key.
   (RuleEngine, Validator, Catalog, LLM protocol) with no Apple-UI deps → fast
   unit tests without a simulator.
 - **AI layer:** provider-agnostic `LLMProvider` protocol (`complete` +
-  `completeWithImage`). **Four adapters ship**: `openAICompatible`, `gemini`,
-  `anthropic`, `appleOnDevice`.
+  `completeWithImage`). **Three adapters shipped**: `openAICompatible`, `gemini`,
+  `appleOnDevice`. Native `anthropic` is deferred — covered today via
+  `openAICompatible` against Anthropic's OpenAI-compatible endpoint (same for
+  Gemini-Vertex / AWS-Bedrock via their compat/proxy endpoints).
 - **User-managed `ProviderProfile`s** — the active model is a runtime-editable
   profile (name, adapterKind, baseURL, key, modelID, vision flag, per-token
   prices), NOT a build constant. New vendor/model = add/edit a profile, no app
   update. `openAICompatible` covers most future vendors.
 - **Concrete provider/model is NOT chosen** — deferred research. Criteria:
-  reasoning quality, latency, cost/call. Phase 1 seeds one provisional profile
-  (whatever's fastest to stand up). See [08](08-api-cost-analysis.md).
+  reasoning quality, latency, cost/call. No seeded profile — the app runs on the
+  rule engine until the user adds a provider profile in Settings. See
+  [08](08-api-cost-analysis.md).
 - Consumer subscriptions (Gemini Pro, ChatGPT Go/Plus) **cannot** be used — no
   API access. Free paths: Gemini API free tier, or on-device Foundation Models
   (needs Apple-Intelligence hardware — NOT the iPhone 14; OK on a future 17 Pro).
@@ -267,7 +270,9 @@ RuleEngine + Validator.
 
 ## 8. Gotchas for a fresh agent
 
-- **No code exists.** Don't look for a Swift project — it's docs only.
+- **Code now exists and ships.** Both the `FitnessTracker` Xcode app and the
+  `FitnessCore` Swift package are real and building — Phase 1a/1b/1c complete
+  (see §2). The numbered docs are the design record, not the whole project.
 - **Provider/model is deliberately unchosen.** Don't hardcode Gemini/OpenAI/
   Anthropic anywhere; everything routes through `LLMProvider` + `ProviderProfile`.
 - **iPhone 14 is on iOS 26** but does **not** support Apple Intelligence →
