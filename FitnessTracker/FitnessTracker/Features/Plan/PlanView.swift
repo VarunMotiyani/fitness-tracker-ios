@@ -6,6 +6,7 @@ import ExerciseCatalog
 struct PlanView: View {
     let plan: WeeklyPlan
     let catalog: CatalogStore
+    let costSummary: CostSummary
 
     var body: some View {
         List {
@@ -40,6 +41,11 @@ struct PlanView: View {
             }
         }
         .navigationTitle("This week")
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                CostChip(summary: costSummary)
+            }
+        }
     }
 
     private var orderedSessions: [PlannedSession] {

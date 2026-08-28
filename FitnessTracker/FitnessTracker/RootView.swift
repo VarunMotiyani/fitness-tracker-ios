@@ -14,13 +14,35 @@ struct RootView: View {
     @Query private var profiles: [UserProfile]
     @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
     @Query(filter: #Predicate<ProviderProfile> { $0.isActive }) private var activeProfiles: [ProviderProfile]
+    @Query(sort: \AICallRecord.timestamp) private var calls: [AICallRecord]
 
     @State private var catalog: CatalogStore?
     @State private var loadFailed = false
+    @State private var lastNote: String?
+
+    private var summary: CostSummary {
+        CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp, costUSD: $0.costUSD) },
+                         now: .now)
+    }
 
     var body: some View {
         NavigationStack {
             content
+        }
+        .overlay(alignment: .top) {
+            if let lastNote {
+                Text(lastNote)
+                    .padding(8)
+                    .background(.thinMaterial, in: Capsule())
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.default, value: lastNote)
+        .task(id: lastNote) {
+            guard lastNote != nil else { return }
+            try? await Task.sleep(for: .seconds(3))
+            lastNote = nil
         }
         .task {
             if catalog == nil {
@@ -41,7 +63,7 @@ struct RootView: View {
                 regeneratePlan(for: profile)
             }
         } else if let plan = try? plans.first?.decodedPlan(), let catalog {
-            PlanView(plan: plan, catalog: catalog)
+            PlanView(plan: plan, catalog: catalog, costSummary: summary)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         NavigationLink { SettingsView() } label: {
@@ -66,10 +88,10 @@ struct RootView: View {
         let userContext = profile.makeUserContext()
         let activeProfile = activeProfiles.first
         Task {
-            await generateAndStore(context: userContext,
-                                   activeProfile: activeProfile,
-                                   catalog: catalog,
-                                   modelContext: context)
+            lastNote = await generateAndStore(context: userContext,
+                                              activeProfile: activeProfile,
+                                              catalog: catalog,
+                                              modelContext: context)
         }
     }
 }

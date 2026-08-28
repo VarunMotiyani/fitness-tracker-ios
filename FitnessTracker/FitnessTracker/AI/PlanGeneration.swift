@@ -13,7 +13,7 @@ import ExerciseCatalog
 func generateAndStore(context: UserContext,
                       activeProfile: ProviderProfile?,
                       catalog: CatalogStore,
-                      modelContext: ModelContext) async {
+                      modelContext: ModelContext) async -> String {
     let provider = activeProfile.flatMap { try? LLMProviderFactory.make(from: $0) }
 
     let result = await PlanCoordinator(provider: provider, catalog: catalog)
@@ -23,6 +23,8 @@ func generateAndStore(context: UserContext,
                                     hadValidationIssues: !result.issues.isEmpty) {
         modelContext.insert(stored)
     }
+
+    var recordedCostUSD: Double?
 
     if result.call != nil || provider != nil {
         let inputTokens = result.call?.inputTokens ?? 0
@@ -39,6 +41,7 @@ func generateAndStore(context: UserContext,
         } else {
             costUSD = 0
         }
+        recordedCostUSD = costUSD
         let record = AICallRecord(callType: "planGeneration",
                                   providerDisplayName: activeProfile?.displayName ?? "—",
                                   modelID: activeProfile?.modelID ?? "—",
@@ -52,4 +55,16 @@ func generateAndStore(context: UserContext,
     }
 
     try? modelContext.save()
+
+    switch result.source {
+    case .fallback:
+        return "Used the rule-engine backup"
+    case .ruleEngine:
+        return "Coach updated"
+    case .ai:
+        if let cost = recordedCostUSD {
+            return "Coach updated · ~\(cost.formatted(.currency(code: "USD")))"
+        }
+        return "Coach updated"
+    }
 }
