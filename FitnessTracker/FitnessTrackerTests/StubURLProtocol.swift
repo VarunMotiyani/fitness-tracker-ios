@@ -75,3 +75,24 @@ final class Locked<Value>: @unchecked Sendable {
     func get() -> Value { lock.withLock { value } }
     func set(_ newValue: Value) { lock.withLock { value = newValue } }
 }
+
+extension URLRequest {
+    /// `URLProtocol` hands the body back as a stream, not `httpBody`; drain it so
+    /// tests can assert on the outgoing request payload.
+    var capturedBody: Data? {
+        if let httpBody { return httpBody }
+        guard let stream = httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let size = 4096
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: size)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let read = stream.read(buffer, maxLength: size)
+            if read <= 0 { break }
+            data.append(buffer, count: read)
+        }
+        return data
+    }
+}
