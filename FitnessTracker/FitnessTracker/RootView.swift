@@ -13,13 +13,45 @@ struct RootView: View {
     @Environment(\.modelContext) private var context
     @Query private var profiles: [UserProfile]
     @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
+    @Query(filter: #Predicate<ProviderProfile> { $0.isActive }) private var activeProfiles: [ProviderProfile]
+    @Query(sort: \AICallRecord.timestamp) private var calls: [AICallRecord]
 
     @State private var catalog: CatalogStore?
     @State private var loadFailed = false
+    @State private var lastNote: String?
+    @State private var isGenerating = false
+
+    private var summary: CostSummary {
+        CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp, costUSD: $0.costUSD) },
+                         now: .now)
+    }
 
     var body: some View {
         NavigationStack {
             content
+        }
+        .overlay(alignment: .top) {
+            if let lastNote {
+                Text(lastNote)
+                    .padding(8)
+                    .background(.thinMaterial, in: Capsule())
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .overlay(alignment: .center) {
+            if isGenerating {
+                ProgressView("Updating your plan…")
+                    .padding()
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+        .animation(.default, value: lastNote)
+        .animation(.default, value: isGenerating)
+        .task(id: lastNote) {
+            guard lastNote != nil else { return }
+            try? await Task.sleep(for: .seconds(3))
+            lastNote = nil
         }
         .task {
             if catalog == nil {
@@ -40,7 +72,7 @@ struct RootView: View {
                 regeneratePlan(for: profile)
             }
         } else if let plan = try? plans.first?.decodedPlan(), let catalog {
-            PlanView(plan: plan, catalog: catalog)
+            PlanView(plan: plan, catalog: catalog, costSummary: summary)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         NavigationLink { SettingsView() } label: {
@@ -53,6 +85,7 @@ struct RootView: View {
                 Label("No plan yet", systemImage: "dumbbell")
             } actions: {
                 Button("Generate plan") { regeneratePlan(for: profile) }
+                    .disabled(isGenerating)
                 NavigationLink("Settings") { SettingsView() }
             }
         } else {
@@ -61,13 +94,17 @@ struct RootView: View {
     }
 
     private func regeneratePlan(for profile: UserProfile) {
-        guard let catalog else { return }
-        let service = PlanService(catalog: catalog)
-        let result = service.generate(context: profile.makeUserContext(), weekStartDate: .now)
-        if let stored = try? StoredPlan(plan: result.plan,
-                                       hadValidationIssues: !result.issues.isEmpty) {
-            context.insert(stored)
-            try? context.save()
+        guard let catalog, !isGenerating else { return }
+        let userContext = profile.makeUserContext()
+        let activeProfile = activeProfiles.first
+        isGenerating = true
+        Task {
+            defer { isGenerating = false }
+            let outcome = await generateAndStore(context: userContext,
+                                                 activeProfile: activeProfile,
+                                                 catalog: catalog,
+                                                 modelContext: context)
+            lastNote = outcome.note
         }
     }
 }

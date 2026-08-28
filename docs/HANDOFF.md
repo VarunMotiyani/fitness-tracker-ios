@@ -1,6 +1,6 @@
 # HANDOFF — Read This First
 
-_Living document. Last updated: 2026-08-28 (Phase 1b complete, pending merge)._
+_Living document. Last updated: 2026-08-28 (Phase 1c complete)._
 
 **Purpose:** one read = full context. If you're a new agent/session on any
 device, read this top to bottom before doing anything. It captures the project,
@@ -43,11 +43,11 @@ simplicity: no backend, no accounts, on-device storage, bring-your-own API key.
 
 | | |
 |---|---|
-| **Phase** | **Phase 1b COMPLETE** (on branch `phase-1b-app-shell`, not yet merged) — `FitnessTracker` app: onboarding → rule plan → read-only plan view, runs on the iOS 26 simulator. 12 app unit tests + 35 `FitnessCore` tests pass. Phase 1a merged to `main` (`7f6deb3`). |
-| **Next action** | Merge the 1b branch, then plan **Phase 1c** (AI integration: `LLMProvider` adapters, provisional profile, `AIClient`, `PlanCoordinator` generate→validate→fallback, `AICallRecord` + cost chip, provider-profile UI). Carry `FitnessCore/README.md` "Known Phase 1b follow-ups" (empty sessions, zero-volume blind spot, `sessionLengthMinutes`) into that plan. |
-| **Phase 1 split** | **1a** ✅ merged → **1b** ✅ (branch pending merge) → **1c** LLM adapters + `PlanCoordinator` + cost metering. |
+| **Phase** | **Phase 1c COMPLETE** on branch `phase-1c-ai-integration` (acceptance pass done; interactive click-through is Varun's at branch-finish). Phase 1a + 1b already MERGED to `main`. `FitnessCore` package (5 modules, 35 tests) + `FitnessTracker` app: onboarding → **AI-or-rule** weekly plan → read-only plan view. 1c adds `ProviderProfile` + Keychain keys, 3 `LLMProvider` adapters (`openAICompatible`, `gemini`, `appleOnDevice`), `LLMProviderFactory`, `PlanCoordinator` (AI-generate → validate → retry-once → rule fallback, `WeeklyPlan.source` tracked), the `AICallRecord` cost ledger + `CostSummary`, provider-profile UI, and the `$` chip / Usage section / post-generation note. App unit tests: 32 (Swift Testing) + 6 XCTest UI/launch, all green. |
+| **Next action** | **Phase 2 — "Run my session and remember it"**: session runner UI, set logging + rest timer, pre-session energy/time check, per-exercise + session feedback, `CompletedSession` persistence, history view, real progression rule. Plan via `superpowers:writing-plans`. Carry the `FitnessCore/README.md` engine/validator follow-ups (empty sessions, zero-volume blind spot, `sessionLengthMinutes`) and the 1c deferrals (budget cap + `pauseAIWhenOverBudget`, native Anthropic / Vertex / Bedrock adapters, vision) forward. |
+| **Phase 1 split** | **1a** ✅ merged → **1b** ✅ merged → **1c** ✅ complete (branch `phase-1c-ai-integration`, pending merge). Phase 1 done. |
 | **Repo** | `github.com/VarunMotiyani/fitness-tracker-ios` (public) |
-| **Branch** | `phase-1b-app-shell` (from `main` @ `7f6deb3`) |
+| **Branch** | `phase-1c-ai-integration` (Phase 1b merged to `main` at `274a29c`) |
 | **Uncommitted** | Check `git status` — doc edits are often pending; the user controls when they're committed. |
 | **Toolchain** | Xcode 26.6 installed & active; iOS 26.5 simulator. `FitnessCore` no longer pins `swift-testing` (Xcode bundles it). App project = plain committed `.xcodeproj`, Xcode-16 synchronized groups (files auto-join targets by folder). |
 | **Xcode 26 gotchas (see `FitnessTracker/README.md`)** | App module defaults to `@MainActor` isolation → pure-logic helpers marked `nonisolated`. Trim "Designed for iPad" destinations or the local-package platform intersection goes empty (no run destinations). |
@@ -105,15 +105,18 @@ simplicity: no backend, no accounts, on-device storage, bring-your-own API key.
   (RuleEngine, Validator, Catalog, LLM protocol) with no Apple-UI deps → fast
   unit tests without a simulator.
 - **AI layer:** provider-agnostic `LLMProvider` protocol (`complete` +
-  `completeWithImage`). **Four adapters ship**: `openAICompatible`, `gemini`,
-  `anthropic`, `appleOnDevice`.
+  `completeWithImage`). **Three adapters shipped**: `openAICompatible`, `gemini`,
+  `appleOnDevice`. Native `anthropic` is deferred — covered today via
+  `openAICompatible` against Anthropic's OpenAI-compatible endpoint (same for
+  Gemini-Vertex / AWS-Bedrock via their compat/proxy endpoints).
 - **User-managed `ProviderProfile`s** — the active model is a runtime-editable
   profile (name, adapterKind, baseURL, key, modelID, vision flag, per-token
   prices), NOT a build constant. New vendor/model = add/edit a profile, no app
   update. `openAICompatible` covers most future vendors.
 - **Concrete provider/model is NOT chosen** — deferred research. Criteria:
-  reasoning quality, latency, cost/call. Phase 1 seeds one provisional profile
-  (whatever's fastest to stand up). See [08](08-api-cost-analysis.md).
+  reasoning quality, latency, cost/call. No seeded profile — the app runs on the
+  rule engine until the user adds a provider profile in Settings. See
+  [08](08-api-cost-analysis.md).
 - Consumer subscriptions (Gemini Pro, ChatGPT Go/Plus) **cannot** be used — no
   API access. Free paths: Gemini API free tier, or on-device Foundation Models
   (needs Apple-Intelligence hardware — NOT the iPhone 14; OK on a future 17 Pro).
@@ -148,7 +151,8 @@ simplicity: no backend, no accounts, on-device storage, bring-your-own API key.
 ### Delivery
 - **4 phases**, each independently usable:
   1. **Give me a plan** — models, onboarding, catalog, rule-engine
-     templates+landmarks, 4 LLM adapters + provisional profile, generation →
+     templates+landmarks, three LLM adapters + user-managed profiles (no seeded
+     default), generation →
      validation → fallback, cost metering + `$` chip, read-only plan view,
      Settings (profile management), offline plan reads.
   2. **Run my session & remember it** — session runner, set logging, rest timer,
@@ -228,8 +232,9 @@ RuleEngine + Validator.
 9. Chose native Swift over React Native.
 10. Added decision register (doc 06).
 11. Added API cost analysis (doc 08) after a token-volume estimate.
-12. Expanded the AI layer: user-managed `ProviderProfile`s, four adapters,
-    real-time cost metering, budget toggle, explicit offline guarantee.
+12. Expanded the AI layer: user-managed `ProviderProfile`s, four planned adapters
+    (trimmed to three shipped in 1c — native `anthropic` deferred), real-time
+    cost metering, budget toggle, explicit offline guarantee.
 13. Researched skills/plugins (doc 09).
 14. Wrote this handoff doc.
 15. Split Phase 1 into 1a/1b/1c. Wrote the **Phase 1a** plan (`FitnessCore`
@@ -241,16 +246,35 @@ RuleEngine + Validator.
 17. Xcode 26.6 installed. **Executed Phase 1b** inline (`superpowers:executing-plans`)
     on branch `phase-1b-app-shell` — 12 tasks: dropped the swift-testing dep,
     created the `FitnessTracker` Xcode app, SwiftData models + `UserContext`
-    mapper, stub catalog + loader, `PlanService`, the 7-step onboarding flow,
-    read-only plan view, root nav + Settings scaffold. App runs the full flow
-    (onboarding → plan → settings → start over) on the simulator; 12 app unit
-    tests pass. Not yet merged.
+    mapper, stub catalog + loader, plan generation (`PlanCoordinator` /
+    `PlanGeneration` — a `PlanService` scaffold that 1c replaced), the 7-step
+    onboarding flow, read-only plan view, root nav + Settings scaffold. App runs
+    the full flow (onboarding → plan → settings → start over) on the simulator;
+    12 app unit tests pass. **PR #2 merged to `main` (`274a29c`).**
+18. **Executed Phase 1c** on branch `phase-1c-ai-integration` — 17 tasks: added
+    `ProviderProfile` + `KeychainStore` (BYO keys), `AICallRecord` + cost math +
+    `CostSummary`, the `PlanPromptBuilder` / `WeeklyPlanDTO` / `planJSONSchema`,
+    three `LLMProvider` adapters (`OpenAICompatibleProvider` with
+    `response_format: json_schema`, `GeminiProvider` with `responseSchema`,
+    `FoundationModelsProvider` on-device) + `LLMProviderFactory`, the
+    `PlanCoordinator` (AI-generate → validate → retry-once → rule-engine
+    fallback, `WeeklyPlan.source` = `ai` / `ruleEngine` / `fallback`),
+    `generateAndStore` wiring, provider-profile management UI, and the real-time
+    cost UI (`$` chip + Settings → Usage + post-generation note). Deferred and
+    documented: budget cap + `pauseAIWhenOverBudget` toggle, native Anthropic /
+    Gemini-Vertex / AWS-Bedrock adapters, vision (`completeWithImage` throws
+    `.visionUnsupported` in every adapter). Task 17 = acceptance pass: app suite
+    32 Swift-Testing + 6 XCTest UI/launch green, `FitnessCore` 35/35 (untouched),
+    simulator smoke OK; interactive onboarding / add-provider / Regenerate
+    click-through left for Varun at branch-finish. Not yet merged.
 
 ---
 
 ## 8. Gotchas for a fresh agent
 
-- **No code exists.** Don't look for a Swift project — it's docs only.
+- **Code now exists and ships.** Both the `FitnessTracker` Xcode app and the
+  `FitnessCore` Swift package are real and building — Phase 1a/1b/1c complete
+  (see §2). The numbered docs are the design record, not the whole project.
 - **Provider/model is deliberately unchosen.** Don't hardcode Gemini/OpenAI/
   Anthropic anywhere; everything routes through `LLMProvider` + `ProviderProfile`.
 - **iPhone 14 is on iOS 26** but does **not** support Apple Intelligence →

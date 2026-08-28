@@ -7,8 +7,17 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Query private var profiles: [UserProfile]
     @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
+    @Query(filter: #Predicate<ProviderProfile> { $0.isActive }) private var activeProfiles: [ProviderProfile]
+    @Query(sort: \AICallRecord.timestamp) private var calls: [AICallRecord]
 
     @State private var catalog: CatalogStore?
+    @State private var lastNote: String?
+    @State private var isGenerating = false
+
+    private var summary: CostSummary {
+        CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp, costUSD: $0.costUSD) },
+                         now: .now)
+    }
 
     var body: some View {
         Form {
@@ -25,6 +34,13 @@ struct SettingsView: View {
                 }
                 Section {
                     Button("Regenerate plan") { regenerate(p) }
+                        .disabled(isGenerating)
+                    if isGenerating {
+                        HStack {
+                            ProgressView()
+                            Text("Updating your plan…").foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 Section {
                     Button("Start over", role: .destructive) { startOver() }
@@ -34,24 +50,49 @@ struct SettingsView: View {
             }
 
             Section("AI Coach") {
-                LabeledContent("Status", value: "Coming in Phase 1c")
+                NavigationLink("Providers") { ProviderProfileListView() }
+                LabeledContent("Active", value: activeProfiles.first?.displayName ?? "None (rule engine)")
             }
-            .disabled(true)
+
+            Section("Usage") {
+                LabeledContent("This month", value: summary.monthToDateUSD.formatted(.currency(code: "USD")))
+                LabeledContent("All time", value: summary.allTimeUSD.formatted(.currency(code: "USD")))
+                LabeledContent("AI calls", value: "\(summary.callCount)")
+            }
         }
         .navigationTitle("Settings")
+        .overlay(alignment: .top) {
+            if let lastNote {
+                Text(lastNote)
+                    .padding(8)
+                    .background(.thinMaterial, in: Capsule())
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.default, value: lastNote)
+        .task(id: lastNote) {
+            guard lastNote != nil else { return }
+            try? await Task.sleep(for: .seconds(3))
+            lastNote = nil
+        }
         .task {
             if catalog == nil { catalog = try? BundledCatalog.load() }
         }
     }
 
     private func regenerate(_ profile: UserProfile) {
-        guard let catalog else { return }
-        let result = PlanService(catalog: catalog)
-            .generate(context: profile.makeUserContext(), weekStartDate: .now)
-        if let stored = try? StoredPlan(plan: result.plan,
-                                       hadValidationIssues: !result.issues.isEmpty) {
-            context.insert(stored)
-            try? context.save()
+        guard let catalog, !isGenerating else { return }
+        let userContext = profile.makeUserContext()
+        let activeProfile = activeProfiles.first
+        isGenerating = true
+        Task {
+            defer { isGenerating = false }
+            let outcome = await generateAndStore(context: userContext,
+                                                 activeProfile: activeProfile,
+                                                 catalog: catalog,
+                                                 modelContext: context)
+            lastNote = outcome.note
         }
     }
 
