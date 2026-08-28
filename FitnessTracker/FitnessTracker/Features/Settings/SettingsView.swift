@@ -7,6 +7,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Query private var profiles: [UserProfile]
     @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
+    @Query(filter: #Predicate<ProviderProfile> { $0.isActive }) private var activeProfiles: [ProviderProfile]
 
     @State private var catalog: CatalogStore?
 
@@ -46,12 +47,13 @@ struct SettingsView: View {
 
     private func regenerate(_ profile: UserProfile) {
         guard let catalog else { return }
-        let result = PlanService(catalog: catalog)
-            .generate(context: profile.makeUserContext(), weekStartDate: .now)
-        if let stored = try? StoredPlan(plan: result.plan,
-                                       hadValidationIssues: !result.issues.isEmpty) {
-            context.insert(stored)
-            try? context.save()
+        let userContext = profile.makeUserContext()
+        let activeProfile = activeProfiles.first
+        Task {
+            await generateAndStore(context: userContext,
+                                   activeProfile: activeProfile,
+                                   catalog: catalog,
+                                   modelContext: context)
         }
     }
 

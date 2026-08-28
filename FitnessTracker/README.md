@@ -25,7 +25,7 @@ Onboarding → rule-engine weekly plan → read-only plan view. Fully offline, n
 | `Models/UserProfile.swift` (+ `UserProfile+Mapping.swift`) | SwiftData `@Model` for the onboarding answers; `makeUserContext()` maps it to `FitnessCore` |
 | `Models/StoredPlan.swift` | SwiftData `@Model` holding a `WeeklyPlan` as JSON |
 | `Catalog/catalog.json` + `BundledCatalog.swift` | bundled **stub** catalog (20 exercises, free-exercise-db raw shape) → `CatalogStore` |
-| `Planning/PlanService.swift` | `UserContext` → `RulePlanBuilder` → `PlanValidator` → `PlanResult` (`nonisolated`) |
+| `AI/PlanCoordinator.swift` (+ `AI/PlanGeneration.swift`) | `UserContext` → AI-generate → validate → retry → rule-engine fallback → `CoordinatorResult`; `generateAndStore` persists the plan + `AICallRecord` |
 | `Features/Onboarding/` | the 7-step SwiftUI flow + `OnboardingModel` draft state |
 | `Features/Plan/PlanView.swift` | read-only plan rendering |
 | `Features/Settings/SettingsView.swift` | scaffold |
@@ -39,7 +39,7 @@ Open `FitnessTracker.xcodeproj` in Xcode 26+, pick an iPhone (iOS 26) simulator,
 ## Notes for later phases
 
 - **Xcode 26 defaults the app module to `@MainActor` isolation.** Pure-logic
-  helpers (`BundledCatalog`, `PlanService`) are marked `nonisolated`; SwiftData
+  helpers (`BundledCatalog`, `PlanCoordinator`) are marked `nonisolated`; SwiftData
   `@Model` tests and `OnboardingModel` tests run `@MainActor`.
 - **Local package × "Designed for iPad" destinations:** the app target's
   Supported Destinations were trimmed to iPhone/iPad only. Leaving "Mac

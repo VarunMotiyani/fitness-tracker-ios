@@ -13,6 +13,7 @@ struct RootView: View {
     @Environment(\.modelContext) private var context
     @Query private var profiles: [UserProfile]
     @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
+    @Query(filter: #Predicate<ProviderProfile> { $0.isActive }) private var activeProfiles: [ProviderProfile]
 
     @State private var catalog: CatalogStore?
     @State private var loadFailed = false
@@ -62,12 +63,13 @@ struct RootView: View {
 
     private func regeneratePlan(for profile: UserProfile) {
         guard let catalog else { return }
-        let service = PlanService(catalog: catalog)
-        let result = service.generate(context: profile.makeUserContext(), weekStartDate: .now)
-        if let stored = try? StoredPlan(plan: result.plan,
-                                       hadValidationIssues: !result.issues.isEmpty) {
-            context.insert(stored)
-            try? context.save()
+        let userContext = profile.makeUserContext()
+        let activeProfile = activeProfiles.first
+        Task {
+            await generateAndStore(context: userContext,
+                                   activeProfile: activeProfile,
+                                   catalog: catalog,
+                                   modelContext: context)
         }
     }
 }
