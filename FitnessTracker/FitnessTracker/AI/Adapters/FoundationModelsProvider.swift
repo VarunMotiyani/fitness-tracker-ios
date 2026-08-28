@@ -16,7 +16,9 @@ nonisolated struct FoundationModelsProvider: LLMProvider {
             throw LLMError.transport("on-device model unavailable")
         }
 
-        let prompt = user + "\n\nRespond with a single JSON object only."
+        let prompt = user
+            + "\n\nRespond with a single JSON object matching this schema. No prose, no code fences:\n"
+            + schema.json
         let session = LanguageModelSession(instructions: system)
 
         let content: String
