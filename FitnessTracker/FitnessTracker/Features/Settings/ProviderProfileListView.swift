@@ -43,7 +43,7 @@ struct ProviderProfileListView: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(profile.displayName)
-                Text(profile.adapterKind.rawValue)
+                Text(profile.adapterKind.label)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

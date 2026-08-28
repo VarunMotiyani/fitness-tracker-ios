@@ -21,6 +21,7 @@ nonisolated enum KeychainStore {
         if status == errSecItemNotFound {
             var insert = query
             insert[kSecValueData as String] = data
+            insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             let addStatus = SecItemAdd(insert as CFDictionary, nil)
             guard addStatus == errSecSuccess else { throw KeychainError.unexpectedStatus(addStatus) }
         } else if status != errSecSuccess {

@@ -44,7 +44,8 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
         }
         guard let http = response as? HTTPURLResponse else { throw LLMError.transport("no HTTP response") }
         guard (200...299).contains(http.statusCode) else {
-            throw LLMError.transport("HTTP \(http.statusCode): \(String(decoding: data.prefix(300), as: UTF8.self))")
+            let body = Self.redactSecrets(String(decoding: data.prefix(300), as: UTF8.self))
+            throw LLMError.transport("HTTP \(http.statusCode): \(body)")
         }
 
         let envelope: Envelope
@@ -67,6 +68,13 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
                                                         image: ImagePayload, schema: JSONSchema,
                                                         as type: Value.Type) async throws -> LLMResult<Value> {
         throw LLMError.visionUnsupported
+    }
+
+    /// Strips anything shaped like an OpenAI (`sk-…`) or Google (`AIza…`) key from
+    /// a provider error body before it goes into an `LLMError` string.
+    static func redactSecrets(_ text: String) -> String {
+        text.replacing(/sk-[A-Za-z0-9_-]{8,}/, with: "«redacted»")
+            .replacing(/AIza[A-Za-z0-9_-]{8,}/, with: "«redacted»")
     }
 
     private struct Envelope: Decodable {
