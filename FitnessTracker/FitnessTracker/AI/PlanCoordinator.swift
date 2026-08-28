@@ -16,7 +16,9 @@ nonisolated struct CoordinatorResult: Sendable {
     let plan: WeeklyPlan
     let source: PlanSource
     let issues: [ValidationIssue]
-    let call: CallOutcome?
+    /// One entry per paid provider call actually made (empty when no provider /
+    /// no call). On a retry this holds both calls so the ledger is call-granular.
+    let calls: [CallOutcome]
 }
 
 nonisolated struct PlanCoordinator {
@@ -37,7 +39,7 @@ nonisolated struct PlanCoordinator {
     func makePlan(context: UserContext, weekStartDate: Date) async -> CoordinatorResult {
         guard let provider else {
             return ruleResult(context: context, weekStartDate: weekStartDate,
-                              source: .ruleEngine, call: nil)
+                              source: .ruleEngine, calls: [])
         }
 
         do {
@@ -47,39 +49,58 @@ nonisolated struct PlanCoordinator {
                 schema: WeeklyPlanDTO.planJSONSchema,
                 as: WeeklyPlanDTO.self)
             let plan = result.value.toDomain(weekStartDate: weekStartDate, source: .ai)
-            let issues = validator.validate(plan, context: context)
+            let complaints = describe(validator.validate(plan, context: context))
+                + structuralComplaints(plan, context: context)
             let call = CallOutcome(inputTokens: result.inputTokens,
                                    outputTokens: result.outputTokens,
                                    cachedTokens: result.cachedTokens,
-                                   succeeded: issues.isEmpty)
-            if issues.isEmpty {
-                return CoordinatorResult(plan: plan, source: .ai, issues: [], call: call)
+                                   succeeded: complaints.isEmpty)
+            var calls = [call]
+            if complaints.isEmpty {
+                return CoordinatorResult(plan: plan, source: .ai, issues: [], calls: calls)
             }
-            // one retry with the validation errors fed back
-            let retryUser = prompts.user(context: context, priorIssues: describe(issues))
+            // one retry with the problems (validation + structural) fed back
+            let retryUser = prompts.user(context: context, priorIssues: complaints)
             do {
                 let retry = try await provider.complete(
                     system: prompts.system(), user: retryUser,
                     schema: WeeklyPlanDTO.planJSONSchema, as: WeeklyPlanDTO.self)
                 let retryPlan = retry.value.toDomain(weekStartDate: weekStartDate, source: .ai)
-                let retryIssues = validator.validate(retryPlan, context: context)
+                let retryComplaints = describe(validator.validate(retryPlan, context: context))
+                    + structuralComplaints(retryPlan, context: context)
                 let retryCall = CallOutcome(inputTokens: retry.inputTokens,
                                             outputTokens: retry.outputTokens,
                                             cachedTokens: retry.cachedTokens,
-                                            succeeded: retryIssues.isEmpty)
-                if retryIssues.isEmpty {
-                    return CoordinatorResult(plan: retryPlan, source: .ai, issues: [], call: retryCall)
+                                            succeeded: retryComplaints.isEmpty)
+                calls.append(retryCall)
+                if retryComplaints.isEmpty {
+                    return CoordinatorResult(plan: retryPlan, source: .ai, issues: [], calls: calls)
                 }
                 return ruleResult(context: context, weekStartDate: weekStartDate,
-                                  source: .fallback, call: retryCall)
+                                  source: .fallback, calls: calls)
             } catch {
                 return ruleResult(context: context, weekStartDate: weekStartDate,
-                                  source: .fallback, call: call)
+                                  source: .fallback, calls: calls)
             }
         } catch {
             return ruleResult(context: context, weekStartDate: weekStartDate,
-                              source: .fallback, call: nil)
+                              source: .fallback, calls: [])
         }
+    }
+
+    /// Coordinator-local structural checks the frozen `PlanValidator` can't make
+    /// (it derives every issue by iterating `plan.sessions`, so an empty or
+    /// wrong-sized `sessions` array validates clean). Folded into the same
+    /// retry→fallback machinery as the validator's issues.
+    private func structuralComplaints(_ plan: WeeklyPlan, context: UserContext) -> [String] {
+        if plan.sessions.isEmpty {
+            return ["the plan contained no sessions; produce exactly \(context.sessionsPerWeek) training sessions"]
+        }
+        if plan.sessions.count != context.sessionsPerWeek {
+            return ["the plan had \(plan.sessions.count) sessions but the user trains "
+                + "\(context.sessionsPerWeek) days per week; produce exactly \(context.sessionsPerWeek)"]
+        }
+        return []
     }
 
     private func describe(_ issues: [ValidationIssue]) -> [String] {
@@ -96,7 +117,7 @@ nonisolated struct PlanCoordinator {
     }
 
     private func ruleResult(context: UserContext, weekStartDate: Date,
-                            source: PlanSource, call: CallOutcome?) -> CoordinatorResult {
+                            source: PlanSource, calls: [CallOutcome]) -> CoordinatorResult {
         var plan = ruleBuilder.build(context: context, weekStartDate: weekStartDate)
         if source == .fallback {
             plan = WeeklyPlan(weekStartDate: plan.weekStartDate, source: .fallback,
@@ -104,6 +125,6 @@ nonisolated struct PlanCoordinator {
                               weeklyVolumeTargets: plan.weeklyVolumeTargets)
         }
         let issues = validator.validate(plan, context: context)
-        return CoordinatorResult(plan: plan, source: source, issues: issues, call: call)
+        return CoordinatorResult(plan: plan, source: source, issues: issues, calls: calls)
     }
 }

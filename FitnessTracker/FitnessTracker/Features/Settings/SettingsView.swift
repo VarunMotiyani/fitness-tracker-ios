@@ -12,6 +12,7 @@ struct SettingsView: View {
 
     @State private var catalog: CatalogStore?
     @State private var lastNote: String?
+    @State private var isGenerating = false
 
     private var summary: CostSummary {
         CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp, costUSD: $0.costUSD) },
@@ -33,6 +34,13 @@ struct SettingsView: View {
                 }
                 Section {
                     Button("Regenerate plan") { regenerate(p) }
+                        .disabled(isGenerating)
+                    if isGenerating {
+                        HStack {
+                            ProgressView()
+                            Text("Updating your plan…").foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 Section {
                     Button("Start over", role: .destructive) { startOver() }
@@ -74,14 +82,17 @@ struct SettingsView: View {
     }
 
     private func regenerate(_ profile: UserProfile) {
-        guard let catalog else { return }
+        guard let catalog, !isGenerating else { return }
         let userContext = profile.makeUserContext()
         let activeProfile = activeProfiles.first
+        isGenerating = true
         Task {
-            lastNote = await generateAndStore(context: userContext,
-                                              activeProfile: activeProfile,
-                                              catalog: catalog,
-                                              modelContext: context)
+            defer { isGenerating = false }
+            let outcome = await generateAndStore(context: userContext,
+                                                 activeProfile: activeProfile,
+                                                 catalog: catalog,
+                                                 modelContext: context)
+            lastNote = outcome.note
         }
     }
 

@@ -19,6 +19,7 @@ struct RootView: View {
     @State private var catalog: CatalogStore?
     @State private var loadFailed = false
     @State private var lastNote: String?
+    @State private var isGenerating = false
 
     private var summary: CostSummary {
         CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp, costUSD: $0.costUSD) },
@@ -38,7 +39,15 @@ struct RootView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        .overlay(alignment: .center) {
+            if isGenerating {
+                ProgressView("Updating your plan…")
+                    .padding()
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
         .animation(.default, value: lastNote)
+        .animation(.default, value: isGenerating)
         .task(id: lastNote) {
             guard lastNote != nil else { return }
             try? await Task.sleep(for: .seconds(3))
@@ -76,6 +85,7 @@ struct RootView: View {
                 Label("No plan yet", systemImage: "dumbbell")
             } actions: {
                 Button("Generate plan") { regeneratePlan(for: profile) }
+                    .disabled(isGenerating)
                 NavigationLink("Settings") { SettingsView() }
             }
         } else {
@@ -84,14 +94,17 @@ struct RootView: View {
     }
 
     private func regeneratePlan(for profile: UserProfile) {
-        guard let catalog else { return }
+        guard let catalog, !isGenerating else { return }
         let userContext = profile.makeUserContext()
         let activeProfile = activeProfiles.first
+        isGenerating = true
         Task {
-            lastNote = await generateAndStore(context: userContext,
-                                              activeProfile: activeProfile,
-                                              catalog: catalog,
-                                              modelContext: context)
+            defer { isGenerating = false }
+            let outcome = await generateAndStore(context: userContext,
+                                                 activeProfile: activeProfile,
+                                                 catalog: catalog,
+                                                 modelContext: context)
+            lastNote = outcome.note
         }
     }
 }

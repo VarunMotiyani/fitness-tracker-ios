@@ -2,6 +2,30 @@ import Foundation
 import SwiftData
 import FitnessDomain
 import ExerciseCatalog
+import LLMKit
+
+/// Outcome of a plan-generation attempt. Carries a user-facing `note` so the UI
+/// can tell "AI succeeded" / "validated then fell back" / "provider misconfigured"
+/// / "no provider" apart instead of showing one generic banner for all of them.
+nonisolated enum GenerationOutcome: Sendable {
+    case aiSucceeded(costUSD: Double)
+    case validatedFellBack(costUSD: Double)
+    case providerError(String)
+    case noProvider
+
+    var note: String {
+        switch self {
+        case .aiSucceeded(let cost):
+            "Coach updated · ~\(cost.formatted(.currency(code: "USD")))"
+        case .validatedFellBack:
+            "AI plan failed checks — used the rule-engine backup"
+        case .providerError(let why):
+            "AI provider not set up (\(why)) — used the backup"
+        case .noProvider:
+            "Coach updated (rule engine)"
+        }
+    }
+}
 
 /// Generates a weekly plan through the `PlanCoordinator` (AI-generate → validate →
 /// retry → rule-engine fallback) and persists the result.
@@ -13,8 +37,17 @@ import ExerciseCatalog
 func generateAndStore(context: UserContext,
                       activeProfile: ProviderProfile?,
                       catalog: CatalogStore,
-                      modelContext: ModelContext) async -> String {
-    let provider = activeProfile.flatMap { try? LLMProviderFactory.make(from: $0) }
+                      modelContext: ModelContext) async -> GenerationOutcome {
+    var provider: (any LLMProvider)?
+    var providerErrorReason: String?
+    if let activeProfile {
+        do {
+            provider = try LLMProviderFactory.make(from: activeProfile)
+        } catch {
+            provider = nil
+            providerErrorReason = factoryErrorReason(error)
+        }
+    }
 
     let result = await PlanCoordinator(provider: provider, catalog: catalog)
         .makePlan(context: context, weekStartDate: .now)
@@ -24,47 +57,54 @@ func generateAndStore(context: UserContext,
         modelContext.insert(stored)
     }
 
-    var recordedCostUSD: Double?
-
-    if result.call != nil || provider != nil {
-        let inputTokens = result.call?.inputTokens ?? 0
-        let outputTokens = result.call?.outputTokens ?? 0
-        let cachedTokens = result.call?.cachedTokens ?? 0
+    // One AICallRecord per paid call actually made (call-granular ledger).
+    var totalCostUSD = 0.0
+    for (index, call) in result.calls.enumerated() {
         let costUSD: Double
         if let activeProfile {
-            costUSD = AICallRecord.cost(inputTokens: inputTokens,
-                                        outputTokens: outputTokens,
-                                        cachedTokens: cachedTokens,
+            costUSD = AICallRecord.cost(inputTokens: call.inputTokens,
+                                        outputTokens: call.outputTokens,
+                                        cachedTokens: call.cachedTokens,
                                         pricePerMTokIn: activeProfile.pricePerMTokIn,
                                         pricePerMTokOut: activeProfile.pricePerMTokOut,
                                         pricePerMTokCached: activeProfile.pricePerMTokCached)
         } else {
             costUSD = 0
         }
-        recordedCostUSD = costUSD
+        totalCostUSD += costUSD
+        let isLast = index == result.calls.count - 1
         let record = AICallRecord(callType: "planGeneration",
                                   providerDisplayName: activeProfile?.displayName ?? "—",
                                   modelID: activeProfile?.modelID ?? "—",
-                                  inputTokens: inputTokens,
-                                  outputTokens: outputTokens,
-                                  cachedTokens: cachedTokens,
+                                  inputTokens: call.inputTokens,
+                                  outputTokens: call.outputTokens,
+                                  cachedTokens: call.cachedTokens,
                                   costUSD: costUSD,
-                                  success: result.source == .ai,
-                                  usedFallback: result.source == .fallback)
+                                  success: call.succeeded,
+                                  usedFallback: result.source == .fallback && isLast)
         modelContext.insert(record)
     }
 
     try? modelContext.save()
 
+    if let providerErrorReason {
+        return .providerError(providerErrorReason)
+    }
     switch result.source {
-    case .fallback:
-        return "Used the rule-engine backup"
-    case .ruleEngine:
-        return "Coach updated"
     case .ai:
-        if let cost = recordedCostUSD {
-            return "Coach updated · ~\(cost.formatted(.currency(code: "USD")))"
-        }
-        return "Coach updated"
+        return .aiSucceeded(costUSD: totalCostUSD)
+    case .fallback:
+        return .validatedFellBack(costUSD: totalCostUSD)
+    case .ruleEngine:
+        return .noProvider
+    }
+}
+
+private func factoryErrorReason(_ error: Error) -> String {
+    switch error as? LLMProviderFactory.FactoryError {
+    case .missingAPIKey: "missing API key"
+    case .missingBaseURL: "missing base URL"
+    case .invalidBaseURL: "invalid base URL"
+    case .none: "configuration error"
     }
 }

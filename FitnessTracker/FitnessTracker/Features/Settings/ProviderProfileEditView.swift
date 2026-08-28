@@ -1,7 +1,7 @@
 import SwiftUI
 import SwiftData
 
-private extension AdapterKind {
+extension AdapterKind {
     var label: String {
         switch self {
         case .openAICompatible: "OpenAI-compatible"
@@ -28,6 +28,7 @@ struct ProviderProfileEditView: View {
     @State private var priceIn: Double
     @State private var priceOut: Double
     @State private var priceCached: Double
+    @State private var keychainError: String?
 
     init(profile: ProviderProfile?) {
         self.profile = profile
@@ -78,23 +79,25 @@ struct ProviderProfileEditView: View {
                 }
             }
 
-            Section("Pricing (USD per 1M tokens)") {
-                LabeledContent("Input") {
-                    TextField("Input", value: $priceIn, format: .number)
-                        .multilineTextAlignment(.trailing)
-                        .keyboardType(.decimalPad)
+            if kind != .appleOnDevice {
+                Section("Pricing (USD per 1M tokens)") {
+                    LabeledContent("Input") {
+                        TextField("Input", value: $priceIn, format: .number)
+                            .multilineTextAlignment(.trailing)
+                            .keyboardType(.decimalPad)
+                    }
+                    LabeledContent("Output") {
+                        TextField("Output", value: $priceOut, format: .number)
+                            .multilineTextAlignment(.trailing)
+                            .keyboardType(.decimalPad)
+                    }
+                    LabeledContent("Cached") {
+                        TextField("Cached", value: $priceCached, format: .number)
+                            .multilineTextAlignment(.trailing)
+                            .keyboardType(.decimalPad)
+                    }
+                    Toggle("Supports vision", isOn: $supportsVision)
                 }
-                LabeledContent("Output") {
-                    TextField("Output", value: $priceOut, format: .number)
-                        .multilineTextAlignment(.trailing)
-                        .keyboardType(.decimalPad)
-                }
-                LabeledContent("Cached") {
-                    TextField("Cached", value: $priceCached, format: .number)
-                        .multilineTextAlignment(.trailing)
-                        .keyboardType(.decimalPad)
-                }
-                Toggle("Supports vision", isOn: $supportsVision)
             }
 
             if isEditing {
@@ -106,6 +109,13 @@ struct ProviderProfileEditView: View {
         }
         .navigationTitle(isEditing ? "Edit Provider" : "New Provider")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("Couldn't save the API key", isPresented: Binding(
+            get: { keychainError != nil },
+            set: { if !$0 { keychainError = nil } })) {
+            Button("OK", role: .cancel) { keychainError = nil }
+        } message: {
+            Text(keychainError ?? "")
+        }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") { save() }
@@ -147,8 +157,13 @@ struct ProviderProfileEditView: View {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedKey.isEmpty {
             let ref = target.apiKeyRef ?? UUID().uuidString
-            try? KeychainStore.set(trimmedKey, account: ref)
-            target.apiKeyRef = ref
+            do {
+                try KeychainStore.set(trimmedKey, account: ref)
+                target.apiKeyRef = ref
+            } catch {
+                keychainError = "The key could not be written to the Keychain. Try again."
+                return
+            }
         }
 
         try? context.save()

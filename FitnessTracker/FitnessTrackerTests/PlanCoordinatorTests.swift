@@ -33,11 +33,18 @@ struct PlanCoordinatorTests {
      "weeklyVolumeTargets":[{"muscle":"chest","targetSets":12},{"muscle":"back","targetSets":12},{"muscle":"quads","targetSets":12}]}
     """
 
+    /// A structurally-degenerate payload: decodes fine, validates clean against
+    /// the frozen `PlanValidator` (which only iterates `sessions`), but has no
+    /// sessions at all.
+    private let emptySessionsJSON = """
+    {"rationale":"placeholder","sessions":[],"weeklyVolumeTargets":[]}
+    """
+
     @Test func noProviderUsesRuleEngine() async throws {
         let coord = PlanCoordinator(provider: nil, catalog: try catalog())
         let r = await coord.makePlan(context: ctx(), weekStartDate: .init())
         #expect(r.source == .ruleEngine)
-        #expect(r.call == nil)
+        #expect(r.calls.isEmpty)
         #expect(r.issues.isEmpty)
     }
 
@@ -47,8 +54,30 @@ struct PlanCoordinatorTests {
         let r = await coord.makePlan(context: ctx(), weekStartDate: .init())
         #expect(r.source == .ai)
         #expect(r.issues.isEmpty)
-        #expect(r.call?.succeeded == true)
+        #expect(r.calls.count == 1)
+        #expect(r.calls.first?.succeeded == true)
         #expect(stub.callCount == 1)
+    }
+
+    @Test func emptySessionsTwiceFallsBack() async throws {
+        let stub = StubLLMProvider(responses: [.success(emptySessionsJSON), .success(emptySessionsJSON)])
+        let coord = PlanCoordinator(provider: stub, catalog: try catalog())
+        let r = await coord.makePlan(context: ctx(), weekStartDate: .init())
+        #expect(stub.callCount == 2)
+        #expect(r.source == .fallback)
+        #expect(r.calls.count == 2)
+        #expect(r.calls.last?.succeeded == false)
+    }
+
+    @Test func emptySessionsThenValidUsesAI() async throws {
+        let stub = StubLLMProvider(responses: [.success(emptySessionsJSON), .success(validDTOJSON)])
+        let coord = PlanCoordinator(provider: stub, catalog: try catalog())
+        let r = await coord.makePlan(context: ctx(), weekStartDate: .init())
+        #expect(stub.callCount == 2)
+        #expect(r.source == .ai)
+        #expect(r.calls.count == 2)
+        // the retry prompt told the model what was structurally wrong
+        #expect(stub.lastUser.localizedCaseInsensitiveContains("no sessions"))
     }
 
     @Test func retriesOnceThenAcceptsSecond() async throws {
@@ -62,6 +91,7 @@ struct PlanCoordinatorTests {
         let r = await coord.makePlan(context: ctx(), weekStartDate: .init())
         #expect(stub.callCount == 2)
         #expect(r.source == .ai)
+        #expect(r.calls.count == 2)
         #expect(stub.lastUser.localizedCaseInsensitiveContains("previous attempt"))
     }
 
@@ -77,7 +107,8 @@ struct PlanCoordinatorTests {
         #expect(stub.callCount == 2)
         #expect(r.source == .fallback)
         #expect(r.issues.isEmpty)                 // the rule-engine plan itself validates
-        #expect(r.call?.succeeded == false)
+        #expect(r.calls.count == 2)
+        #expect(r.calls.last?.succeeded == false)
     }
 
     @Test func thrownErrorFallsBack() async throws {
