@@ -23,7 +23,10 @@ nonisolated struct GeminiProvider: LLMProvider {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
 
-        let schemaObject = try JSONSerialization.jsonObject(with: Data(schema.json.utf8))
+        // Gemini's `Schema` proto has no `additionalProperties`; sending it
+        // (the shared schema sets it for OpenAI strict mode) yields a 400.
+        let schemaObject = Self.sanitizeSchema(
+            try JSONSerialization.jsonObject(with: Data(schema.json.utf8)))
         let body: [String: Any] = [
             "system_instruction": ["parts": [["text": system]]],
             "contents": [["role": "user", "parts": [["text": user]]]],
@@ -39,7 +42,9 @@ nonisolated struct GeminiProvider: LLMProvider {
         catch { throw LLMError.transport(error.localizedDescription) }
         guard let http = response as? HTTPURLResponse else { throw LLMError.transport("no HTTP response") }
         guard (200...299).contains(http.statusCode) else {
-            throw LLMError.transport("HTTP \(http.statusCode): \(String(decoding: data.prefix(300), as: UTF8.self))")
+            let body = OpenAICompatibleProvider.redactSecrets(
+                String(decoding: data.prefix(300), as: UTF8.self))
+            throw LLMError.transport("HTTP \(http.statusCode): \(body)")
         }
 
         let envelope: Envelope
@@ -63,6 +68,22 @@ nonisolated struct GeminiProvider: LLMProvider {
                                                         image: ImagePayload, schema: JSONSchema,
                                                         as type: Value.Type) async throws -> LLMResult<Value> {
         throw LLMError.visionUnsupported
+    }
+
+    /// Recursively drops every `additionalProperties` key (at any depth) from a
+    /// parsed JSON-schema object so it is accepted by Gemini's `responseSchema`.
+    private static func sanitizeSchema(_ obj: Any) -> Any {
+        if let dict = obj as? [String: Any] {
+            var out: [String: Any] = [:]
+            for (key, value) in dict where key != "additionalProperties" {
+                out[key] = sanitizeSchema(value)
+            }
+            return out
+        }
+        if let array = obj as? [Any] {
+            return array.map { sanitizeSchema($0) }
+        }
+        return obj
     }
 
     private struct Envelope: Decodable {
