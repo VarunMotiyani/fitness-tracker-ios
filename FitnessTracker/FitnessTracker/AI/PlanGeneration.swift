@@ -10,6 +10,7 @@ import LLMKit
 nonisolated enum GenerationOutcome: Sendable {
     case aiSucceeded(costUSD: Double)
     case validatedFellBack(costUSD: Double)
+    case aiUnavailable
     case providerError(String)
     case noProvider
 
@@ -19,6 +20,8 @@ nonisolated enum GenerationOutcome: Sendable {
             "Coach updated · ~\(cost.formatted(.currency(code: "USD")))"
         case .validatedFellBack:
             "AI plan failed checks — used the rule-engine backup"
+        case .aiUnavailable:
+            "AI unavailable — used the rule-engine backup"
         case .providerError(let why):
             "AI provider not set up (\(why)) — used the backup"
         case .noProvider:
@@ -94,7 +97,10 @@ func generateAndStore(context: UserContext,
     case .ai:
         return .aiSucceeded(costUSD: totalCostUSD)
     case .fallback:
-        return .validatedFellBack(costUSD: totalCostUSD)
+        // No completed call means the provider threw before returning a plan
+        // (transport error, rate limit, network down) rather than the model
+        // producing a plan that failed validation.
+        return result.calls.isEmpty ? .aiUnavailable : .validatedFellBack(costUSD: totalCostUSD)
     case .ruleEngine:
         return .noProvider
     }

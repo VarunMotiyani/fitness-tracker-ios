@@ -151,7 +151,6 @@ struct ProviderProfileEditView: View {
                 pricePerMTokIn: priceIn,
                 pricePerMTokOut: priceOut,
                 pricePerMTokCached: priceCached)
-            context.insert(target)
         }
 
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -166,6 +165,11 @@ struct ProviderProfileEditView: View {
             }
         }
 
+        // Insert only after the key write has succeeded, so a failed write
+        // can't leave a key-less new profile behind via SwiftData autosave.
+        if profile == nil {
+            context.insert(target)
+        }
         try? context.save()
         dismiss()
     }
