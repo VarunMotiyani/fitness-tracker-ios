@@ -35,9 +35,9 @@ struct SettingsView: View {
             }
 
             Section("AI Coach") {
-                LabeledContent("Status", value: "Coming in Phase 1c")
+                NavigationLink("Providers") { ProviderProfileListView() }
+                LabeledContent("Active", value: activeProfiles.first?.displayName ?? "None (rule engine)")
             }
-            .disabled(true)
         }
         .navigationTitle("Settings")
         .task {
