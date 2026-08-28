@@ -55,12 +55,43 @@ nonisolated struct PlanCoordinator {
             if issues.isEmpty {
                 return CoordinatorResult(plan: plan, source: .ai, issues: [], call: call)
             }
-            // retry/fallback added in Task 7
-            return ruleResult(context: context, weekStartDate: weekStartDate,
-                              source: .fallback, call: call)
+            // one retry with the validation errors fed back
+            let retryUser = prompts.user(context: context, priorIssues: describe(issues))
+            do {
+                let retry = try await provider.complete(
+                    system: prompts.system(), user: retryUser,
+                    schema: WeeklyPlanDTO.planJSONSchema, as: WeeklyPlanDTO.self)
+                let retryPlan = retry.value.toDomain(weekStartDate: weekStartDate, source: .ai)
+                let retryIssues = validator.validate(retryPlan, context: context)
+                let retryCall = CallOutcome(inputTokens: retry.inputTokens,
+                                            outputTokens: retry.outputTokens,
+                                            cachedTokens: retry.cachedTokens,
+                                            succeeded: retryIssues.isEmpty)
+                if retryIssues.isEmpty {
+                    return CoordinatorResult(plan: retryPlan, source: .ai, issues: [], call: retryCall)
+                }
+                return ruleResult(context: context, weekStartDate: weekStartDate,
+                                  source: .fallback, call: retryCall)
+            } catch {
+                return ruleResult(context: context, weekStartDate: weekStartDate,
+                                  source: .fallback, call: call)
+            }
         } catch {
             return ruleResult(context: context, weekStartDate: weekStartDate,
                               source: .fallback, call: nil)
+        }
+    }
+
+    private func describe(_ issues: [ValidationIssue]) -> [String] {
+        issues.map { issue in
+            switch issue {
+            case .unknownExerciseID(let id): "unknown exercise ID: \(id)"
+            case .excludedExercisePresent(let id): "used an excluded exercise: \(id)"
+            case .excludedMusclePresent(let m): "trained an excluded muscle: \(m.rawValue)"
+            case .weeklyVolumeOutOfBand(let m, let sets, let band):
+                "\(m.rawValue) weekly sets \(sets) outside \(band.mev)–\(band.mrv)"
+            case .emptySession(let order): "session \(order + 1) has no items"
+            }
         }
     }
 

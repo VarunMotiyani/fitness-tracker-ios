@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import FitnessDomain
 import ExerciseCatalog
+import LLMKit
 @testable import FitnessTracker
 
 struct PlanCoordinatorTests {
@@ -47,6 +48,43 @@ struct PlanCoordinatorTests {
         #expect(r.source == .ai)
         #expect(r.issues.isEmpty)
         #expect(r.call?.succeeded == true)
+        #expect(stub.callCount == 1)
+    }
+
+    @Test func retriesOnceThenAcceptsSecond() async throws {
+        let badJSON = """
+        {"rationale":"bad","sessions":[{"order":0,"focusMuscles":["chest"],"items":[
+          {"exerciseID":"Ghost_Lift","sets":3,"repMin":8,"repMax":12,"restSeconds":150,"coachNote":"x"}]}],
+         "weeklyVolumeTargets":[]}
+        """
+        let stub = StubLLMProvider(responses: [.success(badJSON), .success(validDTOJSON)])
+        let coord = PlanCoordinator(provider: stub, catalog: try catalog())
+        let r = await coord.makePlan(context: ctx(), weekStartDate: .init())
+        #expect(stub.callCount == 2)
+        #expect(r.source == .ai)
+        #expect(stub.lastUser.localizedCaseInsensitiveContains("previous attempt"))
+    }
+
+    @Test func twoBadResponsesFallBackToRuleEngine() async throws {
+        let badJSON = """
+        {"rationale":"bad","sessions":[{"order":0,"focusMuscles":["chest"],"items":[
+          {"exerciseID":"Ghost_Lift","sets":3,"repMin":8,"repMax":12,"restSeconds":150,"coachNote":"x"}]}],
+         "weeklyVolumeTargets":[]}
+        """
+        let stub = StubLLMProvider(responses: [.success(badJSON), .success(badJSON)])
+        let coord = PlanCoordinator(provider: stub, catalog: try catalog())
+        let r = await coord.makePlan(context: ctx(), weekStartDate: .init())
+        #expect(stub.callCount == 2)
+        #expect(r.source == .fallback)
+        #expect(r.issues.isEmpty)                 // the rule-engine plan itself validates
+        #expect(r.call?.succeeded == false)
+    }
+
+    @Test func thrownErrorFallsBack() async throws {
+        let stub = StubLLMProvider(responses: [.failure(.rateLimited)])
+        let coord = PlanCoordinator(provider: stub, catalog: try catalog())
+        let r = await coord.makePlan(context: ctx(), weekStartDate: .init())
+        #expect(r.source == .fallback)
         #expect(stub.callCount == 1)
     }
 }
