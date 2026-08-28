@@ -44,9 +44,34 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     static func session() -> URLSession {
         let token = UUID().uuidString
         lock.withLock { tokenHandlers[token] = _handler }
+        return makeSession(token: token)
+    }
+
+    /// Preferred entry point: binds `handler` directly to this session's private
+    /// token, with no reliance on the process-global staging slot.
+    static func session(handler: @escaping Handler) -> URLSession {
+        let token = UUID().uuidString
+        lock.withLock { tokenHandlers[token] = handler }
+        return makeSession(token: token)
+    }
+
+    private static func makeSession(token: String) -> URLSession {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubURLProtocol.self]
         config.httpAdditionalHeaders = [tokenHeader: token]
         return URLSession(configuration: config)
     }
+}
+
+/// Lock-guarded box so a `StubURLProtocol` handler — which runs on a `URLSession`
+/// protocol thread with no `Test.current` — can hand values back to the test task
+/// for assertion after the `await` returns.
+final class Locked<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+
+    init(_ value: Value) { self.value = value }
+
+    func get() -> Value { lock.withLock { value } }
+    func set(_ newValue: Value) { lock.withLock { value = newValue } }
 }
