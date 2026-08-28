@@ -1,6 +1,6 @@
 # HANDOFF — Read This First
 
-_Living document. Last updated: 2026-08-28 (Phase 1c complete)._
+_Living document. Last updated: 2026-08-29 (Phase 1c merged to `main`)._
 
 **Purpose:** one read = full context. If you're a new agent/session on any
 device, read this top to bottom before doing anything. It captures the project,
@@ -43,11 +43,11 @@ simplicity: no backend, no accounts, on-device storage, bring-your-own API key.
 
 | | |
 |---|---|
-| **Phase** | **Phase 1c COMPLETE** on branch `phase-1c-ai-integration` (acceptance pass done; interactive click-through is Varun's at branch-finish). Phase 1a + 1b already MERGED to `main`. `FitnessCore` package (5 modules, 35 tests) + `FitnessTracker` app: onboarding → **AI-or-rule** weekly plan → read-only plan view. 1c adds `ProviderProfile` + Keychain keys, 3 `LLMProvider` adapters (`openAICompatible`, `gemini`, `appleOnDevice`), `LLMProviderFactory`, `PlanCoordinator` (AI-generate → validate → retry-once → rule fallback, `WeeklyPlan.source` tracked), the `AICallRecord` cost ledger + `CostSummary`, provider-profile UI, and the `$` chip / Usage section / post-generation note. App unit tests: 32 (Swift Testing) + 6 XCTest UI/launch, all green. |
+| **Phase** | **Phase 1c MERGED to `main`** (PR #3, merge commit `99d2600`). Phase 1a + 1b + 1c all on `main`; merged result verified green (app suite + `FitnessCore` 35/35). Interactive simulator click-through (onboarding → add provider → Regenerate → Start over) is still Varun's to run once. `FitnessCore` package (5 modules, 35 tests) + `FitnessTracker` app: onboarding → **AI-or-rule** weekly plan → read-only plan view. 1c adds `ProviderProfile` + Keychain keys, 3 `LLMProvider` adapters (`openAICompatible`, `gemini`, `appleOnDevice`), `LLMProviderFactory`, `PlanCoordinator` (AI-generate → validate → retry-once → rule fallback, `WeeklyPlan.source` tracked), the `AICallRecord` cost ledger + `CostSummary`, provider-profile UI, and the `$` chip / Usage section / post-generation note. App unit tests: 32 (Swift Testing) + 6 XCTest UI/launch, all green. |
 | **Next action** | **Phase 2 — "Run my session and remember it"**: session runner UI, set logging + rest timer, pre-session energy/time check, per-exercise + session feedback, `CompletedSession` persistence, history view, real progression rule. Plan via `superpowers:writing-plans`. Carry the `FitnessCore/README.md` engine/validator follow-ups (empty sessions, zero-volume blind spot, `sessionLengthMinutes`) and the 1c deferrals (budget cap + `pauseAIWhenOverBudget`, native Anthropic / Vertex / Bedrock adapters, vision) forward. |
-| **Phase 1 split** | **1a** ✅ merged → **1b** ✅ merged → **1c** ✅ complete (branch `phase-1c-ai-integration`, pending merge). Phase 1 done. |
+| **Phase 1 split** | **1a** ✅ merged → **1b** ✅ merged → **1c** ✅ merged (PR #3, `99d2600`). Phase 1 done. |
 | **Repo** | `github.com/VarunMotiyani/fitness-tracker-ios` (public) |
-| **Branch** | `phase-1c-ai-integration` (Phase 1b merged to `main` at `274a29c`) |
+| **Branch** | `main` at `99d2600` (Phase 1c merged; `phase-1c-ai-integration` branch deleted). Next phase starts from a fresh branch off `main`. |
 | **Uncommitted** | Check `git status` — doc edits are often pending; the user controls when they're committed. |
 | **Toolchain** | Xcode 26.6 installed & active; iOS 26.5 simulator. `FitnessCore` no longer pins `swift-testing` (Xcode bundles it). App project = plain committed `.xcodeproj`, Xcode-16 synchronized groups (files auto-join targets by folder). |
 | **Xcode 26 gotchas (see `FitnessTracker/README.md`)** | App module defaults to `@MainActor` isolation → pure-logic helpers marked `nonisolated`. Trim "Designed for iPad" destinations or the local-package platform intersection goes empty (no run destinations). |
@@ -266,7 +266,13 @@ RuleEngine + Validator.
     `.visionUnsupported` in every adapter). Task 17 = acceptance pass: app suite
     32 Swift-Testing + 6 XCTest UI/launch green, `FitnessCore` 35/35 (untouched),
     simulator smoke OK; interactive onboarding / add-provider / Regenerate
-    click-through left for Varun at branch-finish. Not yet merged.
+    click-through left for Varun to run once. A whole-branch review on Opus then
+    one consolidated fix wave closed 2 Critical + 7 Important (Gemini schema
+    `additionalProperties` rejection, empty-`sessions` plan passing validation,
+    under-counted per-call cost ledger, on-device schema omission, silent
+    provider failures, missing in-flight guard, base-URL validation, `URLSession`
+    timeouts), followed by a scoped re-review. **PR #3 merged to `main`
+    (`99d2600`); merged result verified green; branch deleted.**
 
 ---
 
