@@ -151,7 +151,8 @@ simplicity: no backend, no accounts, on-device storage, bring-your-own API key.
 ### Delivery
 - **4 phases**, each independently usable:
   1. **Give me a plan** — models, onboarding, catalog, rule-engine
-     templates+landmarks, 4 LLM adapters + provisional profile, generation →
+     templates+landmarks, three LLM adapters + user-managed profiles (no seeded
+     default), generation →
      validation → fallback, cost metering + `$` chip, read-only plan view,
      Settings (profile management), offline plan reads.
   2. **Run my session & remember it** — session runner, set logging, rest timer,
@@ -231,8 +232,9 @@ RuleEngine + Validator.
 9. Chose native Swift over React Native.
 10. Added decision register (doc 06).
 11. Added API cost analysis (doc 08) after a token-volume estimate.
-12. Expanded the AI layer: user-managed `ProviderProfile`s, four adapters,
-    real-time cost metering, budget toggle, explicit offline guarantee.
+12. Expanded the AI layer: user-managed `ProviderProfile`s, four planned adapters
+    (trimmed to three shipped in 1c — native `anthropic` deferred), real-time
+    cost metering, budget toggle, explicit offline guarantee.
 13. Researched skills/plugins (doc 09).
 14. Wrote this handoff doc.
 15. Split Phase 1 into 1a/1b/1c. Wrote the **Phase 1a** plan (`FitnessCore`
