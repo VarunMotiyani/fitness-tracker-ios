@@ -12,6 +12,6 @@ import SwiftData
 struct FitnessTrackerApp: App {
     var body: some Scene {
         WindowGroup { RootView() }
-            .modelContainer(for: [UserProfile.self, StoredPlan.self])
+            .modelContainer(for: [UserProfile.self, StoredPlan.self, ProviderProfile.self])
     }
 }
