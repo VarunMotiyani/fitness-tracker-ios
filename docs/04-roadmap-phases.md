@@ -13,29 +13,35 @@ Guiding rule: don't start a phase until the previous one runs on Varun's phone.
 ## Phase 1 — "Give me a plan"
 
 > **Split during execution into 1a / 1b / 1c** (see `HANDOFF.md` for the current
-> breakdown and status):
+> breakdown and status). **Phase 1 is complete.**
 > - **1a ✅ merged** — `FitnessCore` Swift package (domain, catalog, rule engine,
 >   validation, `LLMProvider` contract). 35 tests.
-> - **1b ✅ (branch pending merge)** — `FitnessTracker` app: onboarding →
+> - **1b ✅ merged** — `FitnessTracker` app: onboarding →
 >   rule-engine plan → read-only plan view, offline, no AI. SwiftData persistence,
 >   Settings scaffold. 12 app unit tests.
-> - **1c** — AI integration: `LLMProvider` adapters, provisional profile,
->   `AIClient`, `PlanCoordinator` (generate → validate → fallback), `AICallRecord`
->   + cost chip, provider-profile UI. The "Build" list below from
->   `ProviderProfile` / `AICallRecord` / cost onward is 1c.
+> - **1c ✅ complete** (branch `phase-1c-ai-integration`, pending merge) — AI
+>   integration: 3 `LLMProvider` adapters (`openAICompatible`, `gemini`,
+>   `appleOnDevice`) + `LLMProviderFactory`, user-managed `ProviderProfile`s with
+>   Keychain-stored keys, `PlanCoordinator` (generate → validate → retry-once →
+>   rule fallback, `WeeklyPlan.source` tracked), `AICallRecord` cost ledger +
+>   `CostSummary`, `$` chip / Usage section / post-generation note, provider-profile
+>   UI. Deferred (documented): budget cap + `pauseAIWhenOverBudget`, native
+>   Anthropic / Gemini-Vertex / AWS-Bedrock adapters, vision. The "Build" list
+>   below from `ProviderProfile` / `AICallRecord` / cost onward was 1c.
 
-**Goal:** open the app, answer onboarding, get a real weekly plan you can read.
+**Goal (met):** open the app, answer onboarding, get a real weekly plan you can read.
 
-**Build:**
+**Built:**
 - SwiftData models (profile, equipment, limitations, weekly plan,
   `ProviderProfile`, `AICallRecord`).
 - Onboarding flow (all fields from §2 of product design).
 - Bundled exercise catalog (~100–150 exercises + images) + `CatalogStore`.
 - `RuleEngine`: split templates + volume landmarks (progression can be stubbed).
-- `LLMProvider` protocol + **all four adapters** (`openAICompatible`, `gemini`,
-  `anthropic`, `appleOnDevice`) against **one provisional seeded profile**
-  (fastest model to stand up — not a committed choice, Q8) + `AIClient` +
-  `WeeklyPlan` JSON decode.
+- `LLMProvider` protocol + **three adapters shipped** (`openAICompatible`,
+  `gemini`, `appleOnDevice`; native `anthropic` / Vertex / Bedrock deferred —
+  `openAICompatible` reaches them via compat/proxy endpoints) against
+  user-managed `ProviderProfile`s (no seeded profile — rule engine until the
+  user adds one) + `LLMProviderFactory` + `WeeklyPlanDTO` JSON decode.
 - `Validator`: catalog-id + exclusion + volume-band checks.
 - `PlanCoordinator`: generate → validate → retry-once → rule-engine fallback.
 - Plan view: read-only week, sessions, exercises, targets, "why this plan" —
@@ -46,13 +52,13 @@ Guiding rule: don't start a phase until the previous one runs on Varun's phone.
 - Settings: manage provider profiles (add/edit/activate, paste key to Keychain,
   set model ID + prices); basic month-to-date + all-time cost totals.
 
-**Done when:** onboarding → a validated, sensible weekly plan appears; a forced
-AI failure still produces a fallback plan; each generation shows its cost and the
-month-to-date figure updates; switching the active provider profile takes effect
-on the next call.
+**Done when (met):** onboarding → a validated, sensible weekly plan appears; a
+forced AI failure still produces a fallback plan; each generation shows its cost
+and the month-to-date figure updates; switching the active provider profile takes
+effect on the next call.
 
-**Not yet:** logging, session runner, swaps, InBody, notifications, the full
-Usage & Cost screen, budget cap.
+**Not in Phase 1:** logging, session runner, swaps, InBody, notifications, the
+full Usage & Cost screen, budget cap.
 
 ---
 

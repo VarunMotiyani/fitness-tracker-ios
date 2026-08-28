@@ -1,6 +1,6 @@
 # HANDOFF — Read This First
 
-_Living document. Last updated: 2026-08-28 (Phase 1b merged)._
+_Living document. Last updated: 2026-08-28 (Phase 1c complete)._
 
 **Purpose:** one read = full context. If you're a new agent/session on any
 device, read this top to bottom before doing anything. It captures the project,
@@ -43,11 +43,11 @@ simplicity: no backend, no accounts, on-device storage, bring-your-own API key.
 
 | | |
 |---|---|
-| **Phase** | **Phase 1a + 1b COMPLETE & MERGED** to `main`. `FitnessCore` package (5 modules, 35 tests) + `FitnessTracker` app (onboarding → rule plan → read-only plan view, offline, 12 unit tests). Phase 1b = PR #2 (`274a29c`). |
-| **Next action** | Plan **Phase 1c** (AI integration: `LLMProvider` adapters + provisional profile, `AIClient`, `PlanCoordinator` generate→validate→fallback, `AICallRecord` + cost chip, provider-profile UI) via `superpowers:writing-plans`. Carry `FitnessCore/README.md` "Known Phase 1b follow-ups" (empty sessions, zero-volume blind spot, `sessionLengthMinutes`) into that plan. |
-| **Phase 1 split** | **1a** ✅ merged → **1b** ✅ merged → **1c** LLM adapters + `PlanCoordinator` + cost metering (next). |
+| **Phase** | **Phase 1c COMPLETE** on branch `phase-1c-ai-integration` (acceptance pass done; interactive click-through is Varun's at branch-finish). Phase 1a + 1b already MERGED to `main`. `FitnessCore` package (5 modules, 35 tests) + `FitnessTracker` app: onboarding → **AI-or-rule** weekly plan → read-only plan view. 1c adds `ProviderProfile` + Keychain keys, 3 `LLMProvider` adapters (`openAICompatible`, `gemini`, `appleOnDevice`), `LLMProviderFactory`, `PlanCoordinator` (AI-generate → validate → retry-once → rule fallback, `WeeklyPlan.source` tracked), the `AICallRecord` cost ledger + `CostSummary`, provider-profile UI, and the `$` chip / Usage section / post-generation note. App unit tests: 32 (Swift Testing) + 6 XCTest UI/launch, all green. |
+| **Next action** | **Phase 2 — "Run my session and remember it"**: session runner UI, set logging + rest timer, pre-session energy/time check, per-exercise + session feedback, `CompletedSession` persistence, history view, real progression rule. Plan via `superpowers:writing-plans`. Carry the `FitnessCore/README.md` engine/validator follow-ups (empty sessions, zero-volume blind spot, `sessionLengthMinutes`) and the 1c deferrals (budget cap + `pauseAIWhenOverBudget`, native Anthropic / Vertex / Bedrock adapters, vision) forward. |
+| **Phase 1 split** | **1a** ✅ merged → **1b** ✅ merged → **1c** ✅ complete (branch `phase-1c-ai-integration`, pending merge). Phase 1 done. |
 | **Repo** | `github.com/VarunMotiyani/fitness-tracker-ios` (public) |
-| **Branch** | `main` (Phase 1b merged at `274a29c`) |
+| **Branch** | `phase-1c-ai-integration` (Phase 1b merged to `main` at `274a29c`) |
 | **Uncommitted** | Check `git status` — doc edits are often pending; the user controls when they're committed. |
 | **Toolchain** | Xcode 26.6 installed & active; iOS 26.5 simulator. `FitnessCore` no longer pins `swift-testing` (Xcode bundles it). App project = plain committed `.xcodeproj`, Xcode-16 synchronized groups (files auto-join targets by folder). |
 | **Xcode 26 gotchas (see `FitnessTracker/README.md`)** | App module defaults to `@MainActor` isolation → pure-logic helpers marked `nonisolated`. Trim "Designed for iPad" destinations or the local-package platform intersection goes empty (no run destinations). |
@@ -241,10 +241,27 @@ RuleEngine + Validator.
 17. Xcode 26.6 installed. **Executed Phase 1b** inline (`superpowers:executing-plans`)
     on branch `phase-1b-app-shell` — 12 tasks: dropped the swift-testing dep,
     created the `FitnessTracker` Xcode app, SwiftData models + `UserContext`
-    mapper, stub catalog + loader, `PlanService`, the 7-step onboarding flow,
-    read-only plan view, root nav + Settings scaffold. App runs the full flow
-    (onboarding → plan → settings → start over) on the simulator; 12 app unit
-    tests pass. **PR #2 merged to `main` (`274a29c`).**
+    mapper, stub catalog + loader, plan generation (`PlanCoordinator` /
+    `PlanGeneration` — a `PlanService` scaffold that 1c replaced), the 7-step
+    onboarding flow, read-only plan view, root nav + Settings scaffold. App runs
+    the full flow (onboarding → plan → settings → start over) on the simulator;
+    12 app unit tests pass. **PR #2 merged to `main` (`274a29c`).**
+18. **Executed Phase 1c** on branch `phase-1c-ai-integration` — 17 tasks: added
+    `ProviderProfile` + `KeychainStore` (BYO keys), `AICallRecord` + cost math +
+    `CostSummary`, the `PlanPromptBuilder` / `WeeklyPlanDTO` / `planJSONSchema`,
+    three `LLMProvider` adapters (`OpenAICompatibleProvider` with
+    `response_format: json_schema`, `GeminiProvider` with `responseSchema`,
+    `FoundationModelsProvider` on-device) + `LLMProviderFactory`, the
+    `PlanCoordinator` (AI-generate → validate → retry-once → rule-engine
+    fallback, `WeeklyPlan.source` = `ai` / `ruleEngine` / `fallback`),
+    `generateAndStore` wiring, provider-profile management UI, and the real-time
+    cost UI (`$` chip + Settings → Usage + post-generation note). Deferred and
+    documented: budget cap + `pauseAIWhenOverBudget` toggle, native Anthropic /
+    Gemini-Vertex / AWS-Bedrock adapters, vision (`completeWithImage` throws
+    `.visionUnsupported` in every adapter). Task 17 = acceptance pass: app suite
+    32 Swift-Testing + 6 XCTest UI/launch green, `FitnessCore` 35/35 (untouched),
+    simulator smoke OK; interactive onboarding / add-provider / Regenerate
+    click-through left for Varun at branch-finish. Not yet merged.
 
 ---
 
