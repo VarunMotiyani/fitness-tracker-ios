@@ -1,6 +1,6 @@
 # HANDOFF — Read This First
 
-_Living document. Last updated: 2026-08-28 (Phase 1b complete, pending merge)._
+_Living document. Last updated: 2026-08-28 (Phase 1b merged)._
 
 **Purpose:** one read = full context. If you're a new agent/session on any
 device, read this top to bottom before doing anything. It captures the project,
@@ -43,11 +43,11 @@ simplicity: no backend, no accounts, on-device storage, bring-your-own API key.
 
 | | |
 |---|---|
-| **Phase** | **Phase 1b COMPLETE** (on branch `phase-1b-app-shell`, not yet merged) — `FitnessTracker` app: onboarding → rule plan → read-only plan view, runs on the iOS 26 simulator. 12 app unit tests + 35 `FitnessCore` tests pass. Phase 1a merged to `main` (`7f6deb3`). |
-| **Next action** | Merge the 1b branch, then plan **Phase 1c** (AI integration: `LLMProvider` adapters, provisional profile, `AIClient`, `PlanCoordinator` generate→validate→fallback, `AICallRecord` + cost chip, provider-profile UI). Carry `FitnessCore/README.md` "Known Phase 1b follow-ups" (empty sessions, zero-volume blind spot, `sessionLengthMinutes`) into that plan. |
-| **Phase 1 split** | **1a** ✅ merged → **1b** ✅ (branch pending merge) → **1c** LLM adapters + `PlanCoordinator` + cost metering. |
+| **Phase** | **Phase 1a + 1b COMPLETE & MERGED** to `main`. `FitnessCore` package (5 modules, 35 tests) + `FitnessTracker` app (onboarding → rule plan → read-only plan view, offline, 12 unit tests). Phase 1b = PR #2 (`274a29c`). |
+| **Next action** | Plan **Phase 1c** (AI integration: `LLMProvider` adapters + provisional profile, `AIClient`, `PlanCoordinator` generate→validate→fallback, `AICallRecord` + cost chip, provider-profile UI) via `superpowers:writing-plans`. Carry `FitnessCore/README.md` "Known Phase 1b follow-ups" (empty sessions, zero-volume blind spot, `sessionLengthMinutes`) into that plan. |
+| **Phase 1 split** | **1a** ✅ merged → **1b** ✅ merged → **1c** LLM adapters + `PlanCoordinator` + cost metering (next). |
 | **Repo** | `github.com/VarunMotiyani/fitness-tracker-ios` (public) |
-| **Branch** | `phase-1b-app-shell` (from `main` @ `7f6deb3`) |
+| **Branch** | `main` (Phase 1b merged at `274a29c`) |
 | **Uncommitted** | Check `git status` — doc edits are often pending; the user controls when they're committed. |
 | **Toolchain** | Xcode 26.6 installed & active; iOS 26.5 simulator. `FitnessCore` no longer pins `swift-testing` (Xcode bundles it). App project = plain committed `.xcodeproj`, Xcode-16 synchronized groups (files auto-join targets by folder). |
 | **Xcode 26 gotchas (see `FitnessTracker/README.md`)** | App module defaults to `@MainActor` isolation → pure-logic helpers marked `nonisolated`. Trim "Designed for iPad" destinations or the local-package platform intersection goes empty (no run destinations). |
@@ -244,7 +244,7 @@ RuleEngine + Validator.
     mapper, stub catalog + loader, `PlanService`, the 7-step onboarding flow,
     read-only plan view, root nav + Settings scaffold. App runs the full flow
     (onboarding → plan → settings → start over) on the simulator; 12 app unit
-    tests pass. Not yet merged.
+    tests pass. **PR #2 merged to `main` (`274a29c`).**
 
 ---
 
