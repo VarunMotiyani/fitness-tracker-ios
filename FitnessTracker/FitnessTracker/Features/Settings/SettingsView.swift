@@ -7,7 +7,12 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Query private var profiles: [UserProfile]
     @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
-    @Query(filter: #Predicate<ProviderProfile> { $0.isActive }) private var activeProfiles: [ProviderProfile]
+    // No `@Query(filter:)` here: a `#Predicate<ProviderProfile>` (bare-Bool
+    // *or* `== true`) makes CoreData's SQL generator thrash on iOS 26 and
+    // wedges the SwiftUI update pass when this view is pushed. Fetch all,
+    // filter in Swift — the table is tiny (a handful of providers).
+    @Query private var allProviderProfiles: [ProviderProfile]
+    private var activeProfiles: [ProviderProfile] { allProviderProfiles.filter(\.isActive) }
     @Query(sort: \AICallRecord.timestamp) private var calls: [AICallRecord]
 
     @State private var catalog: CatalogStore?
