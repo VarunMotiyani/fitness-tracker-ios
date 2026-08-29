@@ -1,0 +1,38 @@
+{
+  "configurations" : [
+    {
+      "id" : "68D18E33-27DE-4415-998B-645E7FAEAB6E",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:FitnessTracker.xcodeproj",
+      "identifier" : "F5BB88DA3040E2FF00B68BD1",
+      "name" : "FitnessTracker"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:FitnessTracker.xcodeproj",
+        "identifier" : "F5BB88E73040E30000B68BD1",
+        "name" : "FitnessTrackerTests"
+      }
+    },
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:FitnessTracker.xcodeproj",
+        "identifier" : "F5BB88F13040E30000B68BD1",
+        "name" : "FitnessTrackerUITests"
+      }
+    }
+  ],
+  "version" : 1
+}
