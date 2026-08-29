@@ -60,6 +60,8 @@ struct PlanView: View {
                 SessionContainerView(planned: session, catalog: catalog) {
                     startingSessionID = nil
                 }
+            } else {
+                ContentUnavailableView("Session not found", systemImage: "questionmark")
             }
         }
         .navigationTitle("This week")

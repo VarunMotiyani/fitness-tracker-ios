@@ -19,6 +19,12 @@ final class RestTimer {
 
     private var timer: Timer?
 
+    // No `deinit { timer?.invalidate() }`: Swift 6 rejects touching the
+    // main-actor-isolated `timer` from the nonisolated `deinit`
+    // ("main actor-isolated property 'timer' can not be referenced from a
+    // nonisolated context"). The `[weak self]` guard in `scheduleTimer`
+    // self-heals the dangling timer on its next tick.
+
     /// Real wall-clock rest taken so far, regardless of skip/add adjustments.
     /// Zero when the timer has never been started (first set of an entry).
     var elapsed: Int {
