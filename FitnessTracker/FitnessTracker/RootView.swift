@@ -54,6 +54,7 @@ struct RootView: View {
             lastNote = nil
         }
         .task {
+            SessionRunner.resolveAbandoned(in: context, now: .now)
             if catalog == nil {
                 do { catalog = try BundledCatalog.load() }
                 catch { loadFailed = true }

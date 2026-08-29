@@ -1,6 +1,6 @@
 # HANDOFF — Read This First
 
-_Living document. Last updated: 2026-08-29 (Phase 2a merged to `main`; next = Phase 2b)._
+_Living document. Last updated: 2026-08-29 (Phase 2b BUILT on branch `phase-2b-persistence-session-runner`; awaiting Varun's simulator acceptance + merge; then Phase 2c)._
 
 **Purpose:** one read = full context. If you're a new agent/session on any
 device, read this top to bottom before doing anything. It captures the project,
@@ -43,11 +43,11 @@ simplicity: no backend, no accounts, on-device storage, bring-your-own API key.
 
 | | |
 |---|---|
-| **Phase** | **Phase 1 (1a/1b/1c) + Phase 2a MERGED to `main`** (2a = PR #4, `1a0f75a`). App today: onboarding → **AI-or-rule** weekly plan → read-only plan view; `ProviderProfile` + Keychain keys, 3 `LLMProvider` adapters, `PlanCoordinator`, `AICallRecord` cost ledger + `$` chip / Usage. `FitnessCore` = **7 modules** (2a added `Metrics` + `CoachMemory`, extended `RuleEngine` with `ProgressionRule` + `FinalizeGuardrail`). Tests: app 32 Swift-Testing + 6 XCTest, `FitnessCore` **126** — all green on `main`. **2a added NO app screens** — pure engine. User-visible pages arrive in **2b** (session runner), **2c** (AI coach wiring), **2d** (history + coach-memory screen + pick-a-split). |
-| **Next action** | **Phase 2b — persistence + session runner.** Spec `docs/superpowers/specs/2026-08-29-phase-2-session-runner-design.md` §14 (2b bullet) + §3/§6. SwiftData `@Model`s that map to/from the 2a `Metrics`/`CoachMemory` value types; container schema migration; `@Observable SessionRunner`; Start / Focus / SessionList / RestTimer / Summary views; feedback capture. Rule-engine finalisation only (no AI yet). Needs Varun driving Xcode/simulator for the view work (like 1b). Write the plan via `superpowers:writing-plans`, then subagent-driven for the model/store tasks, bounce to Varun for the SwiftUI. **Read `docs/superpowers/plans/2026-08-29-phase-2a-followups.md` first** — R1 (`supersededBy` may dangle) and the `MemorySource` wire-format note both bind the 2b `@Model` mapping. Also carry `FitnessCore/README.md` follow-ups + 1c deferrals. |
+| **Phase** | **Phase 1 (1a/1b/1c) + Phase 2a MERGED to `main`** (2a = PR #4, `1a0f75a`). **Phase 2b BUILT on branch `phase-2b-persistence-session-runner`** (data layer T1–6 + 5 runner screens T7–11 + wiring T12) — awaiting Varun's simulator acceptance + merge. App on the branch: onboarding → **AI-or-rule** weekly plan → plan view with a **"Start this session"** button → the **session runner** (Start / Focus / SessionList / RestTimer / Summary), set logging, per-exercise done/skip ticks, PR detection, feel capture, rule-engine finalisation; 4h abandon sweep on every app open. 8 new SwiftData `@Model`s (session/entry/set, bodyweight/checkin/observation, PR, coach-memory; container 4→12), `ModelSnapshotMapping` to/from the 2a value types, `SwiftDataMetricsRepository` (thin adapter over the tested in-memory repo). No AI in the session path yet. `FitnessCore` = **7 modules**, untouched in 2b. Tests: app **96** (90 Swift-Testing + 6 XCTest UI/launch), `FitnessCore` **126** — all green. User-visible pages: **2c** (AI coach wiring), **2d** (history + coach-memory screen + pick-a-split). |
+| **Next action** | **Varun: run the Task 12 acceptance checklist** (in `.superpowers/sdd/2026-08-29-phase-2b-persistence-session-runner/task-12-report.md`), then merge `phase-2b-persistence-session-runner` → `main`. Then **Phase 2c — AI coach agents**: swap the LLM `finalize` path in behind `SessionFinalizer`, add the memory-keeper / analyst calls (`CoachMemoryModel` + its mapping already ship in 2b). Spec `docs/superpowers/specs/2026-08-29-phase-2-session-runner-design.md`. Carry `FitnessCore/README.md` follow-ups + 1c deferrals + the 2b deferrals (persisted rollup caches → 2d; real day-of-week mapping → Phase 3; rest-timer background notification → Phase 4); and the open R2–R5 items in `docs/superpowers/plans/2026-08-29-phase-2a-followups.md` (light-load clamp → fold into 2c, cosmetics). |
 | **Phase 1 split** | **1a** ✅ merged → **1b** ✅ merged → **1c** ✅ merged (PR #3, `99d2600`). Phase 1 done. |
 | **Repo** | `github.com/VarunMotiyani/fitness-tracker-ios` (public) |
-| **Branch** | `main` at `1a0f75a` (Phase 2a merged, PR #4; `phase-2a-metrics-memory-foundation` branch deleted, SDD workspace removed — follow-ups live in the committed `…-phase-2a-followups.md`). Phase 2b starts from a fresh branch off `main`. |
+| **Branch** | `phase-2b-persistence-session-runner` (off `main` @ `1a0f75a`) — Phase 2b BUILT (T1–12), awaiting Varun's simulator acceptance + merge. `main` still at `1a0f75a` (Phase 2a, PR #4). |
 | **Uncommitted** | Check `git status` — doc edits are often pending; the user controls when they're committed. |
 | **Toolchain** | Xcode 26.6 installed & active; iOS 26.5 simulator. `FitnessCore` no longer pins `swift-testing` (Xcode bundles it). App project = plain committed `.xcodeproj`, Xcode-16 synchronized groups (files auto-join targets by folder). |
 | **Xcode 26 gotchas (see `FitnessTracker/README.md`)** | App module defaults to `@MainActor` isolation → pure-logic helpers marked `nonisolated`. Trim "Designed for iPad" destinations or the local-package platform intersection goes empty (no run destinations). |
@@ -273,6 +273,31 @@ RuleEngine + Validator.
     provider failures, missing in-flight guard, base-URL validation, `URLSession`
     timeouts), followed by a scoped re-review. **PR #3 merged to `main`
     (`99d2600`); merged result verified green; branch deleted.**
+19. **Phase 2a** — `FitnessCore` gains `Metrics` + `CoachMemory` modules,
+    `RuleEngine` extended with `ProgressionRule` + `FinalizeGuardrail`. Pure
+    engine, 126 package tests, no app screens. **PR #4 merged to `main`
+    (`1a0f75a`).**
+20. **2026-08-29 — Built Phase 2b** on branch
+    `phase-2b-persistence-session-runner` (persistence + session runner).
+    T1–6 = the data layer: 8 SwiftData `@Model`s (session/entry/set,
+    bodyweight/checkin/observation, PR, coach-memory) mapping to/from the 2a
+    value types via `ModelSnapshotMapping`, container schema 4→12,
+    `SwiftDataMetricsRepository` (thin adapter over the tested
+    `InMemoryMetricsRepository`), rule-engine `SessionFinalizer`, `@Observable
+    SessionRunner` (start / log-sets / tick-done / finish / PR-detection /
+    summary + a `resolveAbandoned` 4h abandon sweep). T7–11 = the five runner
+    SwiftUI screens (Start / Focus / SessionList / RestTimer / Summary) +
+    `SessionContainerView` router. **T12** = wired into the app: a "Start this
+    session" button on the `order == 0` session in `PlanView` →
+    `.navigationDestination` (driven off `session.id` — `PlannedSession` isn't
+    `Hashable`) → `SessionContainerView`, `onFinished` pops back;
+    `SessionRunner.resolveAbandoned(in: context, now: .now)` called once from
+    `RootView`'s existing catalog `.task`. No AI in the session path (Phase 2c).
+    Tests green: app **96** (90 Swift-Testing + 6 XCTest UI/launch),
+    `FitnessCore` **126** (untouched — regression check). Interactive simulator
+    acceptance = Varun's (checklist in
+    `.superpowers/sdd/2026-08-29-phase-2b-persistence-session-runner/task-12-report.md`).
+    Awaiting acceptance + merge.
 
 ---
 

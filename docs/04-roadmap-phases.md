@@ -67,6 +67,24 @@ full Usage & Cost screen, budget cap.
 
 ## Phase 2 — "Run my session and remember it"
 
+> **Split during execution into 2a / 2b / 2c / 2d** (see `HANDOFF.md`).
+> - **2a ✅ merged** (PR #4, `1a0f75a`) — `FitnessCore` gains `Metrics` +
+>   `CoachMemory` modules, `RuleEngine` extended with `ProgressionRule` +
+>   `FinalizeGuardrail`. Pure engine, 126 package tests, no app screens.
+> - **2b ✅ built** (branch `phase-2b-persistence-session-runner`; awaiting
+>   Varun's simulator acceptance + merge) — persistence + session runner:
+>   8 new SwiftData `@Model`s (session/entry/set, bodyweight/checkin/observation,
+>   PR, coach-memory) mapped to/from the 2a value types via
+>   `ModelSnapshotMapping`; `SwiftDataMetricsRepository` over the tested
+>   in-memory repo; rule-engine `SessionFinalizer`; `@Observable SessionRunner`
+>   (start → log sets → tick done → finish → PR detection → summary; 4h
+>   abandon sweep); five runner screens (Start / Focus / SessionList /
+>   RestTimer / Summary) + a "Start this session" entry from the plan.
+> - **2c ⏳ pending** — AI coach wiring (swap the LLM path in behind
+>   `SessionFinalizer`; memory-keeper / analyst calls).
+> - **2d ⏳ pending** — history views, "what your coach knows" screen,
+>   pick-a-split.
+
 **Goal:** train from the app and build history.
 
 **Build:**
