@@ -62,12 +62,8 @@ struct SessionContainerView: View {
                 }
             }
         case .summary:
-            // TODO(task11): SessionSummaryView
-            VStack(spacing: 16) {
-                Text("Summary — Task 11")
-                    .foregroundStyle(.secondary)
-                Button("Done") { runner?.closeSummary() }
-                    .buttonStyle(.borderedProminent)
+            if let runner {
+                SessionSummaryView(runner: runner, catalog: catalog) { runner.closeSummary() }
             }
         case .finished:
             Color.clear.onAppear { onFinished() }
