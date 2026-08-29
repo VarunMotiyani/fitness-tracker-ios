@@ -132,9 +132,16 @@ public enum MemoryConsolidation {
             guard count > perKindCap else { continue }
             let excess = count - perKindCap
 
+            // Rank the eviction pool on confidence decayed by recency, so a stale
+            // but once-confident memory ages out ahead of newer information rather
+            // than ossifying the set (spec §7.2 "self-curating"). Lowest first.
+            func evictionScore(_ m: CoachMemory) -> Double {
+                m.confidence * recencyWeight(m.lastConfirmedAt, now: now)
+            }
             var pool = liveExisting + liveWrites + liveUpdated
             pool.sort { lhs, rhs in
-                if lhs.confidence != rhs.confidence { return lhs.confidence < rhs.confidence }
+                let ls = evictionScore(lhs), rs = evictionScore(rhs)
+                if ls != rs { return ls < rs }
                 if lhs.lastConfirmedAt != rhs.lastConfirmedAt { return lhs.lastConfirmedAt < rhs.lastConfirmedAt }
                 return lhs.id.uuidString < rhs.id.uuidString
             }
@@ -151,8 +158,13 @@ public enum MemoryConsolidation {
             }
         }
 
+        // A brand-new memory that lost the eviction contest was never persisted,
+        // so it must not surface anywhere — not in `writes`, and not in `retired`
+        // (the persistence layer would get a retire row for a record it never saw).
+        // Only evicted PRE-EXISTING memories belong in `retired`.
         writes.removeAll { evictedWriteIDs.contains($0.id) }
         updated.removeAll { evictedUpdatedIDs.contains($0.id) }
+        retired.removeAll { evictedWriteIDs.contains($0.id) }
 
         return ConsolidationResult(
             writes: sortedForOutput(writes),

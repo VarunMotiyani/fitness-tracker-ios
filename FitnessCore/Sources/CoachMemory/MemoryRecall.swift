@@ -77,10 +77,9 @@ public enum MemoryRecall {
     }
 
     private static func score(_ memory: CoachMemory, now: Date, halfLifeDays: Double) -> Double {
-        let ageDays = max(0, now.timeIntervalSince(memory.lastConfirmedAt) / 86_400)
-        let recencyWeight = pow(0.5, ageDays / halfLifeDays)
+        let recency = recencyWeight(memory.lastConfirmedAt, now: now, halfLifeDays: halfLifeDays)
         let outcomeWeight = 1 + 0.5 * (memory.outcomeScore ?? 0)
-        return memory.confidence * recencyWeight * outcomeWeight
+        return memory.confidence * recency * outcomeWeight
     }
 
     private static func digest(from selected: [CoachMemory]) -> String {

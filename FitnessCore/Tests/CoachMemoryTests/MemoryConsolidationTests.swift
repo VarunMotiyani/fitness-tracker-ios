@@ -177,6 +177,103 @@ struct MemoryConsolidationTests {
         #expect(retiredIDs == [lowestID, secondLowestID])
     }
 
+    @Test("a cap-evicted brand-new memory appears in no result array")
+    func capEvictedNewMemoryVanishes() {
+        var existing: [CoachMemory] = []
+        for i in 0..<12 {
+            existing.append(
+                memory(
+                    id: UUID(),
+                    confidence: 0.5,
+                    createdAt: now.addingTimeInterval(-Double(i) * 1_000),
+                    lastConfirmedAt: now.addingTimeInterval(-Double(i) * 1_000)
+                )
+            )
+        }
+        let candidate = MemoryCandidate(
+            kind: .observation, statement: "fresh low-confidence", action: nil,
+            tags: emptyTags, relation: .new
+        )
+
+        let result = MemoryConsolidation.reconcile(
+            existing: existing, candidates: [candidate], now: now, perKindCap: 12
+        )
+
+        // 12 existing (conf 0.5) + 1 write (conf 0.3) = 13; the fresh write is the
+        // lowest-scored and is evicted -> it must not appear anywhere.
+        #expect(result.writes.isEmpty)
+        #expect(result.updated.isEmpty)
+        #expect(result.retired.isEmpty)
+    }
+
+    @Test("at cap, a stale high-confidence memory is evicted before fresh information")
+    func capEvictionPrefersFreshInformation() {
+        var existing: [CoachMemory] = []
+        for i in 0..<11 {
+            existing.append(
+                memory(
+                    id: UUID(),
+                    confidence: 0.9,
+                    createdAt: now.addingTimeInterval(-Double(i) * 1_000),
+                    lastConfirmedAt: now.addingTimeInterval(-Double(i) * 1_000)
+                )
+            )
+        }
+        let staleID = UUID()
+        existing.append(
+            memory(
+                id: staleID,
+                confidence: 0.9,
+                createdAt: now.addingTimeInterval(-400 * 86_400),
+                lastConfirmedAt: now.addingTimeInterval(-400 * 86_400)
+            )
+        )
+        let candidate = MemoryCandidate(
+            kind: .observation, statement: "fresh", action: nil, tags: emptyTags, relation: .new
+        )
+
+        let result = MemoryConsolidation.reconcile(
+            existing: existing, candidates: [candidate], now: now, perKindCap: 12
+        )
+
+        #expect(result.retired.count == 1)
+        #expect(result.retired[0].id == staleID)
+        #expect(result.retired[0].retiredByCap)
+        #expect(result.writes.count == 1)   // the fresh low-confidence memory survives
+    }
+
+    @Test("writes and retired arrays are sorted when they hold multiple elements")
+    func multiElementOutputArraysSorted() {
+        let idA = UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!
+        let idB = UUID(uuidString: "00000000-0000-0000-0000-0000000000B2")!
+        let oldA = memory(id: idA, statement: "a", confidence: 0.8,
+                          createdAt: now.addingTimeInterval(-2_000),
+                          lastConfirmedAt: now.addingTimeInterval(-2_000))
+        let oldB = memory(id: idB, statement: "b", confidence: 0.8,
+                          createdAt: now.addingTimeInterval(-1_000),
+                          lastConfirmedAt: now.addingTimeInterval(-1_000))
+        let candidates = [
+            MemoryCandidate(kind: .observation, statement: "not a", action: nil,
+                            tags: emptyTags, relation: .contradicts(idA)),
+            MemoryCandidate(kind: .observation, statement: "not b", action: nil,
+                            tags: emptyTags, relation: .contradicts(idB)),
+        ]
+
+        let result = MemoryConsolidation.reconcile(existing: [oldA, oldB], candidates: candidates, now: now)
+
+        #expect(result.writes.count == 2)
+        #expect(result.retired.count == 2)
+        for arr in [result.writes, result.retired] {
+            let sorted = arr.sorted { a, b in
+                if a.createdAt != b.createdAt { return a.createdAt < b.createdAt }
+                return a.id.uuidString < b.id.uuidString
+            }
+            #expect(arr == sorted)
+        }
+        // retired holds the two pre-existing memories in createdAt order.
+        #expect(result.retired.map(\.id) == [idA, idB])
+    }
+
     @Test("output arrays are sorted by createdAt then id")
     func outputsAreSorted() {
         let idA = UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!
