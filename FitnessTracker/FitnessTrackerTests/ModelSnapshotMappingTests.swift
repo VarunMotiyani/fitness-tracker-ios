@@ -87,6 +87,26 @@ import FitnessDomain
         #expect(e.toSnapshot().feel == nil)
     }
 
+    /// F6 / R5: `toSnapshot()` sorts sets by `startedAt` regardless of the raw
+    /// relationship-array order SwiftData hands back.
+    @Test func completedEntrySnapshotSortsSetsByStartedAt() {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        let e = CompletedEntryModel(exerciseID: "X", performedOrder: 0)
+        let late = LoggedSetModel(targetReps: 3, targetLoadKg: nil, actualReps: 3, actualLoadKg: 3,
+                                  startedAt: t0.addingTimeInterval(300),
+                                  completedAt: t0.addingTimeInterval(300), restBeforeSec: 0)
+        let early = LoggedSetModel(targetReps: 1, targetLoadKg: nil, actualReps: 1, actualLoadKg: 1,
+                                   startedAt: t0, completedAt: t0, restBeforeSec: 0)
+        let mid = LoggedSetModel(targetReps: 2, targetLoadKg: nil, actualReps: 2, actualLoadKg: 2,
+                                 startedAt: t0.addingTimeInterval(150),
+                                 completedAt: t0.addingTimeInterval(150), restBeforeSec: 0)
+        e.sets = [late, early, mid]
+
+        let s = e.toSnapshot()
+        #expect(s.sets.map(\.startedAt) == [t0, t0.addingTimeInterval(150), t0.addingTimeInterval(300)])
+        #expect(s.sets.map(\.targetReps) == [1, 2, 3])
+    }
+
     // MARK: CompletedSessionModel
 
     private func makeSession() -> CompletedSessionModel {
@@ -135,6 +155,19 @@ import FitnessDomain
         #expect(s.outcome == .partial)
         #expect(s.partialReason == nil)
         #expect(s.coachSource == .rule)
+    }
+
+    /// F6 / R5: `toSnapshot()` sorts entries by `performedOrder`.
+    @Test func completedSessionSnapshotSortsEntriesByPerformedOrder() {
+        let m = makeSession()
+        let e2 = CompletedEntryModel(exerciseID: "second", performedOrder: 2)
+        let e0 = CompletedEntryModel(exerciseID: "zeroth", performedOrder: 0)
+        let e1 = CompletedEntryModel(exerciseID: "first", performedOrder: 1)
+        m.entries = [e2, e0, e1]
+
+        let s = m.toSnapshot()
+        #expect(s.entries.map(\.exerciseID) == ["zeroth", "first", "second"])
+        #expect(s.entries.map(\.performedOrder) == [0, 1, 2])
     }
 
     @Test func completedSessionPartialReasonMaps() {

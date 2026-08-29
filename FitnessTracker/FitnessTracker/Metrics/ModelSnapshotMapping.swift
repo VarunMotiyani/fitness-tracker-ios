@@ -4,6 +4,11 @@ import Metrics
 import CoachMemory
 import FitnessDomain
 
+/// The one on-disk value that maps to `MemorySource.user`; anything else is an
+/// agent memory. Named so the 2c memory-keeper can't typo it into a silent
+/// `.agent`.
+private nonisolated let userSourceKind = "user"
+
 // MARK: - JSON helpers
 
 private nonisolated func decodeStringMap(_ json: String) -> [String: String] {
@@ -58,7 +63,7 @@ extension CompletedEntryModel {
             wasSwappedFrom: wasSwappedFrom,
             feel: feelRaw.flatMap(Feel.init(rawValue:)),
             note: note,
-            sets: sets.map { $0.toSnapshot() }
+            sets: sets.sorted { $0.startedAt < $1.startedAt }.map { $0.toSnapshot() }   // R5 / F6
         )
     }
 }
@@ -78,7 +83,7 @@ extension CompletedSessionModel {
             partialReason: partialReasonRaw.flatMap(PartialReason.init(rawValue:)),
             coachSource: CoachSource(rawValue: coachSourceRaw) ?? .rule,
             plannedSessionID: plannedSessionID,
-            entries: entries.map { $0.toSnapshot() },
+            entries: entries.sorted { $0.performedOrder < $1.performedOrder }.map { $0.toSnapshot() },   // R5 / F6
             overallNote: overallNote
         )
     }
@@ -144,7 +149,7 @@ func personalRecordModel(from pr: PersonalRecord) -> PersonalRecordModel {
 
 extension CoachMemoryModel {
     func toDomain() -> CoachMemory {
-        let source: MemorySource = sourceKind == "user" ? .user : .agent(sourceAgent ?? "unknown")
+        let source: MemorySource = sourceKind == userSourceKind ? .user : .agent(sourceAgent ?? "unknown")
         let tags = MemoryTags(
             exerciseID: tagExerciseID,
             muscle: tagMuscleRaw.flatMap(MuscleGroup.init(rawValue:)),
@@ -173,7 +178,7 @@ func coachMemoryModel(from m: CoachMemory) -> CoachMemoryModel {
     let sourceAgent: String?
     switch m.source {
     case .user:
-        sourceKind = "user"
+        sourceKind = userSourceKind
         sourceAgent = nil
     case .agent(let name):
         sourceKind = "agent"
