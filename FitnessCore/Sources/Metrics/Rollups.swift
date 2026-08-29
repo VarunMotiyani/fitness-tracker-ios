@@ -3,7 +3,7 @@ import FitnessDomain
 import ExerciseCatalog
 
 /// Weekly count of working sets attributed to a single muscle group.
-public struct WeeklyMuscleVolume: Sendable, Equatable {
+public struct WeeklyMuscleVolume: Sendable, Codable, Equatable {
     public let weekStart: Date
     public let muscle: MuscleGroup
     public let sets: Int
@@ -16,7 +16,7 @@ public struct WeeklyMuscleVolume: Sendable, Equatable {
 }
 
 /// One data point in an exercise's strength trend, derived from a single session.
-public struct ExerciseTrendPoint: Sendable, Equatable {
+public struct ExerciseTrendPoint: Sendable, Codable, Equatable {
     public let exerciseID: String
     public let date: Date
     public let e1RM: Double

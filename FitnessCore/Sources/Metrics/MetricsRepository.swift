@@ -3,7 +3,7 @@ import FitnessDomain
 import ExerciseCatalog
 
 /// The most recent logged performance of a single exercise.
-public struct ExercisePerformance: Sendable, Equatable {
+public struct ExercisePerformance: Sendable, Codable, Equatable {
     public let exerciseID: String
     public let date: Date
     public let sets: [LoggedSetSnapshot]
