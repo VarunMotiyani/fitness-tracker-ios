@@ -39,10 +39,10 @@ private func workingSet(loadKg: Double, isWarmup: Bool = false) -> LoggedSetSnap
                       isWarmup: isWarmup, isDropSet: false, toFailure: false, assisted: false)
 }
 
-private func performance(_ id: String, working: Double, warmup: Double? = nil) -> ExercisePerformance {
+private func performance(_ id: String, working: Double? = nil, warmup: Double? = nil) -> ExercisePerformance {
     var sets: [LoggedSetSnapshot] = []
     if let warmup { sets.append(workingSet(loadKg: warmup, isWarmup: true)) }
-    sets.append(workingSet(loadKg: working))
+    if let working { sets.append(workingSet(loadKg: working)) }
     return ExercisePerformance(exerciseID: id, date: Date(), sets: sets, feel: nil)
 }
 
@@ -169,6 +169,17 @@ private func run(_ guardrail: FinalizeGuardrail, _ finalized: PlannedSession,
     #expect(report.violations.contains(.excludedExercise(exerciseID: "row")))
     #expect(report.violations.contains(.excludedExercise(exerciseID: "kbswing")))
     #expect(report.clampedSession.items.map(\.exerciseID) == ["bench"])
+}
+
+@Test func warmupOnlyLastPerformanceSkipsLoadCheck() {
+    let guardrail = FinalizeGuardrail(catalog: catalog())
+    // A wild proposed load, but the only recorded set last time was a warm-up,
+    // so there is no working load to check against — no load violation, no crash.
+    let finalized = session([item("bench", sets: 5, loadKg: 500)])
+    let report = run(guardrail, finalized, last: ["bench": performance("bench", warmup: 60)])
+    #expect(!report.violations.contains { if case .loadJumpTooLarge = $0 { return true } else { return false } })
+    #expect(!report.violations.contains { if case .loadDropTooLarge = $0 { return true } else { return false } })
+    #expect(report.clampedSession.items[0].targetLoadKg == 500)
 }
 
 @Test func sessionTooLongReportedAndTrimmed() {

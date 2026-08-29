@@ -145,6 +145,39 @@ private let range = RepRange(min: 8, max: 10)
     #expect(down.targetLoadKg > 200.0 * 0.95)         // cap actually bound
 }
 
+@Test func brutalWithRepAboveMaxStillDecreases() {
+    // 12 > repRange.max (10), nothing below min -> not the "all in range" hold.
+    let last = perf([(12, 100), (9, 100)], feel: .brutal)
+    let d = rule.next(currentTargetLoadKg: 100, currentTargetSets: 3,
+                      repRange: range, mechanic: .compound, lastPerformance: last)
+    #expect(d.direction == .decreaseLoad)
+}
+
+@Test func emptyWorkingSetListHoldsWithRationale() {
+    let last = perf([], feel: .right)
+    let d = rule.next(currentTargetLoadKg: 100, currentTargetSets: 3,
+                      repRange: range, mechanic: .compound, lastPerformance: last)
+    #expect(d.direction == .hold)
+    #expect(d.targetLoadKg == 100)
+    #expect(d.rationale == "no working sets logged last time — repeat the load")
+}
+
+@Test func onlyZeroRepSetsTreatedAsNoWorkingSets() {
+    let last = perf([(0, 100), (0, 100)], feel: .easy)
+    let d = rule.next(currentTargetLoadKg: 100, currentTargetSets: 3,
+                      repRange: range, mechanic: .compound, lastPerformance: last)
+    #expect(d.direction == .hold)
+    #expect(d.rationale == "no working sets logged last time — repeat the load")
+}
+
+@Test func feelNilMidRangeHolds() {
+    let last = perf([(9, 100), (9, 100)], feel: nil)
+    let d = rule.next(currentTargetLoadKg: 100, currentTargetSets: 3,
+                      repRange: range, mechanic: .compound, lastPerformance: last)
+    #expect(d.direction == .hold)
+    #expect(d.targetLoadKg == 100)
+}
+
 @Test func decreaseIsRoundedToStep() {
     let last = perf([(4, 100)], feel: .brutal)
     let d = rule.next(currentTargetLoadKg: 100, currentTargetSets: 3,

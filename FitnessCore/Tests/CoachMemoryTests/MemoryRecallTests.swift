@@ -42,6 +42,34 @@ struct MemoryRecallTests {
         #expect(result.selected.map(\.id) == [p.id])
     }
 
+    @Test("a goal with no tags is globally relevant")
+    func goalAlwaysSelected() {
+        let g = mem(kind: .goal)
+        let result = MemoryRecall.select(from: [g], context: RecallContext(), now: now)
+        #expect(result.selected.map(\.id) == [g.id])
+    }
+
+    @Test("a constraint with no tags is globally relevant")
+    func constraintAlwaysSelected() {
+        let c = mem(kind: .constraint)
+        let result = MemoryRecall.select(from: [c], context: RecallContext(), now: now)
+        #expect(result.selected.map(\.id) == [c.id])
+    }
+
+    @Test("a superseded memory is never selected")
+    func supersededExcluded() {
+        let m = mem(kind: .preference, supersededBy: UUID())
+        let result = MemoryRecall.select(from: [m], context: RecallContext(), now: now)
+        #expect(result.selected.isEmpty)
+    }
+
+    @Test("a cap-retired memory is never selected")
+    func retiredByCapExcluded() {
+        let m = mem(kind: .preference, retiredByCap: true)
+        let result = MemoryRecall.select(from: [m], context: RecallContext(), now: now)
+        #expect(result.selected.isEmpty)
+    }
+
     @Test("an observation tagged muscle .chest is selected only when context has .chest")
     func observationMuscleGate() {
         let o = mem(kind: .observation, tags: MemoryTags(muscle: .chest))
