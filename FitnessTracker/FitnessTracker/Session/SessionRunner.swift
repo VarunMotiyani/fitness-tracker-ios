@@ -84,6 +84,7 @@ final class SessionRunner {
     // MARK: - Lifecycle
 
     func start(planned: PlannedSession, energy: EnergyRating, timeAvailableMin: Int) {
+        guard phase == .idle else { return }   // F4: no second CompletedSessionModel on a double-tap
         phase = .finalizing
 
         let fin = finalizer.finalize(planned, energy: energy, timeAvailableMin: timeAvailableMin)
@@ -199,15 +200,24 @@ final class SessionRunner {
     }
 
     func finish(partialReason: PartialReason?, overallNote: String?) {
-        guard let session else { return }
+        guard let session, session.finishedAt == nil else { return }   // F4: idempotent
 
+        // F1/F3: compute the outcome from the CURRENT entry states, BEFORE the
+        // promotion loop below — a genuinely partial session (unfinished, or
+        // every entry skipped) must not be flipped to `.complete`. A skipped
+        // entry never counts as "done".
         let outcome: SessionOutcome = orderedEntries.allSatisfy {
-            $0.stateRaw == EntryState.done.rawValue
+            $0.stateRaw == EntryState.done.rawValue && !$0.skipped
         } ? .complete : .partial
+
+        // F1: promote entries the user logged real working sets on but never
+        // ticked "Done", so their volume and PRs count (Phase 2a gates metrics
+        // on `!skipped && state == .done`).
+        Self.promoteWorkedEntries(of: session)
 
         let ts = now()
         session.finishedAt = ts
-        session.actualDurationMin = Int(ts.timeIntervalSince(session.startedAt) / 60)
+        session.actualDurationMin = Int((ts.timeIntervalSince(session.startedAt) / 60).rounded())
         session.outcomeRaw = outcome.rawValue
         session.partialReasonRaw = partialReason?.rawValue
         session.overallNote = overallNote
@@ -242,13 +252,44 @@ final class SessionRunner {
         let all = (try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? []
         for session in all where session.finishedAt == nil {
             guard now.timeIntervalSince(session.startedAt) > staleAfter else { continue }
-            session.finishedAt = session.startedAt
-            session.outcomeRaw = SessionOutcome.partial.rawValue
-            session.partialReasonRaw = nil
-            session.actualDurationMin = 0
-            _ = detectAndPersistPRs(for: session, in: context)
+            // Dated back to its start so a long-stale session doesn't distort
+            // the current week — passing `now: startedAt` yields
+            // `finishedAt == startedAt` and `actualDurationMin == 0`.
+            closeSessionAsPartial(session, in: context, now: session.startedAt)
         }
         try? context.save()
+    }
+
+    /// F7: close a single in-progress session as `.partial` — promote its
+    /// worked-but-not-ticked entries (F1) so their volume/PRs count, stamp
+    /// `finishedAt`/`actualDurationMin`, clear any partial reason, and run PR
+    /// detection. Shared by the 4h `resolveAbandoned` sweep and
+    /// `SessionContainerView`'s orphan sweep when the user re-enters a planned
+    /// session that was never finished.
+    // TODO(2d): offer to resume the in-progress session instead of auto-closing it as partial
+    static func closeSessionAsPartial(_ session: CompletedSessionModel,
+                                      in context: ModelContext,
+                                      now: Date) {
+        guard session.finishedAt == nil else { return }
+        promoteWorkedEntries(of: session)
+        session.finishedAt = now
+        session.outcomeRaw = SessionOutcome.partial.rawValue
+        session.partialReasonRaw = nil
+        session.actualDurationMin = Int((now.timeIntervalSince(session.startedAt) / 60).rounded())
+        try? context.save()
+        _ = detectAndPersistPRs(for: session, in: context)
+    }
+
+    /// F1: promote any entry the user logged real working sets on (non-warmup,
+    /// `actualReps > 0`) but never ticked "Done" to `.done`, so Phase 2a's
+    /// `countsTowardMetrics` (`!skipped && state == .done`) lets its volume and
+    /// PRs through. Skipped and warmup-/zero-rep-only entries are left alone.
+    static func promoteWorkedEntries(of session: CompletedSessionModel) {
+        for e in session.entries where !e.skipped
+            && e.stateRaw == EntryState.inProgress.rawValue
+            && e.sets.contains(where: { !$0.isWarmup && $0.actualReps > 0 }) {
+            e.stateRaw = EntryState.done.rawValue
+        }
     }
 
     // MARK: - PR detection

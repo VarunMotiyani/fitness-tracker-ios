@@ -188,6 +188,124 @@ import Metrics
         #expect(sessions.first?.actualDurationMin == 0)
     }
 
+    // MARK: - Fix wave
+
+    /// F1: sets logged on an entry the user never ticked "Done" must still feed
+    /// PRs and volume — `finish` promotes the entry — while the overall outcome
+    /// stays `.partial` because another entry was never touched.
+    @Test func finishPromotesWorkedButNotDoneEntries() throws {
+        var t = Date(timeIntervalSince1970: 1_000_000)
+        let (runner, ctx) = try makeRunner(now: { t })
+        runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
+
+        runner.logSet(entryIndex: 0, actualReps: 5, actualLoadKg: 100, restBeforeSec: 90)
+        runner.logSet(entryIndex: 0, actualReps: 5, actualLoadKg: 100, restBeforeSec: 90)
+        runner.logSet(entryIndex: 0, actualReps: 5, actualLoadKg: 100, restBeforeSec: 90)
+        // deliberately no markDone; entry 1 never touched
+
+        t = t.addingTimeInterval(1800)
+        runner.finish(partialReason: .ranOutOfTime, overallNote: nil)
+
+        #expect(runner.session?.outcomeRaw == SessionOutcome.partial.rawValue)
+        #expect(runner.session?.partialReasonRaw == PartialReason.ranOutOfTime.rawValue)
+
+        let entry0 = runner.entriesInOrder[0]
+        #expect(entry0.stateRaw == EntryState.done.rawValue)
+        #expect(entry0.skipped == false)
+
+        let prs = try ctx.fetch(FetchDescriptor<PersonalRecordModel>())
+        #expect(prs.contains { $0.exerciseID == "bench" })
+        #expect(!runner.lastSessionPRs.isEmpty)
+
+        let rollup = RollupComputer(catalog: catalog())
+            .weeklyMuscleVolume(from: [runner.session!.toSnapshot()], calendar: .isoUTC)
+        #expect(rollup.contains { $0.muscle == .chest && $0.sets >= 3 })
+    }
+
+    /// F3: every entry skipped is a `.partial` session, not `.complete`.
+    @Test func finishWithAllEntriesSkippedIsPartial() throws {
+        let (runner, _) = try makeRunner()
+        runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
+
+        runner.markSkipped(entryIndex: 0)
+        runner.markSkipped(entryIndex: 1)
+        runner.finish(partialReason: .notFeelingIt, overallNote: nil)
+
+        #expect(runner.session?.outcomeRaw == SessionOutcome.partial.rawValue)
+        runner.closeSummary()
+        #expect(runner.phase == .finished(.partial))
+    }
+
+    /// F4: a second `finish` is a no-op — one PR row per PR, note / PR reveal intact.
+    @Test func finishIsIdempotent() throws {
+        var t = Date(timeIntervalSince1970: 1_000_000)
+        let (runner, ctx) = try makeRunner(now: { t })
+        runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
+
+        runner.logSet(entryIndex: 0, actualReps: 5, actualLoadKg: 100, restBeforeSec: 90)
+        runner.markDone(entryIndex: 0)
+        runner.markDone(entryIndex: 1)
+
+        t = t.addingTimeInterval(3600)
+        runner.finish(partialReason: nil, overallNote: "first note")
+
+        let prCount = try ctx.fetch(FetchDescriptor<PersonalRecordModel>()).count
+        let prsShown = runner.lastSessionPRs
+        let finishedAt = runner.session?.finishedAt
+        #expect(!prsShown.isEmpty)
+
+        t = t.addingTimeInterval(99_999)
+        runner.finish(partialReason: .tooTired, overallNote: "second note")
+
+        #expect(try ctx.fetch(FetchDescriptor<PersonalRecordModel>()).count == prCount)
+        #expect(runner.session?.overallNote == "first note")
+        #expect(runner.session?.partialReasonRaw == nil)
+        #expect(runner.session?.finishedAt == finishedAt)
+        #expect(runner.lastSessionPRs.count == prsShown.count)
+    }
+
+    /// F7: an orphan in-progress session for a planned slot is closed as
+    /// `.partial` with full volume/PR credit, and a fresh `start` for the same
+    /// slot creates a distinct session.
+    @Test func closeSessionAsPartialClosesOrphanAndStartMakesDistinctSession() throws {
+        let ctx = ModelContext(try container())
+        let planned = plannedSession()
+        let started = Date(timeIntervalSince1970: 1_000_000)
+
+        let orphan = CompletedSessionModel(
+            id: UUID(), startedAt: started, weekdayRaw: 2, timeOfDayMinutes: 600,
+            plannedDurationMin: 60, energyRaw: EnergyRating.normal.rawValue,
+            timeAvailableMin: 60, plannedSessionID: planned.id)
+        ctx.insert(orphan)
+        let entry = CompletedEntryModel(exerciseID: "bench", performedOrder: 0)
+        orphan.entries.append(entry)
+        entry.stateRaw = EntryState.inProgress.rawValue
+        for _ in 0..<2 {
+            entry.sets.append(LoggedSetModel(
+                targetReps: 5, targetLoadKg: 100, actualReps: 5, actualLoadKg: 120,
+                startedAt: started, completedAt: started, restBeforeSec: 90))
+        }
+        try ctx.save()
+
+        let now = started.addingTimeInterval(1200)
+        SessionRunner.closeSessionAsPartial(orphan, in: ctx, now: now)
+
+        #expect(orphan.finishedAt == now)
+        #expect(orphan.outcomeRaw == SessionOutcome.partial.rawValue)
+        #expect(orphan.entries.first?.stateRaw == EntryState.done.rawValue)
+        #expect(try ctx.fetch(FetchDescriptor<PersonalRecordModel>()).contains { $0.exerciseID == "bench" })
+
+        let runner = SessionRunner(modelContext: ctx, catalog: catalog(),
+                                   repository: emptyRepo(), finalizer: finalizer(), now: { now })
+        runner.start(planned: planned, energy: .normal, timeAvailableMin: 999)
+        #expect(runner.session?.id != orphan.id)
+
+        let unfinished = try ctx.fetch(FetchDescriptor<CompletedSessionModel>())
+            .filter { $0.finishedAt == nil }
+        #expect(unfinished.count == 1)
+        #expect(unfinished.first?.id == runner.session?.id)
+    }
+
     @Test func resolveAbandonedLeavesFreshUnfinishedSessionAlone() throws {
         let ctx = ModelContext(try container())
         let started = Date(timeIntervalSince1970: 1_000_000)
