@@ -119,9 +119,13 @@ final class SessionRunner {
         guard entries.indices.contains(entryIndex) else { return }
         let entry = entries[entryIndex]
 
-        let items = finalized?.session.items
-        let targetReps = (items?.indices.contains(entryIndex) == true) ? items![entryIndex].targetReps.min : 0
-        let targetLoadKg = (items?.indices.contains(entryIndex) == true) ? items![entryIndex].targetLoadKg : nil
+        // Resolve the finalized item by `exerciseID`, not by index: `entryIndex`
+        // indexes the `performedOrder`-sorted view, which `reorder` can diverge
+        // from `finalized.session.items` (fixed finalisation order). Fall back to
+        // `actualReps` / nil load when the item can't be matched.
+        let plannedItem = finalized?.session.items.first { $0.exerciseID == entry.exerciseID }
+        let targetReps = plannedItem?.targetReps.min ?? actualReps
+        let targetLoadKg = plannedItem?.targetLoadKg
 
         let ts = now()
         let set = LoggedSetModel(

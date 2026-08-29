@@ -141,6 +141,33 @@ import Metrics
         #expect(prs.contains { $0.exerciseID == "bench" && $0.typeRaw == PRType.heaviestWeight.rawValue && $0.value == 100 })
     }
 
+    @Test func logSetAfterReorderTakesTargetsFromTheReorderedExercise() throws {
+        let (runner, ctx) = try makeRunner()
+        runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
+
+        // bench (entry 0, load 60) and row (entry 1, load 50) with distinct
+        // finalized targets, read back so the assertion doesn't assume progression held.
+        let benchTarget = runner.finalized!.session.items.first { $0.exerciseID == "bench" }!.targetLoadKg
+        let rowTarget = runner.finalized!.session.items.first { $0.exerciseID == "row" }!.targetLoadKg
+        #expect(benchTarget != rowTarget)
+
+        // Move bench to the back: row is now entry 0.
+        runner.reorder(from: 0, to: 1)
+        #expect(runner.session?.entries.first { $0.performedOrder == 0 }?.exerciseID == "row")
+
+        runner.logSet(entryIndex: 0, actualReps: 9, actualLoadKg: 55, restBeforeSec: 90)
+
+        let rowEntry = runner.session!.entries.first { $0.exerciseID == "row" }!
+        #expect(rowEntry.sets.count == 1)
+        #expect(rowEntry.sets.first?.targetLoadKg == rowTarget)
+        #expect(rowEntry.sets.first?.targetLoadKg != benchTarget)
+
+        // Nothing was written onto bench.
+        let benchEntry = runner.session!.entries.first { $0.exerciseID == "bench" }!
+        #expect(benchEntry.sets.isEmpty)
+        _ = ctx
+    }
+
     @Test func resolveAbandonedClosesStaleUnfinishedSession() throws {
         let ctx = ModelContext(try container())
         let started = Date(timeIntervalSince1970: 1_000_000)
