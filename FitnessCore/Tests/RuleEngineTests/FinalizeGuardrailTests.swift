@@ -87,6 +87,26 @@ private func run(_ guardrail: FinalizeGuardrail, _ finalized: PlannedSession,
     #expect(report.clampedSession.items[0].targetLoadKg == 85)
 }
 
+@Test func loadClampNeverBreachesTheBoundItEnforces() {
+    let guardrail = FinalizeGuardrail(catalog: catalog())
+
+    let up = run(guardrail, session([item("bench", sets: 6, loadKg: 999)]),
+                 last: ["bench": performance("bench", working: 102)])
+    guard case let .loadJumpTooLarge(_, _, cappedUp)? = up.violations.first(where: {
+        if case .loadJumpTooLarge = $0 { return true } else { return false }
+    }) else { Issue.record("expected loadJumpTooLarge"); return }
+    #expect(cappedUp <= 102.0 * 1.10)
+    #expect(up.clampedSession.items[0].targetLoadKg == cappedUp)
+
+    let down = run(guardrail, session([item("bench", sets: 6, loadKg: 1)]),
+                   last: ["bench": performance("bench", working: 101)])
+    guard case let .loadDropTooLarge(_, _, cappedDown)? = down.violations.first(where: {
+        if case .loadDropTooLarge = $0 { return true } else { return false }
+    }) else { Issue.record("expected loadDropTooLarge"); return }
+    #expect(cappedDown >= 101.0 * 0.85)
+    #expect(down.clampedSession.items[0].targetLoadKg == cappedDown)
+}
+
 @Test func weeklyVolumeOverMrvReportedAndScaledDown() {
     let guardrail = FinalizeGuardrail(catalog: catalog())
     let finalized = session([item("bench", sets: 15), item("cablefly", sets: 15)])

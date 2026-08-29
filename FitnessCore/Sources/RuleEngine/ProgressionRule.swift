@@ -34,6 +34,13 @@ public struct ProgressionRule: Sendable {
     private let maxIncreaseFraction: Double
     private let maxDecreaseFraction: Double
 
+    /// - Parameters:
+    ///   - maxIncreaseFraction: hard ceiling on a single load bump, as a fraction
+    ///     of the current load. A safety envelope: unreachable at the default step
+    ///     sizes, it only binds for callers that widen `baseStep`. When it binds
+    ///     the result is rounded DOWN to the 2.5 step so it never breaches.
+    ///   - maxDecreaseFraction: symmetric hard floor on a single back-off; rounded
+    ///     UP to the step when it binds.
     public init(maxIncreaseFraction: Double = 0.10, maxDecreaseFraction: Double = 0.15) {
         self.maxIncreaseFraction = maxIncreaseFraction
         self.maxDecreaseFraction = maxDecreaseFraction
@@ -70,9 +77,7 @@ public struct ProgressionRule: Sendable {
             if last.feel == .brutal, !anyBelowMin, allInRange {
                 return hold("'brutal' feel but every working set landed in the rep range — hold and repeat")
             }
-            let raw = currentTargetLoadKg * (1 - 0.05)
-            let floor = currentTargetLoadKg * (1 - maxDecreaseFraction)
-            let newLoad = roundToStep(max(raw, floor))
+            let newLoad = cappedDecrease(from: currentTargetLoadKg)
             let rationale = anyBelowMin
                 ? "a working set fell below the rep range — back off the load"
                 : "'brutal' feel — back off the load"
@@ -82,7 +87,7 @@ public struct ProgressionRule: Sendable {
 
         // Increase branch: felt easy and every working set reached the top of the range.
         if last.feel == .easy, allHitMax {
-            let newLoad = roundToStep(cappedIncrease(from: currentTargetLoadKg, step: baseStep))
+            let newLoad = cappedIncrease(from: currentTargetLoadKg, step: baseStep)
             return ProgressionDecision(direction: .increaseLoad, targetLoadKg: newLoad,
                                        targetSets: currentTargetSets,
                                        rationale: "'easy' feel and every working set hit the top of the rep range — add load")
@@ -90,7 +95,7 @@ public struct ProgressionRule: Sendable {
 
         // Small-bump branch: didn't feel easy, but still maxed every set — nudge up at half step.
         if allHitMax {
-            let newLoad = roundToStep(cappedIncrease(from: currentTargetLoadKg, step: baseStep / 2))
+            let newLoad = cappedIncrease(from: currentTargetLoadKg, step: baseStep / 2)
             return ProgressionDecision(direction: .increaseLoad, targetLoadKg: newLoad,
                                        targetSets: currentTargetSets,
                                        rationale: "hit the top of the rep range on every set without an 'easy' feel — small bump")
@@ -103,13 +108,25 @@ public struct ProgressionRule: Sendable {
         return hold(rationale)
     }
 
+    /// Step the load up, clamped to the increase ceiling. When the ceiling binds
+    /// the result is rounded DOWN to the 2.5 step so it never breaches it.
     private func cappedIncrease(from load: Double, step: Double) -> Double {
         let raw = load * (1 + step)
         let ceiling = load * (1 + maxIncreaseFraction)
-        return min(raw, ceiling)
+        if raw >= ceiling { return floorToStep(ceiling) }
+        return roundToStep(raw)
     }
 
-    private func roundToStep(_ x: Double) -> Double {
-        (x / 2.5).rounded() * 2.5
+    /// Step the load down at a fixed 5%, clamped to the decrease floor. When the
+    /// floor binds the result is rounded UP to the 2.5 step so it never breaches it.
+    private func cappedDecrease(from load: Double) -> Double {
+        let raw = load * (1 - 0.05)
+        let floor = load * (1 - maxDecreaseFraction)
+        if raw <= floor { return ceilToStep(floor) }
+        return roundToStep(raw)
     }
+
+    private func roundToStep(_ x: Double) -> Double { (x / 2.5).rounded() * 2.5 }
+    private func floorToStep(_ x: Double) -> Double { (x / 2.5).rounded(.down) * 2.5 }
+    private func ceilToStep(_ x: Double) -> Double { (x / 2.5).rounded(.up) * 2.5 }
 }

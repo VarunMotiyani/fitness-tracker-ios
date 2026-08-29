@@ -125,6 +125,26 @@ private let range = RepRange(min: 8, max: 10)
     }
 }
 
+@Test func capsBindWhenTight() {
+    let tight = ProgressionRule(maxIncreaseFraction: 0.02, maxDecreaseFraction: 0.01)
+
+    // Increase: easy + all-max compound would bump 5%, but the 2% ceiling binds.
+    let up = tight.next(currentTargetLoadKg: 200, currentTargetSets: 3, repRange: range,
+                        mechanic: .compound,
+                        lastPerformance: perf([(10, 200), (10, 200)], feel: .easy))
+    #expect(up.direction == .increaseLoad)
+    #expect(up.targetLoadKg <= 200.0 * 1.02)          // never breaches the ceiling
+    #expect(up.targetLoadKg < (200.0 * 1.05 / 2.5).rounded() * 2.5)  // cap actually bound
+
+    // Decrease: brutal would back off 5%, but the 1% floor binds.
+    let down = tight.next(currentTargetLoadKg: 200, currentTargetSets: 3, repRange: range,
+                          mechanic: .compound,
+                          lastPerformance: perf([(4, 200)], feel: .brutal))
+    #expect(down.direction == .decreaseLoad)
+    #expect(down.targetLoadKg >= 200.0 * 0.99)        // never breaches the floor
+    #expect(down.targetLoadKg > 200.0 * 0.95)         // cap actually bound
+}
+
 @Test func decreaseIsRoundedToStep() {
     let last = perf([(4, 100)], feel: .brutal)
     let d = rule.next(currentTargetLoadKg: 100, currentTargetSets: 3,

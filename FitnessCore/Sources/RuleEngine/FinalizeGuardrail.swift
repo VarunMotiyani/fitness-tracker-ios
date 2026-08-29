@@ -83,12 +83,14 @@ public struct FinalizeGuardrail: Sendable {
             let ceiling = last * (1 + maxIncreaseFraction)
             let floor = last * (1 - maxDecreaseFraction)
             if proposed > ceiling {
-                let capped = Self.roundToStep(ceiling)
+                // Round the ceiling DOWN so the capped load never breaches it.
+                let capped = Self.floorToStep(ceiling)
                 violations.append(.loadJumpTooLarge(exerciseID: item.exerciseID,
                                                     proposedKg: proposed, cappedKg: capped))
                 items[index] = item.with(targetLoadKg: capped)
             } else if proposed < floor {
-                let capped = Self.roundToStep(floor)
+                // Round the floor UP so the capped load never breaches it.
+                let capped = Self.ceilToStep(floor)
                 violations.append(.loadDropTooLarge(exerciseID: item.exerciseID,
                                                     proposedKg: proposed, cappedKg: capped))
                 items[index] = item.with(targetLoadKg: capped)
@@ -168,9 +170,8 @@ public struct FinalizeGuardrail: Sendable {
         performance.sets.filter { $0.isWorkingSet }.map(\.actualLoadKg).max()
     }
 
-    private static func roundToStep(_ value: Double) -> Double {
-        (value / 2.5).rounded() * 2.5
-    }
+    private static func floorToStep(_ value: Double) -> Double { (value / 2.5).rounded(.down) * 2.5 }
+    private static func ceilToStep(_ value: Double) -> Double { (value / 2.5).rounded(.up) * 2.5 }
 
     private static func estimatedMinutes(_ items: [PlannedItem]) -> Double {
         items.reduce(0.0) { partial, item in
