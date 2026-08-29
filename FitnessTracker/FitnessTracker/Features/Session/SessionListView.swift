@@ -55,7 +55,7 @@ struct SessionListView: View {
                 isPresented: $showPartialConfirm,
                 titleVisibility: .visible
             ) {
-                Button("Finish as partial", role: .destructive) { onFinish() }
+                Button("Finish as partial", role: .destructive) { dismiss(); onFinish() }
                 Button("Cancel", role: .cancel) {}
             }
         }
@@ -102,6 +102,9 @@ struct SessionListView: View {
     }
 
     private func stateColor(_ entry: CompletedEntryModel) -> Color {
+        // F3: a skipped entry carries `stateRaw == .done` — branch on `skipped`
+        // first so it doesn't render as a completed (green) row.
+        if entry.skipped { return .secondary }
         switch EntryState(rawValue: entry.stateRaw) {
         case .inProgress: return .orange
         case .done: return .green
@@ -115,6 +118,7 @@ struct SessionListView: View {
     private var finishButton: some View {
         Button {
             if allDone {
+                dismiss()          // F5: this sheet's presenter is torn down when the runner leaves .active
                 onFinish()
             } else {
                 showPartialConfirm = true

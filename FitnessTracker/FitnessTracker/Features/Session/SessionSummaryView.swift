@@ -27,7 +27,11 @@ struct SessionSummaryView: View {
     @State private var entryNotes: [Int: String] = [:]
 
     private var hasIncomplete: Bool {
-        runner.entriesInOrder.contains { $0.stateRaw != EntryState.done.rawValue }
+        // F3: a skipped entry is not a performed entry, even though it carries
+        // `stateRaw == .done`.
+        runner.entriesInOrder.contains {
+            $0.stateRaw != EntryState.done.rawValue || $0.skipped
+        }
     }
 
     var body: some View {
@@ -81,6 +85,12 @@ struct SessionSummaryView: View {
         }
 
         Button {
+            // F2: flush the local per-entry note buffer — a single-line
+            // TextField in a ScrollView routinely loses focus without ever
+            // firing `.onSubmit`, so "Save session" must persist it explicitly.
+            for (i, text) in entryNotes where !text.isEmpty {
+                runner.setEntryNote(entryIndex: i, text)
+            }
             runner.finish(
                 partialReason: partialReason,
                 overallNote: overallNote.isEmpty ? nil : overallNote
