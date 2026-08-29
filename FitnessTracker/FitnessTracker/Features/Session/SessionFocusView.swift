@@ -18,6 +18,7 @@ struct SessionFocusView: View {
     @State private var reps: Int = 8
     @State private var load: Double = 0
     @State private var warmup = false
+    @State private var restTimer = RestTimer()
 
     var body: some View {
         Group {
@@ -70,7 +71,11 @@ struct SessionFocusView: View {
 
                 setList(loggedSets: loggedSets)
 
-                logNextSetRow()
+                logNextSetRow(planned: planned)
+
+                if restTimer.isRunning || restTimer.remaining > 0 {
+                    RestTimerView(timer: restTimer)
+                }
 
                 doneButton(doneReady: doneReady)
 
@@ -158,7 +163,7 @@ struct SessionFocusView: View {
     // MARK: - Log next set
 
     @ViewBuilder
-    private func logNextSetRow() -> some View {
+    private func logNextSetRow(planned: PlannedItem?) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Log next set")
                 .font(.headline)
@@ -190,10 +195,12 @@ struct SessionFocusView: View {
                     entryIndex: runner.currentEntryIndex,
                     actualReps: reps,
                     actualLoadKg: load,
-                    restBeforeSec: 0, // TODO(task10): real rest interval from the rest timer
+                    // Real wall-clock rest since the previous set (0 for the first set of the entry).
+                    restBeforeSec: restTimer.elapsed,
                     flags: flags
                 )
                 warmup = false
+                restTimer.start(seconds: planned?.restSeconds ?? 90)
             }
             .buttonStyle(.bordered)
         }
