@@ -26,6 +26,18 @@ struct SessionContainerView: View {
             .task {
                 if runner == nil {
                     let cat = catalog
+                    let plannedID = planned.id
+
+                    // F7: close any earlier in-progress session for this planned
+                    // slot so re-entering doesn't leave an orphan `finishedAt ==
+                    // nil` row. Everything logged in it keeps its volume/PR
+                    // credit (F1 promotion runs inside the helper).
+                    let orphans = ((try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? [])
+                        .filter { $0.finishedAt == nil && $0.plannedSessionID == plannedID }
+                    for orphan in orphans {
+                        SessionRunner.closeSessionAsPartial(orphan, in: context, now: Date())
+                    }
+
                     let repo = SwiftDataMetricsRepository(
                         context: context,
                         catalog: cat,
@@ -41,7 +53,11 @@ struct SessionContainerView: View {
     @ViewBuilder
     private var content: some View {
         switch runner?.phase {
-        case .none, .idle:
+        case .none:
+            // Runner not built yet (`.task` hasn't run). Don't show Start —
+            // a tap here would be a silent no-op against a nil runner.
+            ProgressView("Preparing…")
+        case .idle:
             SessionStartView(planned: planned, catalog: catalog) { energy, minutes in
                 runner?.start(planned: planned, energy: energy, timeAvailableMin: minutes)
             }
@@ -60,6 +76,7 @@ struct SessionContainerView: View {
                     }
                     .presentationDetents([.large])
                 }
+                .onChange(of: runner.phase) { _, _ in showList = false }   // F5: belt-and-braces
             }
         case .summary:
             if let runner {
