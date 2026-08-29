@@ -109,6 +109,26 @@ import ExerciseCatalog
         #expect(perf?.feel == .right)
     }
 
+    @Test func lastPerformanceConcatenatesRepeatedEntriesInASession() {
+        // bench entered twice in the most recent session (superset re-entry).
+        let sessions = [
+            session(s1Date, [("bench", .right, [set(5, 100)])]),
+            session(s2Date, [
+                ("bench", .easy, [set(5, 100), set(5, 100)]),
+                ("squat", .right, [set(5, 120)]),
+                ("bench", .right, [set(3, 110)]),
+            ]),
+        ]
+        let repo = InMemoryMetricsRepository(
+            sessions: sessions, priorPRs: [], observations: [],
+            plannedSessionsPerWeek: 3, catalog: catalog(), calendar: calendar)
+        let perf = repo.lastPerformance(exerciseID: "bench")
+        #expect(perf?.date == s2Date)
+        #expect(perf?.sets.count == 3)                 // 2 + 1 across both entries
+        #expect(perf?.sets.map(\.actualReps) == [5, 5, 3])
+        #expect(perf?.feel == .easy)                   // first matching entry's feel
+    }
+
     @Test func bestSetIsHighestEpleySet() {
         let best = repo().bestSet(exerciseID: "bench", since: nil)
         #expect(best?.actualReps == 8)
