@@ -6,6 +6,12 @@ struct ProviderProfileListView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \ProviderProfile.createdAt) private var profiles: [ProviderProfile]
 
+    /// Drives the "Add" push. A `NavigationLink` placed directly in a `.toolbar`
+    /// eagerly constructs its destination on every toolbar render, which on
+    /// iOS 26 loops `ProviderProfileEditView.init` and hangs the screen; a
+    /// state-driven `navigationDestination` builds it once, on demand.
+    @State private var isAddingProfile = false
+
     var body: some View {
         List {
             if profiles.isEmpty {
@@ -25,10 +31,13 @@ struct ProviderProfileListView: View {
             .onDelete(perform: delete)
         }
         .navigationTitle("Providers")
+        .navigationDestination(isPresented: $isAddingProfile) {
+            ProviderProfileEditView(profile: nil)
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                NavigationLink {
-                    ProviderProfileEditView(profile: nil)
+                Button {
+                    isAddingProfile = true
                 } label: {
                     Label("Add", systemImage: "plus")
                 }

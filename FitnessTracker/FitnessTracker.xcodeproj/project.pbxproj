@@ -34,6 +34,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		F519641E3042DE5000FA334C /* FitnessTracker.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = FitnessTracker.xctestplan; sourceTree = "<group>"; };
 		F5BB88DB3040E2FF00B68BD1 /* FitnessTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FitnessTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F5BB88E83040E30000B68BD1 /* FitnessTrackerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FitnessTrackerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F5BB88F23040E30000B68BD1 /* FitnessTrackerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FitnessTrackerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -92,6 +93,7 @@
 		F5BB88D23040E2FF00B68BD1 = {
 			isa = PBXGroup;
 			children = (
+				F519641E3042DE5000FA334C /* FitnessTracker.xctestplan */,
 				F5BB88DD3040E2FF00B68BD1 /* FitnessTracker */,
 				F5BB88EB3040E30000B68BD1 /* FitnessTrackerTests */,
 				F5BB88F53040E30000B68BD1 /* FitnessTrackerUITests */,
