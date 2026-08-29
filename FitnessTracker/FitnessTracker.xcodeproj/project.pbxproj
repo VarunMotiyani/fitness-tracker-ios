@@ -12,6 +12,8 @@
 		F5BB890C3040E53F00B68BD1 /* LLMKit in Frameworks */ = {isa = PBXBuildFile; productRef = F5BB890B3040E53F00B68BD1 /* LLMKit */; };
 		F5BB890E3040E53F00B68BD1 /* PlanValidation in Frameworks */ = {isa = PBXBuildFile; productRef = F5BB890D3040E53F00B68BD1 /* PlanValidation */; };
 		F5BB89103040E53F00B68BD1 /* RuleEngine in Frameworks */ = {isa = PBXBuildFile; productRef = F5BB890F3040E53F00B68BD1 /* RuleEngine */; };
+		F5BB89A13040E53F00B68BD1 /* Metrics in Frameworks */ = {isa = PBXBuildFile; productRef = F5BB89A03040E53F00B68BD1 /* Metrics */; };
+		F5BB89A33040E53F00B68BD1 /* CoachMemory in Frameworks */ = {isa = PBXBuildFile; productRef = F5BB89A23040E53F00B68BD1 /* CoachMemory */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -65,6 +67,8 @@
 				F5BB890C3040E53F00B68BD1 /* LLMKit in Frameworks */,
 				F5BB89083040E53F00B68BD1 /* ExerciseCatalog in Frameworks */,
 				F5BB890A3040E53F00B68BD1 /* FitnessDomain in Frameworks */,
+				F5BB89A13040E53F00B68BD1 /* Metrics in Frameworks */,
+				F5BB89A33040E53F00B68BD1 /* CoachMemory in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -138,6 +142,8 @@
 				F5BB890B3040E53F00B68BD1 /* LLMKit */,
 				F5BB890D3040E53F00B68BD1 /* PlanValidation */,
 				F5BB890F3040E53F00B68BD1 /* RuleEngine */,
+				F5BB89A03040E53F00B68BD1 /* Metrics */,
+				F5BB89A23040E53F00B68BD1 /* CoachMemory */,
 			);
 			productName = FitnessTracker;
 			productReference = F5BB88DB3040E2FF00B68BD1 /* FitnessTracker.app */;
@@ -642,6 +648,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F5BB89053040E43C00B68BD1 /* XCLocalSwiftPackageReference "../FitnessCore" */;
 			productName = RuleEngine;
+		};
+		F5BB89A03040E53F00B68BD1 /* Metrics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F5BB89053040E43C00B68BD1 /* XCLocalSwiftPackageReference "../FitnessCore" */;
+			productName = Metrics;
+		};
+		F5BB89A23040E53F00B68BD1 /* CoachMemory */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F5BB89053040E43C00B68BD1 /* XCLocalSwiftPackageReference "../FitnessCore" */;
+			productName = CoachMemory;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
