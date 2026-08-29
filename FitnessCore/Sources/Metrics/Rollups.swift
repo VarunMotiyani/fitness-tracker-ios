@@ -43,12 +43,13 @@ public struct RollupComputer: Sendable {
         self.catalog = catalog
     }
 
-    /// Counts each working set (`isWarmup == false`) as 1 toward its exercise's
-    /// `primaryMuscle`, bucketed by the ISO week containing the session's date.
-    /// Sets whose exercise id is unknown to the catalog are skipped.
+    /// Counts each working set as 1 toward its exercise's `primaryMuscle`, bucketed
+    /// by the week containing the session's date per the supplied `Calendar`
+    /// (default: ISO-8601, UTC). Sets whose exercise id is unknown to the catalog
+    /// are skipped.
     /// Output is sorted by `(weekStart ascending, MuscleGroup.allCases order)`.
     public func weeklyMuscleVolume(from sessions: [CompletedSessionSnapshot],
-                                   calendar: Calendar) -> [WeeklyMuscleVolume] {
+                                   calendar: Calendar = .isoUTC) -> [WeeklyMuscleVolume] {
         var counts: [Date: [MuscleGroup: Int]] = [:]
 
         for session in sessions {

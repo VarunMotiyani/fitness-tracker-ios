@@ -114,6 +114,20 @@ import ExerciseCatalog
         #expect(out[1].tonnage == 360)
     }
 
+    @Test func sundaySessionBucketsDifferByCalendarFirstWeekday() {
+        // 2026-01-11 is a Sunday. A Monday-start (ISO) calendar buckets it into the
+        // week beginning Mon 2026-01-05; a Sunday-start calendar starts that day.
+        var sundayFirst = Calendar(identifier: .gregorian)
+        sundayFirst.timeZone = TimeZone(identifier: "UTC")!
+        let sessions = [session(date(2026, 1, 11), [("bench", [set(5, 100)])])]
+
+        let iso = RollupComputer(catalog: catalog()).weeklyMuscleVolume(from: sessions, calendar: .isoUTC)
+        let sun = RollupComputer(catalog: catalog()).weeklyMuscleVolume(from: sessions, calendar: sundayFirst)
+
+        #expect(iso.count == 1 && sun.count == 1)
+        #expect(iso[0].weekStart != sun[0].weekStart)
+    }
+
     @Test func skippedZeroRepEntryYieldsNoVolumeOrTrend() {
         let ghost = LoggedSetSnapshot(targetReps: 5, targetLoadKg: 100, actualReps: 0, actualLoadKg: 100,
             startedAt: .init(timeIntervalSince1970: 0), completedAt: .init(timeIntervalSince1970: 0),

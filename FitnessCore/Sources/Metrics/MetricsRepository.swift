@@ -62,7 +62,7 @@ public struct InMemoryMetricsRepository: MetricsRepository {
                 observations: [ObservationSnapshot],
                 plannedSessionsPerWeek: Int,
                 catalog: CatalogStore,
-                calendar: Calendar = .init(identifier: .gregorian)) {
+                calendar: Calendar = .isoUTC) {
         let ordered = sessions.sorted { $0.date < $1.date }
         self.sessions = ordered
         self.allObservations = observations
