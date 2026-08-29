@@ -13,7 +13,10 @@ struct RootView: View {
     @Environment(\.modelContext) private var context
     @Query private var profiles: [UserProfile]
     @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
-    @Query(filter: #Predicate<ProviderProfile> { $0.isActive }) private var activeProfiles: [ProviderProfile]
+    // `== true` (not a bare `$0.isActive`): SwiftData can fail to lower a
+    // bare-Bool #Predicate to a fetch and spin the main thread during a
+    // view update.
+    @Query(filter: #Predicate<ProviderProfile> { $0.isActive == true }) private var activeProfiles: [ProviderProfile]
     @Query(sort: \AICallRecord.timestamp) private var calls: [AICallRecord]
 
     @State private var catalog: CatalogStore?
