@@ -95,12 +95,27 @@ private func run(_ guardrail: FinalizeGuardrail, _ finalized: PlannedSession,
     #expect(report.clampedSession.items.allSatisfy { $0.targetSets == 11 })
 }
 
-@Test func weeklyVolumeUnderMevReportedAndScaledUp() {
+@Test func weeklyVolumeUnderMevReportedButNotScaled() {
     let guardrail = FinalizeGuardrail(catalog: catalog())
     let finalized = session([item("curl", sets: 2)])
     let report = run(guardrail, finalized)
     #expect(report.violations.contains(.weeklyVolumeOutOfBand(muscle: .biceps, sets: 2, mev: 6, mrv: 20)))
-    #expect(report.clampedSession.items[0].targetSets == 6)
+    // Report-only: a single session is expected to be below weekly MEV.
+    #expect(report.clampedSession.items[0].targetSets == 2)
+}
+
+@Test func realisticPushSessionPassesUnchanged() {
+    let guardrail = FinalizeGuardrail(catalog: catalog())
+    // bench 4 + cablefly 3 = 7 chest sets, under intermediate chest weekly MEV 8.
+    let finalized = session([item("bench", sets: 4), item("cablefly", sets: 3)])
+    let report = run(guardrail, finalized)
+    // Sets are never inflated toward weekly MEV.
+    #expect(report.clampedSession.items.map(\.targetSets) == [4, 3])
+    #expect(report.clampedSession.items.map(\.exerciseID) == ["bench", "cablefly"])
+    // The only violation permitted here is the report-only under-MEV note.
+    #expect(report.violations.allSatisfy {
+        if case .weeklyVolumeOutOfBand(.chest, 7, 8, 22) = $0 { return true } else { return false }
+    })
 }
 
 @Test func repTargetOutOfRangeReportedAndClamped() {

@@ -110,10 +110,16 @@ public struct FinalizeGuardrail: Sendable {
 
         // 4. Weekly-volume proxy.
         //
-        // This sums `targetSets` per `primaryMuscle` across THIS session only and
-        // compares against the volume landmarks. It is a coarse per-session proxy:
-        // the true cross-session weekly-volume check (summing every session in the
-        // training week) is the app's responsibility in Phase 2c.
+        /// This sums `targetSets` per `primaryMuscle` across THIS session only and
+        /// compares against the *weekly* volume landmarks. It is a coarse per-session
+        /// proxy; the true cross-session weekly-volume check (summing every session in
+        /// the training week) is the app's responsibility in Phase 2c.
+        ///
+        /// Only the above-weekly-MRV case mutates: a single session above the weekly
+        /// MRV genuinely is too much, so its sets are scaled down. The below-weekly-MEV
+        /// case is **report-only** — one session is *supposed* to sit below the weekly
+        /// MEV, so `weeklyVolumeOutOfBand` is emitted for information but `targetSets`
+        /// is left untouched.
         var setsByMuscle: [MuscleGroup: Int] = [:]
         var indicesByMuscle: [MuscleGroup: [Int]] = [:]
         for index in items.indices {
@@ -122,23 +128,20 @@ public struct FinalizeGuardrail: Sendable {
             indicesByMuscle[exercise.primaryMuscle, default: []].append(index)
         }
         for muscle in MuscleGroup.allCases {
-            guard let total = setsByMuscle[muscle],
-                  let memberIndices = indicesByMuscle[muscle] else { continue }
+            guard let total = setsByMuscle[muscle] else { continue }
             let band = VolumeLandmarks.band(for: muscle, experience: experience)
-            let target: Int
             if total > band.mrv {
-                target = band.mrv
+                violations.append(.weeklyVolumeOutOfBand(muscle: muscle, sets: total,
+                                                         mev: band.mev, mrv: band.mrv))
+                for index in indicesByMuscle[muscle] ?? [] {
+                    let original = Double(items[index].targetSets)
+                    let scaled = max(1, Int((original * Double(band.mrv) / Double(total)).rounded()))
+                    items[index] = items[index].with(targetSets: scaled)
+                }
             } else if total < band.mev {
-                target = band.mev
-            } else {
-                continue
-            }
-            violations.append(.weeklyVolumeOutOfBand(muscle: muscle, sets: total,
-                                                     mev: band.mev, mrv: band.mrv))
-            for index in memberIndices {
-                let original = Double(items[index].targetSets)
-                let scaled = max(1, Int((original * Double(target) / Double(total)).rounded()))
-                items[index] = items[index].with(targetSets: scaled)
+                // Report only — do not inflate a realistic single session.
+                violations.append(.weeklyVolumeOutOfBand(muscle: muscle, sets: total,
+                                                         mev: band.mev, mrv: band.mrv))
             }
         }
 
