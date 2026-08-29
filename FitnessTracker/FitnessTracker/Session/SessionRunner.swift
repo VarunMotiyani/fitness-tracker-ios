@@ -223,6 +223,14 @@ final class SessionRunner {
         phase = .finished(resolvedOutcome)
     }
 
+    /// Move from active logging to the summary screen WITHOUT persisting the
+    /// outcome yet — the summary collects the partial reason / notes, then
+    /// calls `finish`.
+    func requestSummary() {
+        guard phase == .active else { return }
+        phase = .summary
+    }
+
     // MARK: - Abandoned-session sweep
 
     /// Called once from `RootView.task`. Any session left unfinished for longer

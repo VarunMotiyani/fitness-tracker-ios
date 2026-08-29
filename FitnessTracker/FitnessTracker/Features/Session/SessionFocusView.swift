@@ -11,9 +11,10 @@ import Metrics
 struct SessionFocusView: View {
     let runner: SessionRunner
     let catalog: CatalogStore
+    /// Raised by the toolbar list button; the container owns the sheet (Task 9).
+    var onOpenList: () -> Void = {}
 
     @State private var showWhy = false
-    @State private var showList = false
     @State private var reps: Int = 8
     @State private var load: Double = 0
     @State private var warmup = false
@@ -30,16 +31,11 @@ struct SessionFocusView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    showList = true
+                    onOpenList()
                 } label: {
                     Label("Session list", systemImage: "list.bullet")
                 }
             }
-        }
-        .sheet(isPresented: $showList) {
-            // TODO(task9): SessionListView
-            Text("Session list — Task 9")
-                .presentationDetents([.medium])
         }
         .onAppear { seedInputs() }
         .onChange(of: runner.currentEntryIndex) { _, _ in

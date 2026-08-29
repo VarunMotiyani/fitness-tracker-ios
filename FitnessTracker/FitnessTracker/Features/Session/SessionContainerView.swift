@@ -19,6 +19,7 @@ struct SessionContainerView: View {
     /// Optional because `SessionRunner` needs `modelContext`, which isn't
     /// available at `init`. Built once in `.task`.
     @State private var runner: SessionRunner?
+    @State private var showList = false
 
     var body: some View {
         content
@@ -47,11 +48,21 @@ struct SessionContainerView: View {
         case .finalizing:
             ProgressView("Building today's session…")
         case .active:
-            // TODO(task8/9): SessionFocusView + SessionListView pull-tab.
-            Text("Session in progress — Focus view lands in Task 8")
-                .foregroundStyle(.secondary)
+            if let runner {
+                NavigationStack {
+                    SessionFocusView(runner: runner, catalog: catalog) {
+                        showList = true
+                    }
+                }
+                .sheet(isPresented: $showList) {
+                    SessionListView(runner: runner, catalog: catalog) {
+                        runner.requestSummary()
+                    }
+                    .presentationDetents([.large])
+                }
+            }
         case .summary:
-            // TODO(task11): SessionSummaryView.
+            // TODO(task11): SessionSummaryView
             VStack(spacing: 16) {
                 Text("Summary — Task 11")
                     .foregroundStyle(.secondary)
