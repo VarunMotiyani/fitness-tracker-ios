@@ -8,6 +8,10 @@ struct PlanView: View {
     let catalog: CatalogStore
     let costSummary: CostSummary
 
+    // `PlannedSession` is not `Hashable` (it's Codable/Sendable/Equatable/
+    // Identifiable from FitnessDomain), so drive the destination off its `id`.
+    @State private var startingSessionID: PlannedSession.ID?
+
     var body: some View {
         List {
             Section {
@@ -18,6 +22,17 @@ struct PlanView: View {
 
             ForEach(orderedSessions) { session in
                 Section("Session \(session.order + 1)  ·  \(focusText(session))") {
+                    // 2b heuristic: `order == 0` is "today".
+                    // TODO(phase3): real day-of-week mapping.
+                    if session.order == 0 {
+                        Button {
+                            startingSessionID = session.id
+                        } label: {
+                            Label("Start this session", systemImage: "play.fill")
+                                .font(.headline)
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                     ForEach(Array(session.items.enumerated()), id: \.offset) { _, item in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(name(for: item.exerciseID))
@@ -38,6 +53,15 @@ struct PlanView: View {
                 ForEach(plan.weeklyVolumeTargets, id: \.muscle) { target in
                     LabeledContent(target.muscle.label, value: "\(target.targetSets) sets")
                 }
+            }
+        }
+        .navigationDestination(item: $startingSessionID) { id in
+            if let session = plan.sessions.first(where: { $0.id == id }) {
+                SessionContainerView(planned: session, catalog: catalog) {
+                    startingSessionID = nil
+                }
+            } else {
+                ContentUnavailableView("Session not found", systemImage: "questionmark")
             }
         }
         .navigationTitle("This week")

@@ -1,7 +1,7 @@
 # FitnessTracker (app)
 
-iOS app shell — **Phase 1b + 1c**. SwiftUI + SwiftData, iOS 26. Depends on the
-local [`FitnessCore`](../FitnessCore) package for all training logic.
+iOS app shell — **Phase 1b + 1c + 2b**. SwiftUI + SwiftData, iOS 26. Depends on
+the local [`FitnessCore`](../FitnessCore) package for all training logic.
 
 ## What it does (1b)
 
@@ -65,8 +65,75 @@ the app behaves exactly as in 1b.
 - **Budget cap + `pauseAIWhenOverBudget` toggle** — the ledger and display ship in
   1c; the enforced monthly cap is a small follow-up (one settings field + one check
   in `generateAndStore`).
-- **Session-finalization / swap AI calls** — Phase 2 / 3; 1c only wires
-  `weeklyPlan` generation.
+- **Session-finalization / swap AI calls** — Phase 2c / 3; 1c only wires
+  `weeklyPlan` generation. 2b ships the rule-engine `SessionFinalizer` as the
+  seam the AI path plugs into.
+
+## What it does (2b) — persistence + session runner
+
+You can now **run a session from the plan and have it remembered**. The plan
+screen shows a **"Start this session"** button on the session with `order == 0`
+("today" — 2b heuristic; real day-of-week mapping is Phase 3). It pushes the
+session runner; finishing pops back to the plan. Still fully offline, rule-engine
+only — no AI in the session path yet.
+
+- **8 new SwiftData `@Model`s** (container entity list grew 4 → 12):
+  - `CompletedSessionModel` / `CompletedEntryModel` / `LoggedSetModel` — the
+    logged session tree (`Models/SessionModels.swift`).
+  - `BodyweightEntryModel` / `DailyCheckinModel` / `ObservationModel` — the
+    health + extensible observation channel (`Models/HealthModels.swift`).
+  - `PersonalRecordModel` — PRs, written by finish-time PR detection
+    (`Models/PersonalRecordModel.swift`).
+  - `CoachMemoryModel` — coach memory persisted now (flat `MemorySource`,
+    dangling `supersededBy` tolerated) so Phase 2c only adds the LLM call
+    (`Models/CoachMemoryModel.swift`).
+  - Raw-string columns (`energyRaw`, `feelRaw`, `outcomeRaw`,
+    `partialReasonRaw`, `coachSourceRaw`, …) map through the matching Phase 2a
+    `enum(rawValue:)` with a safe fallback. Additive schema only → SwiftData
+    lightweight migration; the pre-2b store still opens.
+- **`ModelSnapshotMapping`** (`Metrics/ModelSnapshotMapping.swift`) — converts
+  the `@Model`s to/from the Phase 2a `Metrics` / `CoachMemory` value types, so
+  the tested pure logic runs unchanged over persisted data.
+- **`SwiftDataMetricsRepository`** (`Metrics/SwiftDataMetricsRepository.swift`) —
+  a thin adapter over the Phase-2a-tested `InMemoryMetricsRepository`: loads the
+  session `@Model`s, maps them to snapshots, forwards to the one already-tested
+  algorithm (`RollupComputer`) rather than re-implementing. On-the-fly rollups;
+  persisted caches are a 2d call only if a profiler asks.
+- **`SessionFinalizer`** (`Session/SessionFinalizer.swift`) — rule-engine
+  session finalisation (energy/time → progression applied, low-time trims
+  isolation work, guardrails). This is the seam Phase 2c swaps the AI
+  `finalize` call into.
+- **`@Observable SessionRunner`** (`Session/SessionRunner.swift`, `@MainActor`)
+  — the lifecycle store: `start` → log sets → tick each exercise done →
+  `requestSummary` → `finish` (computes the outcome, runs PR detection against
+  the persisted history, builds the summary) → `finished`. Partial finish
+  captures a reason. `static resolveAbandoned(in:now:staleAfter:)` — the **4h
+  abandon sweep**: any session left unfinished longer than `staleAfter` is
+  closed `.partial`, back-dated to its start, run through the same PR detection.
+  Called once from `RootView`'s `.task` on every app open.
+- **Five runner screens** (`Features/Session/`):
+  - `SessionStartView` — pre-session energy + time-available capture.
+  - `SessionFocusView` — one exercise at a time, set logging with pre-filled
+    targets, done/skip ticks.
+  - `SessionListView` — the whole session as a sheet: reorder, skip, finish.
+  - `RestTimerView` — auto rest timer between sets.
+  - `SessionSummaryView` — volume vs target, any PRs, per-exercise + overall
+    feel capture, Save.
+  - `SessionContainerView` — phase router; builds the `SessionRunner` lazily in
+    `.task` (it needs the `modelContext`), routes
+    `idle → SessionStartView … finished → onFinished()`.
+
+### Deferred in 2b (documented, not gaps)
+
+- **AI `finalize` / memory-keeper / analyst calls** → Phase 2c.
+  `SessionFinalizer` + `CoachMemoryModel` + its mapping ship here so 2c is just
+  the LLM call.
+- **Persisted rollup caches** (`WeeklyMuscleVolume` / `ExerciseTrendPoint`
+  `@Model`s) → 2d, only if a profiler says so.
+- **History views, "what your coach knows" screen, pick-a-split** → Phase 2d.
+- **Real day-of-week → session mapping** (2b uses `order == 0` for "today")
+  → Phase 3.
+- **Local notification for the rest timer when backgrounded** → Phase 4.
 
 ## Structure
 
@@ -83,9 +150,15 @@ the app behaves exactly as in 1b.
 | `AI/PlanPromptBuilder.swift` + `AI/PlanDTO.swift` | system/user prompt + `WeeklyPlanDTO` / `planJSONSchema` / `toDomain(weekStartDate:source:)` |
 | `AI/CostSummary.swift` + `AI/KeychainStore.swift` | month-to-date / all-time aggregation; Keychain wrapper for BYO keys |
 | `Features/Onboarding/` | the 7-step SwiftUI flow + `OnboardingModel` draft state |
-| `Features/Plan/PlanView.swift` (+ `CostChip.swift`) | read-only plan rendering + month-to-date `$` chip |
+| `Features/Plan/PlanView.swift` (+ `CostChip.swift`) | read-only plan rendering + month-to-date `$` chip; "Start this session" button on the `order == 0` session → `.navigationDestination` to `SessionContainerView` |
 | `Features/Settings/SettingsView.swift` (+ `ProviderProfileListView` / `ProviderProfileEditView`) | profile summary, regenerate, start over, Usage totals, provider-profile management |
-| `RootView.swift` | first-run → onboarding; else → latest plan; loads the catalog once |
+| `RootView.swift` | first-run → onboarding; else → latest plan; loads the catalog once; runs `SessionRunner.resolveAbandoned` (4h sweep) on every open |
+| `Models/SessionModels.swift` / `HealthModels.swift` / `PersonalRecordModel.swift` / `CoachMemoryModel.swift` | the 8 Phase 2b `@Model`s (session tree, health + observation, PRs, coach memory) |
+| `Metrics/ModelSnapshotMapping.swift` | `@Model` ⇄ Phase 2a `Metrics` / `CoachMemory` value types |
+| `Metrics/SwiftDataMetricsRepository.swift` | thin adapter over the tested `InMemoryMetricsRepository` — on-the-fly rollups from session `@Model`s |
+| `Session/SessionFinalizer.swift` | rule-engine session finalisation; the seam Phase 2c swaps AI into |
+| `Session/SessionRunner.swift` | `@Observable` lifecycle store: start → log → tick done → finish → PR detection → summary; `resolveAbandoned` 4h sweep |
+| `Features/Session/` | the five runner screens + `SessionContainerView` phase router |
 
 ## Build / run
 
@@ -106,8 +179,11 @@ Open `FitnessTracker.xcodeproj` in Xcode 26+, pick an iPhone (iOS 26) simulator,
 
 ## Not yet
 
-- **Phase 2** (next): session runner, set logging, rest timer, pre-session check,
-  feedback, history, real progression rule.
+- **Phase 2b built (branch, pre-merge)** (session runner, set logging, rest timer, pre-session
+  check, feedback capture, PR detection, rule-engine finalisation — see
+  "What it does (2b)"). Still pending in Phase 2: **2c** AI coach wiring,
+  **2d** history view + coach-memory screen + pick-a-split, and the real
+  progression rule feeding next session's target loads.
 - Native Anthropic / Gemini-Vertex / AWS-Bedrock adapters and vision
   (`completeWithImage`) — see "Deferred in 1c" above.
 - Budget cap + "pause AI when over budget" toggle; the full Usage & Cost screen

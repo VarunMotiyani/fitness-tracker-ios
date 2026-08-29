@@ -12,6 +12,11 @@ import SwiftData
 struct FitnessTrackerApp: App {
     var body: some Scene {
         WindowGroup { RootView() }
-            .modelContainer(for: [UserProfile.self, StoredPlan.self, ProviderProfile.self, AICallRecord.self])
+            .modelContainer(for: [
+                UserProfile.self, StoredPlan.self, ProviderProfile.self, AICallRecord.self,
+                CompletedSessionModel.self, CompletedEntryModel.self, LoggedSetModel.self,
+                BodyweightEntryModel.self, DailyCheckinModel.self, ObservationModel.self,
+                PersonalRecordModel.self, CoachMemoryModel.self,
+            ])
     }
 }
