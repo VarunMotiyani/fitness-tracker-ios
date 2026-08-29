@@ -1,4 +1,3 @@
-import Foundation
 import FitnessDomain
 import ExerciseCatalog
 import Metrics

@@ -10,8 +10,9 @@ public enum MemoryOutcome {
         signal: OutcomeSignal,
         weight: Double = 0.3
     ) -> CoachMemory {
+        let w = min(1, max(0, weight))
         let delta: Double = signal == .improved ? 1.0 : (signal == .worse ? -1.0 : 0.0)
-        let raw = (memory.outcomeScore ?? 0) * (1 - weight) + delta * weight
+        let raw = (memory.outcomeScore ?? 0) * (1 - w) + delta * w
         let new = min(1, max(-1, raw))
 
         var result = memory

@@ -63,7 +63,11 @@ public struct InMemoryMetricsRepository: MetricsRepository {
                 plannedSessionsPerWeek: Int,
                 catalog: CatalogStore,
                 calendar: Calendar = .isoUTC) {
-        let ordered = sessions.sorted { $0.date < $1.date }
+        // Total order: same-timestamp sessions tie-break on id so PR accumulation
+        // order is reproducible.
+        let ordered = sessions.sorted {
+            $0.date != $1.date ? $0.date < $1.date : $0.id.uuidString < $1.id.uuidString
+        }
         self.sessions = ordered
         self.allObservations = observations
         self.plannedSessionsPerWeek = plannedSessionsPerWeek
@@ -129,9 +133,10 @@ public struct InMemoryMetricsRepository: MetricsRepository {
               let windowStart = calendar.date(byAdding: .day, value: -weeks * 7, to: now) else {
             return 0
         }
+        // SessionOutcome has no non-counting case today; every recorded session
+        // in the window counts toward adherence.
         let count = sessions.filter {
             $0.date >= windowStart && $0.date <= now
-                && ($0.outcome == .complete || $0.outcome == .partial)
         }.count
         let raw = Double(count) / Double(weeks * plannedSessionsPerWeek)
         return min(1, max(0, raw))
@@ -154,8 +159,8 @@ public struct InMemoryMetricsRepository: MetricsRepository {
     }
 
     public func observations(kind: String, since: Date?) -> [ObservationSnapshot] {
-        allObservations.filter {
-            $0.kind == kind && (since == nil || $0.timestamp >= since!)
+        allObservations.filter { o in
+            o.kind == kind && (since.map { o.timestamp >= $0 } ?? true)
         }
     }
 }

@@ -53,6 +53,17 @@ struct MemoryOutcomeTests {
         #expect(abs((result.outcomeScore ?? 0) - 0.56) < 1e-9)
     }
 
+    @Test("out-of-range weight is clamped to 0...1")
+    func weightIsClamped() {
+        let mem = memory(outcomeScore: 0.4)
+        // weight 5 clamps to 1 -> result is exactly the delta (+1 for improved).
+        let over = MemoryOutcome.applyResult(to: mem, signal: .improved, weight: 5)
+        #expect(abs((over.outcomeScore ?? 0) - 1.0) < 1e-9)
+        // weight -1 clamps to 0 -> score is unchanged.
+        let under = MemoryOutcome.applyResult(to: mem, signal: .worse, weight: -1)
+        #expect(abs((under.outcomeScore ?? 0) - 0.4) < 1e-9)
+    }
+
     @Test("repeated improved converges toward but never exceeds 1.0")
     func convergence() {
         var mem = memory(outcomeScore: nil)

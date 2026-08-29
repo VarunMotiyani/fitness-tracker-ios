@@ -113,6 +113,13 @@ public struct RollupComputer: Sendable {
                                              bestSetReps: bestReps, tonnage: tonnage))
         }
 
-        return points.sorted { $0.date < $1.date }
+        // Total order: same-date points tie-break on their derived values so the
+        // series is reproducible regardless of sort stability.
+        return points.sorted { lhs, rhs in
+            if lhs.date != rhs.date { return lhs.date < rhs.date }
+            if lhs.e1RM != rhs.e1RM { return lhs.e1RM > rhs.e1RM }
+            if lhs.tonnage != rhs.tonnage { return lhs.tonnage > rhs.tonnage }
+            return lhs.bestSetLoadKg > rhs.bestSetLoadKg
+        }
     }
 }
