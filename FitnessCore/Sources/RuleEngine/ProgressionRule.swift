@@ -55,7 +55,7 @@ public struct ProgressionRule: Sendable {
             return hold("no history yet")
         }
 
-        let working = last.sets.filter { !$0.isWarmup }
+        let working = last.sets.filter { $0.isWorkingSet }
         guard !working.isEmpty else {
             return hold("no working sets logged last time — repeat the load")
         }

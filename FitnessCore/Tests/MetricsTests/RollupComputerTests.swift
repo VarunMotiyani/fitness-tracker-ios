@@ -114,6 +114,21 @@ import ExerciseCatalog
         #expect(out[1].tonnage == 360)
     }
 
+    @Test func skippedZeroRepEntryYieldsNoVolumeOrTrend() {
+        let ghost = LoggedSetSnapshot(targetReps: 5, targetLoadKg: 100, actualReps: 0, actualLoadKg: 100,
+            startedAt: .init(timeIntervalSince1970: 0), completedAt: .init(timeIntervalSince1970: 0),
+            restBeforeSec: 0, rpe: nil, isWarmup: false, isDropSet: false, toFailure: false, assisted: false)
+        let entry = CompletedEntrySnapshot(exerciseID: "bench", performedOrder: 0, state: .done,
+            skipped: true, wasSwappedFrom: nil, feel: nil, note: nil, sets: [ghost])
+        let s = CompletedSessionSnapshot(id: UUID(), date: week1a, weekday: 3, timeOfDayMinutes: 600,
+            plannedDurationMin: 60, actualDurationMin: 60, energy: .normal, timeAvailableMin: 60,
+            outcome: .complete, partialReason: nil, coachSource: .rule, plannedSessionID: nil,
+            entries: [entry], overallNote: nil)
+        let rollup = RollupComputer(catalog: catalog())
+        #expect(rollup.weeklyMuscleVolume(from: [s], calendar: calendar).isEmpty)
+        #expect(rollup.exerciseTrend(from: [s], exerciseID: "bench").isEmpty)
+    }
+
     @Test func exerciseTrendIgnoresWarmupsAndOtherExercises() {
         let sessions = [
             session(week1a, [("squat", [set(5, 140)]),

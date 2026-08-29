@@ -55,10 +55,10 @@ public struct RollupComputer: Sendable {
             guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: session.date)?.start else {
                 continue
             }
-            for entry in session.entries {
+            for entry in session.entries where entry.countsTowardMetrics {
                 guard let exercise = catalog.exercise(id: entry.exerciseID) else { continue }
                 let muscle = exercise.primaryMuscle
-                for set in entry.sets where !set.isWarmup {
+                for set in entry.sets where set.isWorkingSet {
                     counts[weekStart, default: [:]][muscle, default: 0] += 1
                 }
             }
@@ -78,7 +78,8 @@ public struct RollupComputer: Sendable {
     /// One point per session containing at least one working set for `exerciseID`.
     /// `e1RM` is the max Epley estimate over the working sets; `bestSetLoadKg` /
     /// `bestSetReps` come from the set with the highest Epley estimate; `tonnage`
-    /// is Σ `actualReps * actualLoadKg` over the working sets.
+    /// is Σ `actualReps * actualLoadKg` over the working sets. e1RM ties resolve
+    /// to the first working set seen (strict `>` comparison).
     /// Output is sorted by `date` ascending.
     public func exerciseTrend(from sessions: [CompletedSessionSnapshot],
                               exerciseID: String) -> [ExerciseTrendPoint] {
@@ -86,9 +87,9 @@ public struct RollupComputer: Sendable {
 
         for session in sessions {
             let workingSets = session.entries
-                .filter { $0.exerciseID == exerciseID }
+                .filter { $0.exerciseID == exerciseID && $0.countsTowardMetrics }
                 .flatMap { $0.sets }
-                .filter { !$0.isWarmup }
+                .filter { $0.isWorkingSet }
             guard !workingSets.isEmpty else { continue }
 
             var bestE1RM = -1.0

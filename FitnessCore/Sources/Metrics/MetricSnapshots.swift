@@ -89,6 +89,16 @@ public struct CompletedEntrySnapshot: Sendable, Codable, Equatable {
     }
 }
 
+public extension LoggedSetSnapshot {
+    /// A set that genuinely contributes to metrics: not a warm-up, and actually performed.
+    var isWorkingSet: Bool { !isWarmup && actualReps > 0 }
+}
+
+public extension CompletedEntrySnapshot {
+    /// An exercise entry whose sets count toward metrics: performed, not skipped.
+    var countsTowardMetrics: Bool { !skipped && state == .done }
+}
+
 public struct CompletedSessionSnapshot: Sendable, Codable, Equatable {
     public let id: UUID
     public let date: Date

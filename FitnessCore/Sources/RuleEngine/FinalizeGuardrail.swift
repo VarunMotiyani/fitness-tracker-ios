@@ -160,9 +160,9 @@ public struct FinalizeGuardrail: Sendable {
         return GuardrailReport(violations: violations, clampedSession: clampedSession)
     }
 
-    /// Max non-warmup `actualLoadKg` across the recorded sets, if any.
+    /// Max working-set `actualLoadKg` across the recorded sets, if any.
     private static func bestWorkingLoad(_ performance: ExercisePerformance) -> Double? {
-        performance.sets.filter { !$0.isWarmup }.map(\.actualLoadKg).max()
+        performance.sets.filter { $0.isWorkingSet }.map(\.actualLoadKg).max()
     }
 
     private static func roundToStep(_ value: Double) -> Double {

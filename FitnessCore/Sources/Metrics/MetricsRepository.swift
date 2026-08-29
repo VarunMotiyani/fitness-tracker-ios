@@ -70,30 +70,34 @@ public struct InMemoryMetricsRepository: MetricsRepository {
         self.calendar = calendar
         self.rollups = RollupComputer(catalog: catalog)
 
-        let detector = PRDetector()
         var accumulated = priorPRs
         for session in ordered {
-            accumulated.append(contentsOf: detector.newPRs(in: session, priorPRs: accumulated))
+            accumulated.append(contentsOf: PRDetector.newPRs(in: session, priorPRs: accumulated))
         }
         self.prs = accumulated
     }
 
     public func lastPerformance(exerciseID: String) -> ExercisePerformance? {
         for session in sessions.reversed() {
-            guard let entry = session.entries.first(where: { $0.exerciseID == exerciseID }) else { continue }
+            let matching = session.entries.filter { $0.exerciseID == exerciseID && $0.countsTowardMetrics }
+            guard !matching.isEmpty else { continue }
+            // Concatenate the working sets of every matching entry (an exercise
+            // may be entered more than once in a session), mirroring `PRDetector`.
+            let sets = matching.flatMap { $0.sets.filter { $0.isWorkingSet } }
+            guard !sets.isEmpty else { continue }
             return ExercisePerformance(exerciseID: exerciseID, date: session.date,
-                                       sets: entry.sets, feel: entry.feel)
+                                       sets: sets, feel: matching.first?.feel)
         }
         return nil
     }
 
     public func bestSet(exerciseID: String, since: Date?) -> LoggedSetSnapshot? {
         let working = sessions
-            .filter { since == nil || $0.date >= since! }
+            .filter { s in since.map { s.date >= $0 } ?? true }
             .flatMap(\.entries)
-            .filter { $0.exerciseID == exerciseID }
+            .filter { $0.exerciseID == exerciseID && $0.countsTowardMetrics }
             .flatMap(\.sets)
-            .filter { !$0.isWarmup }
+            .filter { $0.isWorkingSet }
         return working.max { lhs, rhs in
             Estimated1RM.epley(loadKg: lhs.actualLoadKg, reps: lhs.actualReps)
                 < Estimated1RM.epley(loadKg: rhs.actualLoadKg, reps: rhs.actualReps)

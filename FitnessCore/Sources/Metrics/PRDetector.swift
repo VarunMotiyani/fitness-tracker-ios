@@ -2,18 +2,21 @@ import Foundation
 
 /// Detects new personal records produced by a completed session, given the
 /// records that were already established before it.
-public struct PRDetector: Sendable {
-    public init() {}
+///
+/// e1RM ties resolve to the first working set seen (strict `>` comparison),
+/// consistent with `RollupComputer.exerciseTrend` and `MetricsRepository.bestSet`.
+public enum PRDetector {
 
-    public func newPRs(in session: CompletedSessionSnapshot, priorPRs: [PersonalRecord]) -> [PersonalRecord] {
+    public static func newPRs(in session: CompletedSessionSnapshot, priorPRs: [PersonalRecord]) -> [PersonalRecord] {
         var results: [PersonalRecord] = []
 
-        // Gather working sets (isWarmup == false) grouped by exercise, in the
-        // order the exercises first appear in the session.
+        // Gather working sets grouped by exercise, in the order the exercises
+        // first appear in the session. Only entries that actually happened
+        // (not skipped, state == .done) and only genuine working sets count.
         var setsByExercise: [String: [LoggedSetSnapshot]] = [:]
         var orderedExerciseIDs: [String] = []
-        for entry in session.entries {
-            let working = entry.sets.filter { $0.isWarmup == false }
+        for entry in session.entries where entry.countsTowardMetrics {
+            let working = entry.sets.filter { $0.isWorkingSet }
             guard working.isEmpty == false else { continue }
             if setsByExercise[entry.exerciseID] == nil {
                 orderedExerciseIDs.append(entry.exerciseID)
@@ -22,6 +25,7 @@ public struct PRDetector: Sendable {
         }
 
         for exerciseID in orderedExerciseIDs {
+            // No working sets → no PR for this exercise.
             guard let sets = setsByExercise[exerciseID], sets.isEmpty == false else { continue }
 
             // MARK: heaviestWeight
@@ -47,9 +51,9 @@ public struct PRDetector: Sendable {
             }
 
             // MARK: estimated1RM
-            var bestE1RM = -1.0
             var bestE1RMSet = sets[0]
-            for s in sets {
+            var bestE1RM = Estimated1RM.epley(loadKg: sets[0].actualLoadKg, reps: sets[0].actualReps)
+            for s in sets.dropFirst() {
                 let e = Estimated1RM.epley(loadKg: s.actualLoadKg, reps: s.actualReps)
                 if e > bestE1RM {
                     bestE1RM = e
