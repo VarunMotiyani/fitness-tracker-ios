@@ -249,6 +249,29 @@ struct CoachMemoryTests {
         #expect(filledTags.freeTags == ["strength", "hypertrophy"])
     }
 
+    @Test("CoachMemory decodes JSON missing retiredByCap as false (forward-compat)")
+    func coachMemoryDecodesWithoutRetiredByCap() throws {
+        let id = UUID()
+        let json = """
+        {
+            "id": "\(id.uuidString)",
+            "kind": "observation",
+            "statement": "legacy row predating retiredByCap",
+            "confidence": 0.5,
+            "source": { "agent": { "_0": "memoryKeeper" } },
+            "createdAt": 1000000,
+            "lastConfirmedAt": 1000100,
+            "tags": { "freeTags": [] }
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(CoachMemory.self, from: Data(json.utf8))
+
+        #expect(decoded.id == id)
+        #expect(decoded.retiredByCap == false)
+        #expect(decoded.isRetired == false)
+    }
+
     @Test("CoachMemory conforms to Identifiable")
     func coachMemoryIdentifiable() {
         let id = UUID()
