@@ -70,6 +70,17 @@ final class SessionRunner {
         session?.entries.sorted { $0.performedOrder < $1.performedOrder } ?? []
     }
 
+    // MARK: - View-support accessors
+
+    /// Entries in the order the runner treats as canonical (by `performedOrder`).
+    var entriesInOrder: [CompletedEntryModel] { orderedEntries }
+
+    /// The entry the Focus view is currently on, if the index is valid.
+    var currentEntry: CompletedEntryModel? {
+        let e = orderedEntries
+        return e.indices.contains(currentEntryIndex) ? e[currentEntryIndex] : nil
+    }
+
     // MARK: - Lifecycle
 
     func start(planned: PlannedSession, energy: EnergyRating, timeAvailableMin: Int) {
