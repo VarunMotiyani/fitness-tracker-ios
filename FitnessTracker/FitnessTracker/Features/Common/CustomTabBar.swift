@@ -13,6 +13,9 @@ struct CustomTabBar: View {
     let isWorkoutActive: Bool
     let onStartPressed: () -> Void
 
+    @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
+    private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
+
     var body: some View {
         HStack(spacing: 0) {
             // 1. Home
@@ -49,15 +52,17 @@ struct CustomTabBar: View {
         Button {
             let generator = UIImpactFeedbackGenerator(style: .light)
             generator.impactOccurred()
-            selectedTab = tab
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                selectedTab = tab
+            }
         } label: {
             VStack(spacing: 3) {
                 Image(systemName: icon)
                     .font(.system(size: 20))
-                    .foregroundStyle(selectedTab == tab ? GymTheme.green : GymTheme.label3)
+                    .foregroundStyle(selectedTab == tab ? activeAccent : GymTheme.label3)
                 Text(title)
                     .font(.system(size: 10, weight: selectedTab == tab ? .semibold : .regular))
-                    .foregroundStyle(selectedTab == tab ? GymTheme.green : GymTheme.label3)
+                    .foregroundStyle(selectedTab == tab ? activeAccent : GymTheme.label3)
             }
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
@@ -75,9 +80,9 @@ struct CustomTabBar: View {
             VStack(spacing: 2) {
                 ZStack {
                     Circle()
-                        .fill(isWorkoutActive ? GymTheme.orange : GymTheme.green)
+                        .fill(isWorkoutActive ? GymTheme.orange : activeAccent)
                         .frame(width: 44, height: 44)
-                        .shadow(color: (isWorkoutActive ? GymTheme.orange : GymTheme.green).opacity(0.35), radius: 8, y: 3)
+                        .shadow(color: (isWorkoutActive ? GymTheme.orange : activeAccent).opacity(0.35), radius: 8, y: 3)
 
                     Image(systemName: isWorkoutActive ? "timer" : "play.fill")
                         .font(.system(size: 20, weight: .bold))
@@ -87,7 +92,7 @@ struct CustomTabBar: View {
 
                 Text(isWorkoutActive ? "Resume" : "Start")
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(isWorkoutActive ? GymTheme.orange : GymTheme.green)
+                    .foregroundStyle(isWorkoutActive ? GymTheme.orange : activeAccent)
                     .offset(y: -8)
             }
             .frame(maxWidth: .infinity)

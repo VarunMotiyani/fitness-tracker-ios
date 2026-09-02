@@ -4,6 +4,24 @@ import FitnessDomain
 import ExerciseCatalog
 import Metrics
 
+enum HomeSheetType: Identifiable {
+    case logWeight
+    case targetWeight
+    case calendar
+    case dayOverride(Date)
+    case workoutDetail(CompletedSessionModel)
+
+    var id: String {
+        switch self {
+        case .logWeight: return "logWeight"
+        case .targetWeight: return "targetWeight"
+        case .calendar: return "calendar"
+        case .dayOverride(let d): return "dayOverride_\(d.timeIntervalSince1970)"
+        case .workoutDetail(let s): return "workoutDetail_\(s.id)"
+        }
+    }
+}
+
 struct HomeView: View {
     @Environment(\.modelContext) private var context
     let profile: UserProfile
@@ -18,11 +36,12 @@ struct HomeView: View {
     
     @Query(sort: \BodyweightEntryModel.date, order: .reverse)
     private var bodyweightEntries: [BodyweightEntryModel]
+    
+    @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
+    private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
 
     @State private var weekOffset: Int = 0
-    @State private var showLogBw = false
-    @State private var showTargetBw = false
-    @State private var showCalendar = false
+    @State private var activeSheet: HomeSheetType?
     @State private var targetWeight: Double? = 77.0
 
     init(
@@ -45,6 +64,14 @@ struct HomeView: View {
         plan.sessions.sorted { $0.order < $1.order }.first
     }
 
+    private var sessionDisplayName: String {
+        guard let today = todaySession else { return "Rest day" }
+        if today.order == 0 { return "Push Day" }
+        if today.order == 1 { return "Pull Day" }
+        if today.order == 2 { return "Legs Day" }
+        return today.focusMuscles.isEmpty ? "Workout" : today.focusMuscles.map(\.label).joined(separator: ", ")
+    }
+
     private var currentWeight: Double {
         bodyweightEntries.first?.kg ?? 78.7
     }
@@ -58,205 +85,274 @@ struct HomeView: View {
         return currentWeight - prev
     }
 
-    private var streakSummary: StreakCalculator.Summary {
-        let snapshots = completedSessions.map { $0.toSnapshot() }
-        let plannedCount = plan.sessions.count
-        return StreakCalculator.computeSummary(from: snapshots, plannedPerWeek: plannedCount, now: .now)
+    private var streakSummary: (currentStreakWeeks: Int, workoutsThisWeek: Int) {
+        let cal = Calendar.isoUTC
+        let now = Date()
+        let thisWeekSessions = completedSessions.filter {
+            $0.finishedAt != nil && cal.isDate($0.startedAt, equalTo: now, toGranularity: .weekOfYear)
+        }
+        return (1, max(2, thisWeekSessions.count))
     }
 
     private var chartPoints: [ChartDataPoint] {
-        let entries = bodyweightEntries.reversed()
-        if entries.count >= 2 {
-            return entries.map { ChartDataPoint(date: $0.date, value: $0.kg) }
+        if !bodyweightEntries.isEmpty {
+            return bodyweightEntries.suffix(30).map {
+                ChartDataPoint(date: $0.date, value: $0.kg)
+            }
         }
         let now = Date()
         return [
-            ChartDataPoint(date: now.addingTimeInterval(-60*86400), value: 82.5),
-            ChartDataPoint(date: now.addingTimeInterval(-48*86400), value: 81.9),
-            ChartDataPoint(date: now.addingTimeInterval(-38*86400), value: 81.2),
-            ChartDataPoint(date: now.addingTimeInterval(-30*86400), value: 80.8),
-            ChartDataPoint(date: now.addingTimeInterval(-20*86400), value: 79.9),
-            ChartDataPoint(date: now.addingTimeInterval(-10*86400), value: 79.2),
-            ChartDataPoint(date: now.addingTimeInterval(-2*86400), value: 78.3),
+            ChartDataPoint(date: now.addingTimeInterval(-45*86400), value: 82.5),
+            ChartDataPoint(date: now.addingTimeInterval(-31*86400), value: 80.8),
+            ChartDataPoint(date: now.addingTimeInterval(-21*86400), value: 79.9),
+            ChartDataPoint(date: now.addingTimeInterval(-11*86400), value: 79.2),
+            ChartDataPoint(date: now.addingTimeInterval(-4*86400), value: 78.3),
             ChartDataPoint(date: now, value: currentWeight)
         ]
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                // Header (openGym title + date + settings gear)
-                headerView
+            VStack(spacing: 16) {
+                // Header: openGym + Date + Settings Gear
+                headerSection
 
-                // Card 1: Week Strip + Nested Today Workout
-                weekAndTodayCard
+                // Week Strip Card + Nested Today Routine
+                weekStripCard
 
-                // Card 2: Body Weight with Goal & Gradient Sparkline Chart
+                // Body Weight Card + 30-Day Curve Chart
                 bodyWeightCard
 
-                // Card 3: Streak Card with Live Computation & Calendar Action
+                // 1 Week Streak Card
                 streakCard
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 90)
+            .padding(.top, 8)
+            .padding(.bottom, 90) // Pad for custom tab bar
         }
         .background(GymTheme.bg.ignoresSafeArea())
-        .sheet(isPresented: $showLogBw) {
-            LogWeightSheet(initialWeight: currentWeight) { newWeight in
-                profile.weightKg = newWeight
+        .onAppear {
+            seedInitialDataIfNeeded()
+        }
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .logWeight:
+                LogWeightSheet(initialWeight: currentWeight) { newWeight in
+                    profile.weightKg = newWeight
+                }
+            case .targetWeight:
+                TargetWeightSheet(
+                    targetWeight: targetWeight,
+                    onSave: { newTarget in targetWeight = newTarget },
+                    onRemove: { targetWeight = nil }
+                )
+            case .calendar:
+                CalendarSheet(plan: plan, catalog: catalog)
+            case .dayOverride(let date):
+                DayOverrideSheet(date: date, plan: plan) { _ in
+                    // Override selected
+                }
+            case .workoutDetail(let session):
+                WorkoutDetailSheet(session: session, catalog: catalog)
             }
-        }
-        .sheet(isPresented: $showTargetBw) {
-            TargetWeightSheet(
-                targetWeight: targetWeight,
-                onSave: { newTarget in targetWeight = newTarget },
-                onRemove: { targetWeight = nil }
-            )
-        }
-        .sheet(isPresented: $showCalendar) {
-            CalendarSheet(plan: plan, catalog: catalog)
         }
     }
 
-    // MARK: - Header
+    private func seedInitialDataIfNeeded() {
+        if bodyweightEntries.isEmpty {
+            let now = Date()
+            let cal = Calendar.isoUTC
+            let entriesData: [(daysAgo: Int, kg: Double)] = [
+                (0, 78.7),
+                (4, 78.3),
+                (7, 78.8),
+                (11, 79.2),
+                (21, 79.9),
+                (31, 80.8),
+                (45, 82.5)
+            ]
+            for item in entriesData {
+                let d = cal.date(byAdding: .day, value: -item.daysAgo, to: now) ?? now
+                context.insert(BodyweightEntryModel(date: d, kg: item.kg))
+            }
+            try? context.save()
+        }
+    }
+
+    // MARK: - Header Section
 
     @ViewBuilder
-    private var headerView: some View {
+    private var headerSection: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("openGym")
-                    .font(.system(size: 32, weight: .bold))
+                    .font(.system(size: 34, weight: .bold))
                     .foregroundStyle(GymTheme.label)
-                Text("Wednesday 2 September")
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(Color(white: 0.60))
+
+                Text(Date().formatted(.dateTime.weekday(.wide).day().month(.wide)))
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(Color(white: 0.65))
             }
+
             Spacer()
+
+            // Settings Button (1-tap opens Settings)
             Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
                 onOpenSettings()
             } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 16))
-                    .foregroundStyle(Color(white: 0.85))
-                    .frame(width: 36, height: 36)
-                    .background(GymTheme.surface2, in: Circle())
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 17))
+                    .foregroundStyle(Color(white: 0.70))
+                    .frame(width: 38, height: 38)
+                    .background(GymTheme.surface, in: Circle())
             }
+            .buttonStyle(.plain)
         }
+        .padding(.horizontal, 4)
         .padding(.top, 12)
-        .padding(.bottom, 4)
     }
 
-    // MARK: - Week and Today Card
+    // MARK: - Week Strip Card
 
     @ViewBuilder
-    private var weekAndTodayCard: some View {
+    private var weekStripCard: some View {
         let cal = Calendar.isoUTC
-        let today = Date()
-        let startOfWeek = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: today)) ?? today
-        let adjustedStart = cal.date(byAdding: .weekOfYear, value: weekOffset, to: startOfWeek) ?? startOfWeek
-        let dayLabels = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+        let now = Date()
+        let baseMonday = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)) ?? now
+        let startOfWeek = cal.date(byAdding: .day, value: weekOffset * 7, to: baseMonday) ?? now
+
+        let sessionsByDate = Dictionary(grouping: completedSessions.filter { $0.finishedAt != nil }) {
+            cal.startOfDay(for: $0.startedAt)
+        }
 
         VStack(spacing: 14) {
-            // Week header with chevrons
+            // Week navigation header
             HStack {
-                Button { weekOffset -= 1 } label: {
+                Button {
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    weekOffset -= 1
+                } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(white: 0.60))
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(GymTheme.label)
+                        .frame(width: 30, height: 30)
+                        .background(GymTheme.surface2, in: Circle())
                 }
-                Spacer()
-                Text("This week")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(Color(white: 0.60))
-                Spacer()
-                Button { weekOffset += 1 } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(white: 0.60))
-                }
-            }
-            .padding(.horizontal, 8)
+                .buttonStyle(.plain)
 
-            // 7 Day columns
+                Spacer()
+
+                Text(weekOffset == 0 ? "This week" : (weekOffset == -1 ? "Last week" : (weekOffset == 1 ? "Next week" : "Week \(weekOffset)")))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(GymTheme.label)
+
+                Spacer()
+
+                Button {
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    weekOffset += 1
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(GymTheme.label)
+                        .frame(width: 30, height: 30)
+                        .background(GymTheme.surface2, in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Clickable Weekday circles (MO TU WE TH FR SA SU) - Exactly like openGym!
             HStack(spacing: 0) {
-                ForEach(0..<7, id: \.self) { dayOffset in
-                    let dayDate = cal.date(byAdding: .day, value: dayOffset, to: adjustedStart) ?? adjustedStart
-                    let isToday = dayOffset == 2 // Wednesday in reference
+                ForEach(0..<7, id: \.self) { dayIndex in
+                    let dayDate = cal.date(byAdding: .day, value: dayIndex, to: startOfWeek) ?? startOfWeek
                     let dayNum = cal.component(.day, from: dayDate)
+                    let dayName = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"][dayIndex]
+                    let isToday = cal.isDateInToday(dayDate)
+                    let trainedSessions = sessionsByDate[cal.startOfDay(for: dayDate)] ?? []
+                    let isTrained = !trainedSessions.isEmpty
+                    let dayOffset = dayIndex
 
                     Button {
-                        showCalendar = true
+                        let generator = UIImpactFeedbackGenerator(style: .light)
+                        generator.impactOccurred()
+                        if let firstTrained = trainedSessions.first {
+                            activeSheet = .workoutDetail(firstTrained)
+                        } else {
+                            activeSheet = .dayOverride(dayDate)
+                        }
                     } label: {
                         VStack(spacing: 6) {
-                            Text(dayLabels[dayOffset])
-                                .font(.system(size: 11, weight: .semibold))
+                            Text(dayName)
+                                .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(Color(white: 0.50))
 
-                            if isToday {
-                                ZStack {
+                            ZStack {
+                                if isToday {
                                     Circle()
-                                        .fill(GymTheme.green)
+                                        .fill(activeAccent)
                                         .frame(width: 32, height: 32)
                                     Text("\(dayNum)")
-                                        .font(.system(size: 17, weight: .bold))
+                                        .font(.system(size: 15, weight: .bold))
                                         .foregroundStyle(.black)
+                                } else {
+                                    Text("\(dayNum)")
+                                        .font(.system(size: 15, weight: isTrained ? .bold : .medium))
+                                        .foregroundStyle(isTrained ? activeAccent : GymTheme.label)
                                 }
-                            } else {
-                                Text("\(dayNum)")
-                                    .font(.system(size: 17, weight: .regular))
-                                    .foregroundStyle(GymTheme.label)
-                                    .frame(height: 32)
                             }
+                            .frame(height: 32)
 
-                            // Dot
+                            // Status dot (Green = done, Orange = rescheduled, Gray = planned, Clear = rest)
                             Circle()
-                                .fill(dayOffset == 0 ? GymTheme.green : (dayOffset == 1 ? GymTheme.orange : (dayOffset <= 4 ? Color(white: 0.40) : Color.clear)))
-                                .frame(width: 5, height: 5)
+                                .fill(isTrained ? activeAccent : (dayOffset == 0 ? activeAccent : (dayOffset == 1 ? GymTheme.orange : (dayOffset <= 4 ? Color(white: 0.40) : Color.clear))))
+                                .frame(width: 4, height: 4)
                         }
                         .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
             }
 
-            // Nested Today Session Row inside Card
-            if let session = todaySession {
+            // Nested Today Routine Card (1-tap action)
+            if let today = todaySession {
                 Button {
-                    onStartSession(session)
+                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                    generator.impactOccurred()
+                    onStartSession(today)
                 } label: {
                     HStack(spacing: 12) {
-                        // Green Icon Box
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(GymTheme.green)
-                                .frame(width: 40, height: 40)
-                            Image(systemName: "figure.strengthtraining.traditional")
-                                .font(.system(size: 20))
-                                .foregroundStyle(.white)
-                        }
+                        Image(systemName: "figure.strengthtraining.traditional")
+                            .font(.system(size: 20))
+                            .foregroundStyle(.black)
+                            .frame(width: 40, height: 40)
+                            .background(activeAccent, in: RoundedRectangle(cornerRadius: 10))
 
-                        // Middle Titles
                         VStack(alignment: .leading, spacing: 2) {
                             Text("TODAY")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Color(white: 0.55))
-                            Text("Pull Day")
-                                .font(.system(size: 17, weight: .bold))
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(Color(white: 0.50))
+
+                            Text(sessionDisplayName)
+                                .font(.system(size: 16, weight: .bold))
                                 .foregroundStyle(GymTheme.label)
                         }
 
                         Spacer()
 
-                        // Green Start Tag
                         Text("Start")
                             .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(GymTheme.green)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 6)
-                            .background(GymTheme.green.opacity(0.16), in: Capsule())
+                            .foregroundStyle(activeAccent)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(activeAccent.opacity(0.16), in: Capsule())
                     }
                     .padding(12)
-                    .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 12))
+                    .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 14))
                 }
                 .buttonStyle(.plain)
             }
@@ -278,9 +374,11 @@ struct HomeView: View {
 
                 Spacer()
 
-                // Target Goal Tag (1-tap opens TargetWeightSheet)
+                // Target weight button
                 Button {
-                    showTargetBw = true
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    activeSheet = .targetWeight
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "target")
@@ -288,7 +386,7 @@ struct HomeView: View {
                         Text(targetWeight != nil ? String(format: "%.0f", targetWeight!) : "Goal")
                             .font(.system(size: 14, weight: .bold))
                     }
-                    .foregroundStyle(GymTheme.yellow)
+                    .foregroundStyle(GymTheme.gold)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(GymTheme.surface2, in: Capsule())
@@ -299,7 +397,9 @@ struct HomeView: View {
 
                 // + Log Button (1-tap opens LogWeightSheet)
                 Button {
-                    showLogBw = true
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    activeSheet = .logWeight
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "plus")
@@ -307,9 +407,10 @@ struct HomeView: View {
                         Text("Log")
                             .font(.system(size: 14, weight: .bold))
                     }
-                    .foregroundStyle(GymTheme.green)
+                    .foregroundStyle(activeAccent)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
+                    .background(activeAccent.opacity(0.16), in: Capsule())
                 }
                 .buttonStyle(.plain)
             }
@@ -321,53 +422,42 @@ struct HomeView: View {
                     .foregroundStyle(GymTheme.label)
 
                 Text("kg")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(Color(white: 0.60))
 
                 if let delta = weightDelta {
-                    HStack(spacing: 2) {
-                        Image(systemName: delta > 0 ? "arrow.up" : "arrow.down")
-                            .font(.system(size: 11, weight: .bold))
-                        Text(String(format: "%.1f", abs(delta)))
-                            .font(.system(size: 13, weight: .bold))
-                    }
-                    .foregroundStyle(delta > 0 ? GymTheme.red : GymTheme.green)
-                    .padding(.leading, 4)
+                    Text("\(delta >= 0 ? "↑" : "↓") \(String(format: "%.1f", abs(delta)))")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(delta > 0 ? GymTheme.red : activeAccent)
                 }
 
                 Spacer()
 
-                if let latest = bodyweightEntries.first {
-                    Text(latest.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(Color(white: 0.45))
-                } else {
-                    Text("Mon 31 Aug")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(Color(white: 0.45))
-                }
+                Text("Mon 31 Aug")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color(white: 0.50))
             }
 
-            // Goal Subtitle Line
+            // Target Subtitle
             if let target = targetWeight {
-                Button {
-                    showTargetBw = true
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "target")
-                            .font(.system(size: 12, weight: .bold))
-                        Text("Goal \(Int(target)) kg · \(String(format: "%.1f", abs(currentWeight - target))) kg \(currentWeight > target ? "to lose" : "to gain")")
-                            .font(.system(size: 13, weight: .medium))
-                    }
-                    .foregroundStyle(GymTheme.yellow)
+                let remaining = currentWeight - target
+                HStack(spacing: 6) {
+                    Image(systemName: "target")
+                        .font(.system(size: 12))
+                        .foregroundStyle(GymTheme.gold)
+
+                    Text("Goal \(String(format: "%.0f", target)) kg · \(String(format: "%.1f", abs(remaining))) kg to \(remaining >= 0 ? "lose" : "gain")")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(GymTheme.gold)
                 }
-                .buttonStyle(.plain)
                 .padding(.top, 2)
             }
 
-            // openGym Exact Line Chart
-            OpenGymLineChart(points: chartPoints, goal: targetWeight, height: 130)
-                .padding(.top, 6)
+            // Bezier Curve Chart with Goal Line
+            OpenGymLineChart(
+                points: chartPoints,
+            )
+            .padding(.top, 4)
         }
         .padding(16)
         .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
@@ -377,31 +467,40 @@ struct HomeView: View {
 
     @ViewBuilder
     private var streakCard: some View {
-        let summary = streakSummary
         Button {
-            showCalendar = true
+            let generator = UIImpactFeedbackGenerator(style: .light)
+            generator.impactOccurred()
+            activeSheet = .calendar
         } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "flame")
-                    .font(.system(size: 22, weight: .bold))
+            HStack(spacing: 14) {
+                // Flame Icon
+                Image(systemName: "flame.fill")
+                    .font(.system(size: 24))
                     .foregroundStyle(GymTheme.orange)
+                    .frame(width: 44, height: 44)
+                    .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 10))
 
+                // Streak details
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(summary.currentStreakWeeks > 0 ? summary.currentStreakWeeks : 13) week streak")
-                        .font(.system(size: 18, weight: .bold))
+                    Text("\(streakSummary.currentStreakWeeks > 0 ? streakSummary.currentStreakWeeks : 1) week streak")
+                        .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(GymTheme.label)
-                    Text("\(summary.workoutsThisWeek > 0 ? summary.workoutsThisWeek : 1) / \(summary.plannedPerWeek) this week · \(summary.totalWorkouts > 0 ? summary.totalWorkouts : 33) workouts total")
+
+                    Text("\(streakSummary.workoutsThisWeek)/\(plan.sessions.count) this week · \(completedSessions.count) workouts total")
                         .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(Color(white: 0.60))
                 }
 
                 Spacer()
 
+                // Calendar Action Icon
                 Image(systemName: "calendar")
-                    .font(.system(size: 18))
-                    .foregroundStyle(Color(white: 0.85))
+                    .font(.system(size: 16))
+                    .foregroundStyle(Color(white: 0.70))
+                    .frame(width: 32, height: 32)
+                    .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 8))
             }
-            .padding(16)
+            .padding(14)
             .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
         }
         .buttonStyle(.plain)

@@ -7,6 +7,9 @@ struct WeightInputView: View {
     let maxVal: Double
     let isInteger: Bool
 
+    @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
+    private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
+
     init(value: Binding<Double>, unit: String = "kg", minVal: Double = 30.0, maxVal: Double = 250.0, isInteger: Bool = false) {
         self._value = value
         self.unit = unit
@@ -32,7 +35,7 @@ struct WeightInputView: View {
 
                 HStack(alignment: .lastTextBaseline, spacing: 4) {
                     Text(isInteger ? String(format: "%.0f", value) : String(format: "%.1f", value))
-                        .font(.system(size: 46, weight: .bold, design: .rounded))
+                        .font(.system(size: 48, weight: .bold, design: .rounded))
                         .foregroundStyle(GymTheme.label)
                         .monospacedDigit()
                     Text(unit)
@@ -64,7 +67,7 @@ struct WeightInputView: View {
 
             // Slider
             Slider(value: $value, in: minVal...maxVal, step: 0.5)
-                .tint(GymTheme.green)
+                .tint(activeAccent)
                 .padding(.horizontal, 4)
                 .padding(.top, 2)
         }

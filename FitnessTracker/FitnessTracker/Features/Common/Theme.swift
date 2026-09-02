@@ -12,10 +12,44 @@ public enum GymTheme {
     public static let label3 = Color(white: 0.45)
     public static let label4 = Color(white: 0.25)
     
-    public static let green = Color(red: 0.19, green: 0.82, blue: 0.35) // #30d158
+    // openGym Official Accents (lib/format.js: ACCENTS = { lime, sky, orange, violet, pink, red, teal, gold })
+    public static let lime = Color(red: 0.19, green: 0.82, blue: 0.35) // #30d158
+    public static let sky = Color(red: 0.04, green: 0.52, blue: 1.0) // #0a84ff
     public static let orange = Color(red: 1.0, green: 0.62, blue: 0.04) // #ff9f0a
-    public static let yellow = Color(red: 1.0, green: 0.84, blue: 0.04) // #ffd60a
+    public static let violet = Color(red: 0.75, green: 0.35, blue: 0.95) // #bf5af2
+    public static let pink = Color(red: 1.0, green: 0.22, blue: 0.37) // #ff375f
     public static let red = Color(red: 1.0, green: 0.27, blue: 0.23) // #ff453a
-    public static let blue = Color(red: 0.04, green: 0.52, blue: 1.0) // #0a84ff
-    public static let purple = Color(red: 0.75, green: 0.35, blue: 0.95) // #bf5af2
+    public static let teal = Color(red: 0.25, green: 0.78, blue: 0.88) // #40c8e0
+    public static let gold = Color(red: 1.0, green: 0.84, blue: 0.04) // #ffd60a
+    
+    // Legacy aliases
+    public static let green = lime
+    public static let blue = sky
+    public static let purple = violet
+    public static let yellow = gold
+
+    public static let allAccents: [(key: String, color: Color)] = [
+        ("lime", lime),
+        ("sky", sky),
+        ("orange", orange),
+        ("violet", violet),
+        ("pink", pink),
+        ("red", red),
+        ("teal", teal),
+        ("gold", gold)
+    ]
+
+    public static func accent(for key: String?) -> Color {
+        switch key {
+        case "sky", "blue": return sky
+        case "orange": return orange
+        case "violet", "purple": return violet
+        case "pink": return pink
+        case "red": return red
+        case "teal": return teal
+        case "gold", "yellow": return gold
+        case "lime", "green": return lime
+        default: return lime
+        }
+    }
 }

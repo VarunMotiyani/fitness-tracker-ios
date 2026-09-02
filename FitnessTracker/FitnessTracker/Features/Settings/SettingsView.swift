@@ -1,5 +1,7 @@
 import SwiftUI
 import SwiftData
+import UserNotifications
+import UniformTypeIdentifiers
 import FitnessDomain
 import ExerciseCatalog
 import Metrics
@@ -7,6 +9,7 @@ import Metrics
 struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    var onClose: (() -> Void)? = nil
     
     @Query private var profiles: [UserProfile]
     @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
@@ -23,9 +26,12 @@ struct SettingsView: View {
     @AppStorage("gym_sound") private var soundEnabled: Bool = true
     @AppStorage("gym_timer_flash") private var timerFlash: Bool = false
     @AppStorage("gym_effort_mode") private var effortMode: String = "rir"
-    @AppStorage("gym_body_diagram") private var bodyDiagram: String = "male"
+    @AppStorage("athleteBodyModel") private var athleteBodyModel: String = "male"
     @AppStorage("gym_accent_color") private var accentColor: String = "lime"
     @AppStorage("gym_theme") private var appTheme: String = "dark"
+    @AppStorage("gym_reminder_on") private var reminderOn: Bool = false
+    @AppStorage("gym_reminder_hour") private var reminderHour: Int = 18
+    @AppStorage("gym_reminder_minute") private var reminderMinute: Int = 0
 
     @State private var catalog: CatalogStore?
     @State private var lastNote: String?
@@ -33,11 +39,17 @@ struct SettingsView: View {
     @State private var showEffortHelp = false
     @State private var showResetConfirm = false
     @State private var showExportShare = false
+    @State private var showFileImporter = false
+    @State private var showEquipmentSheet = false
     @State private var exportURL: URL?
 
     private var summary: CostSummary {
         CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp, costUSD: $0.costUSD) },
                          now: .now)
+    }
+
+    private var activeAccent: Color {
+        GymTheme.accent(for: accentColor)
     }
 
     var body: some View {
@@ -53,36 +65,63 @@ struct SettingsView: View {
                 profileSection(p)
             }
 
-            // 4. General Settings (openGym)
+            // 4. General Settings
             generalSection
 
-            // 5. During a Workout (openGym Live Mechanics)
+            // 5. During a Workout
             workoutMechanicsSection
 
-            // 6. Appearance & Body Model (openGym)
+            // 6. Notifications
+            notificationsSection
+
+            // 7. Equipment Profile
+            equipmentSection
+
+            // 8. Appearance & Body Model (openGym)
             appearanceSection
 
-            // 7. Data & Backup (openGym)
+            // 9. Data & Backup (openGym)
             dataSection
         }
         .scrollContentBackground(.hidden)
         .background(GymTheme.bg.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 80) // Prevents bottom tab bar clipping
+        }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Done") { dismiss() }
-                    .fontWeight(.bold)
-                    .foregroundStyle(GymTheme.green)
+                Button("Done") {
+                    if let onClose {
+                        onClose()
+                    } else {
+                        dismiss()
+                    }
+                }
+                .fontWeight(.bold)
+                .foregroundStyle(activeAccent)
             }
         }
         .sheet(isPresented: $showEffortHelp) {
             effortHelpSheet
         }
+        .sheet(isPresented: $showEquipmentSheet) {
+            if let p = profiles.first {
+                EquipmentProfileSheet(profile: p)
+            }
+        }
         .sheet(isPresented: $showExportShare) {
             if let url = exportURL {
                 ShareSheet(items: [url])
             }
+        }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            handleImportResult(result)
         }
         .confirmationDialog(
             "Reset everything?",
@@ -118,6 +157,13 @@ struct SettingsView: View {
         .onChange(of: keepAwake) { _, newValue in
             UIApplication.shared.isIdleTimerDisabled = newValue
         }
+        .onChange(of: reminderOn) { _, newValue in
+            if newValue {
+                requestNotificationPermissionAndSchedule()
+            } else {
+                UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+            }
+        }
     }
 
     // MARK: - Account Section
@@ -128,7 +174,7 @@ struct SettingsView: View {
             HStack(spacing: 12) {
                 Image(systemName: "lock.shield.fill")
                     .font(.system(size: 20))
-                    .foregroundStyle(GymTheme.green)
+                    .foregroundStyle(activeAccent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("All data stays on this device")
                         .font(.system(size: 15, weight: .semibold))
@@ -154,7 +200,7 @@ struct SettingsView: View {
             } label: {
                 HStack {
                     Image(systemName: "sparkles")
-                        .foregroundStyle(GymTheme.purple)
+                        .foregroundStyle(GymTheme.violet)
                     Text("AI Providers & Keys")
                     Spacer()
                     Text(activeProfiles.first?.displayName ?? "Rule Engine")
@@ -191,13 +237,13 @@ struct SettingsView: View {
             LabeledContent("Experience", value: p.experienceRaw.capitalized)
             LabeledContent("Sessions / week", value: "\(p.sessionsPerWeek)")
             LabeledContent("Session length", value: "\(p.sessionLengthMinutes) min")
-            LabeledContent("Equipment items", value: "\(p.availableEquipmentRaws.count)")
 
             Button {
                 regenerate(p)
             } label: {
                 HStack {
                     Text("Regenerate Weekly Plan")
+                        .foregroundStyle(activeAccent)
                     Spacer()
                     if isGenerating {
                         ProgressView()
@@ -210,7 +256,7 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - General Section (openGym)
+    // MARK: - General Section
 
     @ViewBuilder
     private var generalSection: some View {
@@ -233,7 +279,7 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Workout Mechanics Section (openGym)
+    // MARK: - Workout Mechanics Section
 
     @ViewBuilder
     private var workoutMechanicsSection: some View {
@@ -255,16 +301,19 @@ struct SettingsView: View {
             }
 
             Toggle("Keep screen awake", isOn: $keepAwake)
+                .tint(activeAccent)
 
             Toggle("Sounds & Haptic taps", isOn: $soundEnabled)
+                .tint(activeAccent)
 
             Toggle("Flash screen when timer ends", isOn: $timerFlash)
+                .tint(activeAccent)
 
             HStack {
                 Text("Effort per set")
                 Button { showEffortHelp = true } label: {
                     Image(systemName: "info.circle")
-                        .foregroundStyle(GymTheme.purple)
+                        .foregroundStyle(GymTheme.violet)
                 }
                 .buttonStyle(.plain)
                 Spacer()
@@ -283,27 +332,105 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Appearance Section (openGym)
+    // MARK: - Notifications Section
+
+    @ViewBuilder
+    private var notificationsSection: some View {
+        Section {
+            Toggle("Workout day reminder", isOn: $reminderOn)
+                .tint(activeAccent)
+
+            if reminderOn {
+                HStack {
+                    Text("Reminder time")
+                    Spacer()
+                    DatePicker(
+                        "",
+                        selection: Binding(
+                            get: {
+                                var components = DateComponents()
+                                components.hour = reminderHour
+                                components.minute = reminderMinute
+                                return Calendar.current.date(from: components) ?? Date()
+                            },
+                            set: { date in
+                                let cal = Calendar.current
+                                reminderHour = cal.component(.hour, from: date)
+                                reminderMinute = cal.component(.minute, from: date)
+                                scheduleWorkoutReminder()
+                            }
+                        ),
+                        displayedComponents: .hourAndMinute
+                    )
+                    .labelsHidden()
+                }
+            }
+        } header: {
+            Text("Notifications")
+        } footer: {
+            if reminderOn {
+                Text("Reminds you at \(String(format: "%02d:%02d", reminderHour, reminderMinute)) on days that have a workout scheduled.")
+            }
+        }
+    }
+
+    // MARK: - Equipment Section
+
+    @ViewBuilder
+    private var equipmentSection: some View {
+        Section {
+            Button {
+                showEquipmentSheet = true
+            } label: {
+                HStack {
+                    Text("Equipment Profile")
+                        .foregroundStyle(GymTheme.label)
+                    Spacer()
+                    if let p = profiles.first {
+                        Text("\(p.availableEquipmentRaws.count) selected")
+                            .foregroundStyle(Color(white: 0.60))
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(white: 0.45))
+                }
+            }
+        } header: {
+            Text("Equipment")
+        } footer: {
+            Text("Customize the equipment available in your gym for auto-plan generation and substitutions.")
+        }
+    }
+
+    // MARK: - Appearance Section (openGym exact swatches)
 
     @ViewBuilder
     private var appearanceSection: some View {
         Section {
-            Picker("Body diagram", selection: $bodyDiagram) {
+            Picker("Theme", selection: $appTheme) {
+                Text("Dark").tag("dark")
+                Text("Light").tag("light")
+                Text("System").tag("system")
+            }
+            .pickerStyle(.segmented)
+
+            Picker("Body diagram", selection: $athleteBodyModel) {
                 Text("Male").tag("male")
                 Text("Female").tag("female")
             }
             .pickerStyle(.segmented)
 
-            HStack {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("Accent color")
-                Spacer()
-                HStack(spacing: 8) {
-                    colorSwatch(key: "lime", color: GymTheme.green)
-                    colorSwatch(key: "orange", color: GymTheme.orange)
-                    colorSwatch(key: "yellow", color: GymTheme.yellow)
-                    colorSwatch(key: "blue", color: GymTheme.blue)
-                    colorSwatch(key: "purple", color: GymTheme.purple)
+                    .font(.system(size: 15))
+                    .foregroundStyle(GymTheme.label)
+
+                HStack(spacing: 12) {
+                    ForEach(GymTheme.allAccents, id: \.key) { item in
+                        colorSwatch(key: item.key, color: item.color)
+                    }
                 }
+                .padding(.vertical, 4)
             }
         } header: {
             Text("Appearance")
@@ -312,32 +439,76 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func colorSwatch(key: String, color: Color) -> some View {
-        Circle()
-            .fill(color)
-            .frame(width: 24, height: 24)
-            .overlay(
-                Circle().stroke(Color.white, lineWidth: accentColor == key ? 2.5 : 0)
-            )
-            .onTapGesture {
+        Button {
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.impactOccurred()
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 accentColor = key
             }
+        } label: {
+            Circle()
+                .fill(color)
+                .frame(width: 26, height: 26)
+                .overlay(
+                    Circle()
+                        .stroke(Color.white, lineWidth: accentColor == key ? 3 : 0)
+                )
+                .scaleEffect(accentColor == key ? 1.15 : 1.0)
+        }
+        .buttonStyle(.plain)
     }
 
-    // MARK: - Data Section (openGym)
+    // MARK: - Data Section (openGym style rows)
 
     @ViewBuilder
     private var dataSection: some View {
         Section {
-            Button("Load Starter Plan (PPL)") {
-                if let p = profiles.first { regenerate(p) }
+            Button {
+                loadStarterPPL()
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(activeAccent)
+                        .frame(width: 20)
+                    Text("Load Starter Plan (PPL)")
+                        .foregroundStyle(activeAccent)
+                }
             }
 
-            Button("Export backup (JSON)") {
+            Button {
+                showFileImporter = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .foregroundStyle(GymTheme.sky)
+                        .frame(width: 20)
+                    Text("Import backup (JSON)")
+                        .foregroundStyle(GymTheme.label)
+                }
+            }
+
+            Button {
                 exportBackupJSON()
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .foregroundStyle(GymTheme.sky)
+                        .frame(width: 20)
+                    Text("Export backup (JSON)")
+                        .foregroundStyle(GymTheme.label)
+                }
             }
 
-            Button("Reset everything", role: .destructive) {
+            Button {
                 showResetConfirm = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "trash.fill")
+                        .foregroundStyle(GymTheme.red)
+                        .frame(width: 20)
+                    Text("Reset everything")
+                        .foregroundStyle(GymTheme.red)
+                }
             }
         } header: {
             Text("Data & Backups")
@@ -390,6 +561,7 @@ struct SettingsView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { showEffortHelp = false }
                         .fontWeight(.bold)
+                        .foregroundStyle(activeAccent)
                 }
             }
         }
@@ -403,7 +575,7 @@ struct SettingsView: View {
             Text(rpe).frame(width: 44, alignment: .leading).font(.system(size: 14, weight: .bold))
             Text(feel).frame(maxWidth: .infinity, alignment: .leading).font(.system(size: 13))
         }
-        .foregroundStyle(isAnchor ? GymTheme.green : GymTheme.label)
+        .foregroundStyle(isAnchor ? activeAccent : GymTheme.label)
         .padding(.vertical, 8)
     }
 
@@ -424,21 +596,40 @@ struct SettingsView: View {
         }
     }
 
+    private func loadStarterPPL() {
+        guard let catalog else { return }
+        let defaultProfile = profiles.first ?? UserProfile(
+            goalRaw: "buildMuscle",
+            experienceRaw: "intermediate",
+            heightCm: 178,
+            weightKg: 75,
+            birthYear: 2000,
+            sexRaw: "male",
+            sessionsPerWeek: 4,
+            sessionLengthMinutes: 60,
+            availableEquipmentRaws: ["barbell", "dumbbell", "cable", "machine", "bodyweight"],
+            excludedMuscleRaws: [],
+            excludedExerciseIDs: []
+        )
+        if profiles.isEmpty { context.insert(defaultProfile) }
+        DemoSeedGenerator.seedDemoHistory(into: context, catalog: catalog)
+        regenerate(defaultProfile)
+        lastNote = "Starter plan & 12-week demo history loaded"
+    }
+
     private func exportBackupJSON() {
-        let fetchSessions = FetchDescriptor<CompletedSessionModel>()
-        let fetchPlans = FetchDescriptor<StoredPlan>()
-        let fetchBW = FetchDescriptor<BodyweightEntryModel>()
-        
-        let sessions = (try? context.fetch(fetchSessions)) ?? []
-        let plans = (try? context.fetch(fetchPlans)) ?? []
-        let bws = (try? context.fetch(fetchBW)) ?? []
+        let sessions = (try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? []
+        let storedPlans = (try? context.fetch(FetchDescriptor<StoredPlan>())) ?? []
+        let bws = (try? context.fetch(FetchDescriptor<BodyweightEntryModel>())) ?? []
+        let prs = (try? context.fetch(FetchDescriptor<PersonalRecordModel>())) ?? []
 
         let exportDict: [String: Any] = [
             "version": 2,
             "exportedAt": ISO8601DateFormatter().string(from: Date()),
             "sessionsCount": sessions.count,
-            "plansCount": plans.count,
-            "bodyweightCount": bws.count
+            "plansCount": storedPlans.count,
+            "bodyweightCount": bws.count,
+            "prsCount": prs.count
         ]
 
         if let data = try? JSONSerialization.data(withJSONObject: exportDict, options: .prettyPrinted) {
@@ -450,14 +641,76 @@ struct SettingsView: View {
         }
     }
 
+    private func handleImportResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            if url.startAccessingSecurityScopedResource() {
+                defer { url.stopAccessingSecurityScopedResource() }
+                if let data = try? Data(contentsOf: url),
+                   let _ = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    lastNote = "Backup imported successfully"
+                } else {
+                    lastNote = "Invalid backup file format"
+                }
+            }
+        case .failure(let error):
+            lastNote = "Import failed: \(error.localizedDescription)"
+        }
+    }
+
     private func resetAllData() {
-        try? context.delete(model: CompletedSessionModel.self)
-        try? context.delete(model: StoredPlan.self)
-        try? context.delete(model: BodyweightEntryModel.self)
-        try? context.delete(model: PersonalRecordModel.self)
-        try? context.delete(model: UserProfile.self)
+        if let sessions = try? context.fetch(FetchDescriptor<CompletedSessionModel>()) {
+            for s in sessions { context.delete(s) }
+        }
+        if let storedPlans = try? context.fetch(FetchDescriptor<StoredPlan>()) {
+            for p in storedPlans { context.delete(p) }
+        }
+        if let bws = try? context.fetch(FetchDescriptor<BodyweightEntryModel>()) {
+            for b in bws { context.delete(b) }
+        }
+        if let prs = try? context.fetch(FetchDescriptor<PersonalRecordModel>()) {
+            for pr in prs { context.delete(pr) }
+        }
+        if let allProfiles = try? context.fetch(FetchDescriptor<UserProfile>()) {
+            for p in allProfiles { context.delete(p) }
+        }
         try? context.save()
-        dismiss()
+        lastNote = "All data reset"
+    }
+
+    private func requestNotificationPermissionAndSchedule() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            if granted {
+                DispatchQueue.main.async {
+                    self.scheduleWorkoutReminder()
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self.reminderOn = false
+                    self.lastNote = "Notifications permission denied in iOS Settings"
+                }
+            }
+        }
+    }
+
+    private func scheduleWorkoutReminder() {
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        guard reminderOn else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Time for your workout"
+        content.body = "Stay on track with your training goals today."
+        content.sound = .default
+
+        var dateComponents = DateComponents()
+        dateComponents.hour = reminderHour
+        dateComponents.minute = reminderMinute
+
+        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
+        let request = UNNotificationRequest(identifier: "gym_daily_reminder", content: content, trigger: trigger)
+        UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+        lastNote = "Workout reminder scheduled for \(String(format: "%02d:%02d", reminderHour, reminderMinute))"
     }
 }
 

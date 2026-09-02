@@ -3,6 +3,9 @@ import SwiftUI
 struct TargetWeightSheet: View {
     @Environment(\.dismiss) private var dismiss
 
+    @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
+    private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
+
     @State private var targetWeight: Double
     let initialTarget: Double?
     var onSave: (Double) -> Void
@@ -31,7 +34,7 @@ struct TargetWeightSheet: View {
 
                 // Stepper & Slider
                 WeightInputView(value: $targetWeight, unit: "kg", minVal: 30.0, maxVal: 200.0, isInteger: true)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 4)
 
                 // Save Goal Button
                 Button {
@@ -45,7 +48,7 @@ struct TargetWeightSheet: View {
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .frame(height: 48)
-                        .background(GymTheme.green, in: RoundedRectangle(cornerRadius: 12))
+                        .background(activeAccent, in: RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 4)
@@ -68,14 +71,13 @@ struct TargetWeightSheet: View {
                     .buttonStyle(.plain)
                     .padding(.top, 2)
                 }
-
-                Spacer()
             }
             .padding(.horizontal, 20)
             .padding(.top, 24)
+            .padding(.bottom, 20)
             .background(GymTheme.bgElevated.ignoresSafeArea())
         }
-        .presentationDetents([.fraction(0.55), .medium])
+        .presentationDetents([.height(initialTarget != nil ? 380 : 320)])
         .presentationDragIndicator(.visible)
     }
 }

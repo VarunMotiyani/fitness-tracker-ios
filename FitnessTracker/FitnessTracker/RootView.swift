@@ -40,7 +40,7 @@ struct RootView: View {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // openGym Custom Bottom Navigation Bar
+            // openGym Custom Bottom Navigation Bar (Persistent across all views & Settings)
             if profiles.first != nil, let plan = try? plans.first?.decodedPlan() {
                 CustomTabBar(
                     selectedTab: $selectedTab,
@@ -61,9 +61,9 @@ struct RootView: View {
                 }
             }
         }
-        .sheet(isPresented: $showSettings) {
-            NavigationStack {
-                SettingsView()
+        .onChange(of: selectedTab) { _, _ in
+            if showSettings {
+                showSettings = false
             }
         }
         .overlay(alignment: .top) {
@@ -112,10 +112,12 @@ struct RootView: View {
                     excludedExerciseIDs: []
                 )
                 context.insert(defaultProfile)
-                regeneratePlan(for: defaultProfile)
-            }
-            if let catalog, completedSessions.isEmpty {
                 DemoSeedGenerator.seedDemoHistory(into: context, catalog: catalog)
+                let userContext = defaultProfile.makeUserContext()
+                _ = await generateAndStore(context: userContext,
+                                           activeProfile: nil,
+                                           catalog: catalog,
+                                           modelContext: context)
             }
         }
     }
@@ -125,6 +127,11 @@ struct RootView: View {
         if loadFailed {
             ContentUnavailableView("Couldn't load the exercise catalog",
                                    systemImage: "exclamationmark.triangle")
+        } else if showSettings {
+            // Settings rendered inline to preserve persistent bottom CustomTabBar
+            NavigationStack {
+                SettingsView(onClose: { showSettings = false })
+            }
         } else if let profile = profiles.first, let plan = try? plans.first?.decodedPlan(), let catalog {
             Group {
                 switch selectedTab {
