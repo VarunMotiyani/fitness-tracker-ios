@@ -185,7 +185,7 @@ struct HomeView: View {
     private var headerSection: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("openGym")
+                Text("PulseAI")
                     .font(.system(size: 34, weight: .bold))
                     .foregroundStyle(GymTheme.label)
 
@@ -390,6 +390,7 @@ struct HomeView: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(GymTheme.surface2, in: Capsule())
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
@@ -411,6 +412,7 @@ struct HomeView: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(activeAccent.opacity(0.16), in: Capsule())
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }

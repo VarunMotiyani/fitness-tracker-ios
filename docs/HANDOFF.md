@@ -1,6 +1,6 @@
 # HANDOFF — Read This First
 
-_Living document. Last updated: 2026-09-03 (openGym Full Architecture & UI/UX Port Completed on branch `fitness-engine-v2`)._
+_Living document. Last updated: 2026-09-03 (PulseAI Full Architecture, Proactive AI Trainer UI/UX & Native Persistence on branch `fitness-engine-v2`)._
 
 **Purpose:** One read = full context. If you're a new agent/session on any device, read this top to bottom before doing anything. It captures the project, every decision, current state, how to work here, and what's next. Deep detail lives in the numbered docs; this is the index + digest.
 
@@ -8,90 +8,72 @@ _Living document. Last updated: 2026-09-03 (openGym Full Architecture & UI/UX Po
 
 ## 1. What the project is
 
-A **personal iOS app** for Varun (24) that acts as an adaptive strength & physique coach, matching the exact UI/UX, floor mechanics, and domain architecture of **openGym** while integrating an autonomous on-device / BYOK AI coaching layer.
+A **proactive AI strength & physique coaching app (PulseAI)** for iOS (iPhone 17 Pro / iOS 17+) that pairs tactile, high-efficiency gym floor mechanics with an autonomous on-device / BYOK AI coaching layer.
 
+- **App Name:** **PulseAI** (Proactive AI Fitness Coach)
 - **Working Branch:** `fitness-engine-v2`
 - **Simulator Target:** iPhone 17 Pro (`B29C47DD-D3FE-490C-9A84-3D9A32AFE68A`)
-- **Strict Working Constraints:**
+- **Strict Invariant Rules:**
   - *No commits, no push ever* without explicit user permission.
-  - Phased, rigorous engineering with full Swift domain logic + pixel-perfect SwiftUI views.
+  - Swift 6 Strict Concurrency + Native SwiftUI + SwiftData architecture.
 
 ---
 
 ## 2. Current Implementation State & Task Ledger
 
-### A. openGym Domain & Progression Engine (`FitnessCore`)
-- **`PlateMath.swift`**: Olympic barbell (20kg/45lb), EZ bar (10kg/25lb), Trap bar (25kg/55lb), and Smith machine barbell plate calculation.
-- **`RecoveryModel.swift`**: \(1 - \exp(-\text{stimulus}/\text{REF})\) saturation curve, 36h exponential half-life fatigue decay, and `ready` / `recovering` / `fatigued` muscle state classification.
-- **`ProgressionRule.swift`**: Standard linear, double progression, Greyskull LP, and deload policies.
-- **`StreakCalculator.swift`**: ISO week grouping, 10-year consecutive streak back-scanner with week-zero grace period, weekly adherence counters (`workoutsThisWeek`, `plannedPerWeek`, `totalWorkouts`).
-- **Tests**: **136/136 unit tests passing** across 12 suites via `swift test`.
+### A. Proactive AI Coaching & Progression Core (`FitnessCore`)
+- **`PlateMath.swift`**: Exact barbell plate calculations for Olympic (20kg/45lb), Women's (15kg/35lb), EZ bar (10kg/25lb), Trap bar (25kg/55lb), and Smith machines.
+- **`RecoveryModel.swift`**: \(1 - \exp(-\text{stimulus}/\text{REF})\) stimulus saturation curve, 36-hour exponential half-life fatigue decay, and `ready` / `recovering` / `fatigued` muscle status classifier.
+- **`ProgressionRule.swift`**: Linear progression, double progression, Greyskull LP, and automatic deload policies.
+- **`StreakCalculator.swift`**: ISO-8601 calendar week scanner, 520-week backward scan with grace periods, and weekly adherence rollups (`workoutsThisWeek`, `plannedPerWeek`, `totalWorkouts`).
+- **`PlanCoordinator.swift` & `PlanPromptBuilder.swift`**: Coordinates rule-based starter routines with BYOK AI planning (Gemini / OpenAI compatible) with strict JSON schema constraints and retry loops.
 
 ---
 
-### B. 5-Tab Navigation System & openGym Theme (`FitnessTracker`)
-- **`Theme.swift`**: Color tokens (`#000000` pitch black, `#0e0e10` elevated backdrop, `#1c1c1e` cards, `#2c2c2e` controls, `#30d158` green, `#ff9f0a` orange, `#ffd60a` yellow, `#0a84ff` blue, `#bf5af2` purple).
-- **`CustomTabBar.swift`**: 5 bottom tabs:
-  1. `Home`
-  2. `Plan`
-  3. **Center Elevated Green Action Button (`Start` / `Resume`)**
-  4. `Stats`
-  5. `Exercises` (Library)
-- **`RootView.swift`**: Coordinates 5 tabs with full-screen live workout runner.
+### B. Navigation & Theme Engine (`FitnessTracker`)
+- **App Branding:** **PulseAI** header branding with personalized athlete greeting support.
+- **`GymTheme.swift`**: True pitch black (`#000000`), elevated card surfaces (`#1c1c1e`), control surfaces (`#2c2c2e`), and dynamic reactive accent themes (`Lime`, `Cyan/Sky`, `Orange`, `Violet`, `Pink`, `Red`, `Teal`, `Gold`).
+- **`CustomTabBar.swift` & `RootView.swift`**: Persistent 5-tab bar with elevated center green action button (`Start` / `Resume`).
+- **Inline Settings Navigation**: Settings is rendered directly within the `RootView` navigation hierarchy rather than presenting as a covering modal sheet, ensuring the bottom tab bar is permanently accessible and mounted.
 
 ---
 
-### C. Pixel-Perfect Screens & Charts
+### C. Home Dashboard & Interactive Week Calendar
 - **`HomeView.swift`**:
-  - `openGym` title ($32\text{pt}$ bold white) with date subline and settings gear.
-  - 7-day week strip with Mon–Sun columns, green circular pill for today (`2`), and nested Today session row with barbell glyph and green `Start` capsule tag.
-  - Body weight card with target goal badge (`🎯 77`), `+ Log` button, massive $40\text{pt}$ headline (`78.7 kg`), $\Delta$ indicator, and `OpenGymLineChart`.
-  - Streak card with orange flame icon, `13 week streak`, and calendar trigger.
-- **`OpenGymLineChart.swift`**: Smooth green curve, dashed yellow goal line with label, gradient fill fading downwards, and active endpoint.
-- **`WorkoutTabView.swift` & `SessionFocusView.swift`**:
-  - Live session header with duration and set counter.
-  - Tactile Set Table with green circular set badges, weight and rep steppers, warmup toggle, and circular glowing green completion button.
-- **`StatsView.swift` & `MuscleMapView.swift`**:
-  - Side-by-side **Anterior** and **Posterior** vector body map rendered via Canvas affine matrix transform.
-  - 52-week activity heatmap, 3-mode picker (`Muscle balance`, `Fatigue`, `Strength`), and RIR statistics.
-- **`PlanView.swift`**: Monday through Sunday schedule breakdown, split routines, and RP volume target rows.
-- **`LibraryView.swift`**: Search bar, muscle filter pills, equipment filter pills, and exercise list cards with thumbnails and detail triggers.
+  - `PulseAI` headline with wide weekday/date header and settings button.
+  - **Interactive 7-Day Week Strip**: Paginates weeks (`< This week >`), shows active day indicators, and lets the user tap ANY day to open `DayOverrideSheet` (to reschedule, swap split routines, or mark rest) or view completed workout details.
+  - **Nested Today Routine Card**: Displays planned focus (`Push Day`, `Pull Day`, `Legs Day`) with direct `Start` action trigger.
+  - **Body Weight Card**: Target goal badge (`🎯 77`), `+ Log` button, $40\text{pt}$ readout (`78.7 kg`), delta indicator, and 30-day bezier curve chart.
+  - **Streak Card**: Orange flame badge, week streak counter, weekly completion count, and full-month calendar modal trigger.
+- **`OpenGymLineChart.swift`**: Hand-rolled bezier line chart with gradient fill, dashed goal line, and active endpoints.
 
 ---
 
-### D. Interactive Modal Sheets
-- **`WeightInputView.swift`**: Reusable weight stepper with $-/+$ buttons, quick pills (`[ −1 ]`, `[ −0.5 ]`, `[ +0.5 ]`, `[ +1 ]`), and continuous slider.
-- **`LogWeightSheet.swift`**: Sheet to log body weight with recent weigh-in list and red trash delete buttons.
-- **`TargetWeightSheet.swift`**: Sheet to set/remove weight goals.
-- **`CalendarSheet.swift`**: Full-month calendar sheet with previous/next month navigation, month total metrics (workouts, duration, tonnage), day tiles with trained/planned/rescheduled dots, and legend.
-- **`DayOverrideSheet.swift`**: Modal sheet to reschedule a specific day to Push/Pull/Legs or Rest.
-- **`WorkoutDetailSheet.swift`**: Summary modal of a trained day showing completed sets, duration, tonnage, PR badges, and session notes.
+### D. Snug Modal Sheets (Zero Wasted Space)
+- **`LogWeightSheet.swift`**:
+  - Stepper buttons (`[-] 78.7 kg [+]`), delta pills (`−1`, `−0.5`, `+0.5`, `+1`), and dynamic slider track.
+  - **Historical Weigh-Ins**: Renders recent entries (`Recent weigh-ins` with dates, weights, and delete trash buttons).
+  - **Snug Presentation Detents**: Dynamically calculated height based on recent entries (`360 + count * 54pt`), eliminating dead black voids.
+  - **Clean Header Spacing**: Top padding below sheet drag indicator preventing clipped headers.
+- **`DayOverrideSheet.swift`**:
+  - Header showing selected date and weekly plan assignment.
+  - Routine swap list (`Session 1 · Push Day`, `Session 2 · Pull Day`, etc.), `Rest / skip this day`, and `Back to weekly plan`.
+- **`CalendarSheet.swift`**: Full-month calendar grid with previous/next month navigation, month aggregate tonnage/duration rollups, trained day dots, and legend. Snug height (`445pt` or `495pt` based on month rows).
+- **`TargetWeightSheet.swift`**: Fitted modal (`320pt` / `380pt`) to set, update, or remove target bodyweight goals.
+- **`WorkoutDetailSheet.swift`**: Summary modal of a trained day showing completed sets, duration, tonnage, PR badges, and notes.
 
 ---
 
-### E. openGym 1,324 Exercise Database & Media Pipeline
-- **`catalog.json`**: Complete 1,324 open-source exercise database (`hasaneyldrm/exercises-dataset`, MIT) with target muscles, secondary assisting muscles, equipment categories, and step-by-step instructions.
-- **`FreeExerciseDBMapper.swift`**: Robust mapping of all openGym target muscles and equipment types.
-- **`ExerciseMediaView.swift`**:
-  - `ExerciseThumbnailView`: Asynchronous CDN photo loader with caching and fallback glyphs.
-  - `AnimatedGifView`: Hardware-accelerated inline animated GIF player with `GIF / Still` toggle.
-- **`ExerciseDetailSheet.swift`**: High-resolution image/GIF banner, muscle/equipment chips, and numbered technique instructions.
-
----
-
-### F. Unified Settings Suite (`SettingsView.swift`)
-- **Your Data**: SwiftData local-first architecture.
-- **AI Coach**: LLM provider manager (OpenAI, Gemini, Ollama, Anthropic), Keychain API key security, real-time token cost tracker, plan regenerator.
-- **Athlete Profile**: Goal, experience, session length, sessions/week, and equipment inventory.
-- **General Preferences**: Weight unit (`kg`/`lb`), Week start day (`Monday`/`Sunday`).
-- **During a Workout**: Default rest timer, rest-pause timer, keep screen awake (`UIApplication.shared.isIdleTimerDisabled`), audio/haptics, timer flash, Effort tracking (`Off`/`RIR`/`RPE`) with Effort Scale Help Sheet.
-- **Appearance**: Male/Female body diagram model, Accent color swatches (`Lime`, `Orange`, `Yellow`, `Blue`, `Purple`).
-- **Data & Backups**: Load starter PPL split, Export JSON backup via iOS Share Sheet, Reset everything confirmation.
+### E. Gym-Floor Workout Runner & Exercise Library
+- **`SessionFocusView.swift` & `WorkoutTabView.swift`**: Tactile Set Table with green set check buttons, weight/rep steppers, rest countdown timer with audio/haptic cues, and session finalizer.
+- **`LibraryView.swift` & `catalog.json`**: 1,324 exercise database with primary/secondary muscles, equipment tags, step-by-step instructions, asynchronous CDN thumbnails, and hardware-accelerated animated GIFs.
+- **`StatsView.swift` & `MuscleMapView.swift`**: Canvas-rendered Anterior and Posterior vector body maps, 52-week activity heatmap, e1RM progression charts, and RIR effort analysis.
 
 ---
 
 ## 3. Roadmap & Next Steps
 
-1. **Live Floor Workout Run-Through**: Verify live set logging, rest countdown timer, and session completion finalization with the new 1,324 exercise catalog.
-2. **AI Adaptation Ingestion**: Integrate workout history snapshots into the AI planner to suggest automatic weight/rep progressions based on logged RIR/RPE.
-3. **Keep Strict Working Constraints**: No uncommitted git operations (`No commits, no push ever`).
+1. **AI Adaptive Training Suggestions**: Feed recent workout logs and RIR effort ratings into the AI coordinator to proactively suggest load/rep progression for upcoming sessions.
+2. **Apple HealthKit Sync**: Add two-way sync for bodyweight measurements and active workout sessions into Apple Health.
+3. **Live Activity & Dynamic Island**: Add Lock Screen and Dynamic Island live workout countdowns and rest timers.
+4. **Strict Invariant Rule**: Always maintain `No commits, no push ever`.

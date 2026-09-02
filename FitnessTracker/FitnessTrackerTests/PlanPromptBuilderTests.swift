@@ -12,16 +12,16 @@ struct PlanPromptBuilderTests {
     private func ctx(equipment: Set<Equipment> = [.barbell, .dumbbell]) -> UserContext {
         UserContext(goal: .buildMuscle, experience: .intermediate, sessionsPerWeek: 4,
                     sessionLengthMinutes: 60, availableEquipment: equipment,
-                    excludedExerciseIDs: ["Barbell_Bench_Press"], excludedMuscles: [.calves])
+                    excludedExerciseIDs: ["0025"], excludedMuscles: [.calves])
     }
 
     @Test func userPromptOnlyListsOwnedNonExcludedExercises() throws {
         let u = try builder().user(context: ctx())
-        #expect(u.contains("Dumbbell_Bench_Press"))       // dumbbell, owned
-        #expect(!u.contains("Barbell_Bench_Press"))        // excluded id
-        #expect(!u.contains("Standing_Calf_Raise"))        // machine (not owned) AND calves (excluded)
-        #expect(!u.contains("Cable_Crossover"))            // cable not owned
-        #expect(u.contains("60"))                          // session length
+        #expect(u.contains("0047"))             // Incline Dumbbell Press (dumbbell, owned)
+        #expect(!u.contains("0025 |"))          // Barbell Bench Press (excluded id)
+        #expect(!u.contains("Standing Calf"))   // calves (excluded muscle)
+        #expect(!u.contains("0027 |"))          // Lat Pulldown (cable not owned)
+        #expect(u.contains("60"))               // session length
     }
 
     @Test func priorIssuesAppended() throws {
