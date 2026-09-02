@@ -4,21 +4,18 @@ import FitnessDomain
 import ExerciseCatalog
 import Metrics
 
-/// One exercise at a time: name + cue + image, the target line, a "why?"
-/// rationale disclosure, the list of already-logged sets, a pre-filled
-/// "log next set" row, a "Done" button, and Prev / Next paging. The toolbar
-/// list button opens the session list (Task 9) as a sheet.
+/// Tactile Gym-Floor Workout Runner matching openGym's Set Table and live mechanics.
 struct SessionFocusView: View {
     let runner: SessionRunner
     let catalog: CatalogStore
-    /// Raised by the toolbar list button; the container owns the sheet (Task 9).
     var onOpenList: () -> Void = {}
 
-    @State private var showWhy = false
-    @State private var reps: Int = 8
-    @State private var load: Double = 0
+    @State private var reps: Double = 8
+    @State private var load: Double = 60.0
     @State private var warmup = false
     @State private var restTimer = RestTimer()
+    @State private var showPlateMath = false
+    @State private var showWhy = false
 
     var body: some View {
         Group {
@@ -26,15 +23,18 @@ struct SessionFocusView: View {
                 let planned = finalized.session.items.first { $0.exerciseID == entry.exerciseID }
                 content(entry: entry, planned: planned, finalized: finalized)
             } else {
-                ContentUnavailableView("No exercise", systemImage: "dumbbell")
+                ContentUnavailableView("No active exercise", systemImage: "dumbbell")
             }
+        }
+        .sheet(isPresented: $showPlateMath) {
+            PlateMathSheet(initialWeight: load)
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     onOpenList()
                 } label: {
-                    Label("Session list", systemImage: "list.bullet")
+                    Label("All Exercises", systemImage: "list.bullet")
                 }
             }
         }
@@ -47,232 +47,258 @@ struct SessionFocusView: View {
     // MARK: - Content
 
     @ViewBuilder
-    private func content(entry: CompletedEntryModel,
-                         planned: PlannedItem?,
-                         finalized: FinalizedSession) -> some View {
+    private func content(
+        entry: CompletedEntryModel,
+        planned: PlannedItem?,
+        finalized: FinalizedSession
+    ) -> some View {
         let exercise = catalog.exercise(id: entry.exerciseID)
         let loggedSets = entry.sets.sorted { $0.startedAt < $1.startedAt }
-        let workingSetCount = entry.sets.filter { !$0.isWarmup }.count
-        let targetSets = planned?.targetSets ?? Int.max
-        let doneReady = workingSetCount >= targetSets
+        let targetSets = planned?.targetSets ?? 3
+        let workingSetCount = loggedSets.filter { !$0.isWarmup }.count
+        let isAllDone = workingSetCount >= targetSets
         let rationale = finalized.perItemRationale[entry.exerciseID] ?? ""
 
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                exerciseHeader(exercise: exercise, entry: entry)
+            VStack(alignment: .leading, spacing: 16) {
+                // Exercise Header & Target Card
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(exercise?.name ?? entry.exerciseID)
+                                .font(.title2.bold())
+                                .foregroundStyle(.white)
+                            if let planned {
+                                Text("\(planned.targetSets) sets × \(planned.targetReps.min)–\(planned.targetReps.max) reps · rest \(planned.restSeconds)s")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Button {
+                            showPlateMath = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "circle.grid.2x1.fill")
+                                Text("Plates")
+                            }
+                            .font(.caption.bold())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color(white: 0.20), in: Capsule())
+                            .foregroundStyle(.white)
+                        }
+                    }
 
-                Text(targetLine(planned: planned))
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+                    // AI Coach Note & Why Disclosure
+                    if let note = planned?.coachNote, !note.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "sparkles")
+                                .font(.caption)
+                                .foregroundStyle(.purple)
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(Color(white: 0.8))
+                        }
+                    }
 
-                if !rationale.isEmpty {
-                    whySection(rationale: rationale)
+                    if !rationale.isEmpty {
+                        DisclosureGroup(isExpanded: $showWhy) {
+                            Text(rationale)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 4)
+                        } label: {
+                            Text("Why this prescription?")
+                                .font(.caption.bold())
+                                .foregroundStyle(.purple)
+                        }
+                    }
                 }
+                .padding(14)
+                .background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 14))
 
-                setList(loggedSets: loggedSets)
-
-                logNextSetRow(planned: planned)
-
+                // Rest Timer Banner (if active)
                 if restTimer.isRunning || restTimer.remaining > 0 {
                     RestTimerView(timer: restTimer)
+                        .padding(.horizontal, 4)
                 }
 
-                doneButton(doneReady: doneReady)
+                // Interactive Set Table Header
+                HStack(spacing: 8) {
+                    Text("SET")
+                        .frame(width: 36, alignment: .leading)
+                    Text("WEIGHT")
+                        .frame(maxWidth: .infinity)
+                    Text("REPS")
+                        .frame(maxWidth: .infinity)
+                    Text("STATUS")
+                        .frame(width: 50, alignment: .trailing)
+                }
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(Color(white: 0.5))
+                .padding(.horizontal, 8)
 
-                pager()
+                // Already Logged Sets Rows
+                ForEach(Array(loggedSets.enumerated()), id: \.offset) { idx, set in
+                    HStack(spacing: 8) {
+                        // Set number badge
+                        ZStack {
+                            Circle()
+                                .fill(set.isWarmup ? Color.orange : Color.green)
+                                .frame(width: 28, height: 28)
+                            Text(set.isWarmup ? "W" : "\(idx + 1)")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.black)
+                        }
+                        .frame(width: 36, alignment: .leading)
+
+                        // Weight
+                        Text(String(format: "%.1f kg", set.actualLoadKg))
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .frame(maxWidth: .infinity)
+
+                        // Reps
+                        Text("\(set.actualReps) reps")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .frame(maxWidth: .infinity)
+
+                        // Done icon
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(Color.green)
+                            .frame(width: 50, alignment: .trailing)
+                    }
+                    .padding(12)
+                    .background(Color(white: 0.10), in: RoundedRectangle(cornerRadius: 10))
+                }
+
+                // Next Set to Log Row
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("LOG NEXT SET")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.green)
+                        Spacer()
+                        Toggle("Warmup", isOn: $warmup)
+                            .toggleStyle(.button)
+                            .tint(.orange)
+                            .font(.caption.bold())
+                    }
+
+                    HStack(spacing: 8) {
+                        // Current Set Number
+                        ZStack {
+                            Circle()
+                                .fill(warmup ? Color.orange.opacity(0.3) : Color.green.opacity(0.3))
+                                .frame(width: 32, height: 32)
+                            Text(warmup ? "W" : "\(loggedSets.count + 1)")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(warmup ? .orange : .green)
+                        }
+                        .frame(width: 36, alignment: .leading)
+
+                        // Weight Stepper
+                        GymStepper(value: $load, step: 2.5, minVal: 0, maxVal: 500, unit: "kg", isDecimal: true)
+
+                        // Reps Stepper
+                        GymStepper(value: $reps, step: 1, minVal: 1, maxVal: 100, unit: "reps", isDecimal: false)
+
+                        // Complete Checkmark Button
+                        Button {
+                            logCurrentSet(plannedRestSec: planned?.restSeconds ?? 90)
+                        } label: {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.green)
+                                    .frame(width: 42, height: 42)
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundStyle(.black)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(14)
+                .background(Color(white: 0.14), in: RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.green.opacity(0.4), lineWidth: 1.5)
+                )
+
+                // Navigation Paging (Prev / Next / Finish)
+                HStack(spacing: 12) {
+                    if runner.currentEntryIndex > 0 {
+                        Button {
+                            runner.currentEntryIndex -= 1
+                        } label: {
+                            HStack {
+                                Image(systemName: "chevron.left")
+                                Text("Previous")
+                            }
+                            .font(.subheadline.bold())
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.secondary)
+                    }
+
+                    Button {
+                        if runner.currentEntryIndex < runner.entriesInOrder.count - 1 {
+                            runner.markDone(entryIndex: runner.currentEntryIndex)
+                            runner.currentEntryIndex += 1
+                        } else {
+                            runner.markDone(entryIndex: runner.currentEntryIndex)
+                            runner.requestSummary()
+                        }
+                    } label: {
+                        HStack {
+                            Text(runner.currentEntryIndex < runner.entriesInOrder.count - 1 ? "Next Exercise" : "Finish Workout")
+                            Image(systemName: runner.currentEntryIndex < runner.entriesInOrder.count - 1 ? "chevron.right" : "checkmark")
+                        }
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(isAllDone ? .green : .blue)
+                }
+                .padding(.top, 8)
             }
-            .padding()
+            .padding(16)
         }
+        .background(Color.black.ignoresSafeArea())
         .navigationTitle(exercise?.name ?? entry.exerciseID)
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    // MARK: - Header
-
-    @ViewBuilder
-    private func exerciseHeader(exercise: Exercise?, entry: CompletedEntryModel) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // The app bundles no exercise images yet — grey placeholder for now.
-            // TODO: render `exercise?.imagePaths` once media ships.
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color(.secondarySystemBackground))
-                .frame(height: 180)
-                .frame(maxWidth: .infinity)
-                .overlay(
-                    Image(systemName: "figure.strengthtraining.traditional")
-                        .font(.system(size: 56))
-                        .foregroundStyle(.tertiary)
-                )
-
-            Text(exercise?.name ?? entry.exerciseID)
-                .font(.title2.bold())
-
-            if let cue = exercise?.instructions.first {
-                Text(cue)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    // MARK: - Why
-
-    @ViewBuilder
-    private func whySection(rationale: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button {
-                withAnimation { showWhy.toggle() }
-            } label: {
-                Label("why?", systemImage: showWhy ? "chevron.down" : "chevron.right")
-                    .font(.subheadline.weight(.medium))
-            }
-            .buttonStyle(.plain)
-
-            if showWhy {
-                Text(rationale)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    // MARK: - Set list
-
-    @ViewBuilder
-    private func setList(loggedSets: [LoggedSetModel]) -> some View {
-        if !loggedSets.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(loggedSets.enumerated()), id: \.element.persistentModelID) { index, set in
-                    HStack {
-                        Text("Set \(index + 1): \(set.actualReps) reps @ \(loadString(set.actualLoadKg)) kg")
-                            .font(.subheadline)
-                        if set.isWarmup {
-                            Text("warm-up")
-                                .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(Color(.tertiarySystemBackground)))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Log next set
-
-    @ViewBuilder
-    private func logNextSetRow(planned: PlannedItem?) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Log next set")
-                .font(.headline)
-
-            Stepper("Reps: \(reps)", value: $reps, in: 1...50)
-
-            HStack {
-                Text("Load: \(loadString(load)) kg")
-                Spacer()
-                Button {
-                    load = max(0, load - 2.5)
-                } label: {
-                    Image(systemName: "minus.circle")
-                }
-                Button {
-                    load = min(500, load + 2.5)
-                } label: {
-                    Image(systemName: "plus.circle")
-                }
-            }
-            .font(.body)
-
-            Toggle("Warm-up", isOn: $warmup)
-
-            Button("Log set") {
-                var flags = SetFlags()
-                flags.isWarmup = warmup
-                runner.logSet(
-                    entryIndex: runner.currentEntryIndex,
-                    actualReps: reps,
-                    actualLoadKg: load,
-                    // Real wall-clock rest since the previous set (0 for the first set of the entry).
-                    restBeforeSec: restTimer.elapsed,
-                    flags: flags
-                )
-                warmup = false
-                restTimer.start(seconds: planned?.restSeconds ?? 90)
-            }
-            .buttonStyle(.bordered)
-        }
-        .padding()
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemBackground)))
-    }
-
-    // MARK: - Done
-
-    @ViewBuilder
-    private func doneButton(doneReady: Bool) -> some View {
-        let action = { runner.markDone(entryIndex: runner.currentEntryIndex) }
-        Group {
-            if doneReady {
-                Button("Done", action: action)
-                    .buttonStyle(.borderedProminent)
-            } else {
-                Button("Done", action: action)
-                    .buttonStyle(.bordered)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    // MARK: - Pager
-
-    @ViewBuilder
-    private func pager() -> some View {
-        HStack {
-            Button("Previous") {
-                if runner.currentEntryIndex > 0 { runner.currentEntryIndex -= 1 }
-            }
-            .disabled(runner.currentEntryIndex <= 0)
-
-            Spacer()
-
-            Button("Next") {
-                if runner.currentEntryIndex < runner.entriesInOrder.count - 1 {
-                    runner.currentEntryIndex += 1
-                }
-            }
-            .disabled(runner.currentEntryIndex >= runner.entriesInOrder.count - 1)
-        }
-        .buttonStyle(.bordered)
-    }
-
-    // MARK: - Helpers
-
     private func seedInputs() {
-        let planned = runner.finalized?.session.items.first {
-            $0.exerciseID == runner.currentEntry?.exerciseID
-        }
-        reps = planned?.targetReps.min ?? 8
-        load = planned?.targetLoadKg ?? 0
+        guard let entry = runner.currentEntry else { return }
+        let plannedItem = runner.finalized?.session.items.first { $0.exerciseID == entry.exerciseID }
+        load = plannedItem?.targetLoadKg ?? 60.0
+        reps = Double(plannedItem?.targetReps.min ?? 8)
         warmup = false
     }
 
-    private func targetLine(planned: PlannedItem?) -> String {
-        let sets = planned?.targetSets ?? 0
-        let lo = planned?.targetReps.min ?? 0
-        let hi = planned?.targetReps.max ?? 0
-        let loadSuffix = planned?.targetLoadKg.map { " @ \(loadString($0)) kg" } ?? ""
-        return "\(sets) × \(lo)–\(hi)\(loadSuffix)"
-    }
+    private func logCurrentSet(plannedRestSec: Int) {
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
 
-    private func loadString(_ kg: Double) -> String {
-        kg.truncatingRemainder(dividingBy: 1) == 0
-            ? String(Int(kg))
-            : String(format: "%.1f", kg)
+        var flags = SetFlags()
+        flags.isWarmup = warmup
+        runner.logSet(
+            entryIndex: runner.currentEntryIndex,
+            actualReps: Int(reps),
+            actualLoadKg: load,
+            restBeforeSec: 0,
+            flags: flags
+        )
+
+        // Launch Rest Timer
+        restTimer.start(seconds: plannedRestSec)
     }
 }
-
-// #Preview omitted — SessionFocusView needs a live, started SessionRunner
-// (an in-memory ModelContainer + a completed `start(...)`), which isn't
-// practical in a #Preview. Verified via the app at Task 12.

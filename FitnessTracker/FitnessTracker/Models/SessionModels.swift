@@ -88,6 +88,8 @@ final class LoggedSetModel {
     var isDropSet: Bool
     var toFailure: Bool
     var assisted: Bool
+    var dropsJSON: String
+    var clustersJSON: String
     var entry: CompletedEntryModel?
 
     init(targetReps: Int, targetLoadKg: Double?, actualReps: Int, actualLoadKg: Double,
@@ -104,5 +106,7 @@ final class LoggedSetModel {
         self.isDropSet = false
         self.toFailure = false
         self.assisted = false
+        self.dropsJSON = "[]"
+        self.clustersJSON = "[]"
     }
 }

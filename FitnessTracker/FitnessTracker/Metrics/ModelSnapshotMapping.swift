@@ -32,6 +32,34 @@ private nonisolated func encodeStringArray(_ arr: [String]) -> String {
     return str
 }
 
+private nonisolated func decodeDrops(_ json: String) -> [DropSetEntry] {
+    guard let data = json.data(using: .utf8),
+          let drops = try? JSONDecoder().decode([DropSetEntry].self, from: data)
+    else { return [] }
+    return drops
+}
+
+public nonisolated func encodeDrops(_ drops: [DropSetEntry]) -> String {
+    guard let data = try? JSONEncoder().encode(drops),
+          let str = String(data: data, encoding: .utf8)
+    else { return "[]" }
+    return str
+}
+
+private nonisolated func decodeClusters(_ json: String) -> [RestPauseCluster] {
+    guard let data = json.data(using: .utf8),
+          let clusters = try? JSONDecoder().decode([RestPauseCluster].self, from: data)
+    else { return [] }
+    return clusters
+}
+
+public nonisolated func encodeClusters(_ clusters: [RestPauseCluster]) -> String {
+    guard let data = try? JSONEncoder().encode(clusters),
+          let str = String(data: data, encoding: .utf8)
+    else { return "[]" }
+    return str
+}
+
 // MARK: - Session models -> snapshots
 
 extension LoggedSetModel {
@@ -48,7 +76,9 @@ extension LoggedSetModel {
             isWarmup: isWarmup,
             isDropSet: isDropSet,
             toFailure: toFailure,
-            assisted: assisted
+            assisted: assisted,
+            drops: decodeDrops(dropsJSON),
+            clusters: decodeClusters(clustersJSON)
         )
     }
 }

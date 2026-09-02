@@ -21,9 +21,9 @@ thin over `SessionRunner`.
 Testing (`import Testing`) + XCTest UI, `FitnessCore` local package
 (`Metrics`, `CoachMemory`, `RuleEngine`, `FitnessDomain`, `ExerciseCatalog`).
 
-**Spec:** `docs/superpowers/specs/2026-08-29-phase-2-session-runner-design.md`
+**Spec:** `docs/specs/2026-08-29-phase-2-session-runner-design.md`
 (§3 lifecycle, §5.4 rule-engine finalisation, §6 runner UI, §8.1 typed core, §14
-2b bullet). Also **read `docs/superpowers/plans/2026-08-29-phase-2a-followups.md`** —
+2b bullet). Also **read `docs/plans/2026-08-29-phase-2a-followups.md`** —
 R1 (`supersededBy` may resolve to nothing) and the `MemorySource` wire-format
 note bind Task 3's mapping.
 

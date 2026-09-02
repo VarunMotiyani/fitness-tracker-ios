@@ -31,40 +31,67 @@ public enum FreeExerciseDBMapper {
         )
     }
 
-    static func muscle(_ value: String) -> MuscleGroup? {
-        switch value.lowercased() {
-        case "chest": return .chest
-        case "lats", "middle back": return .back
-        case "lower back": return .lowerBack
-        case "traps", "neck": return .traps
-        case "shoulders": return .shoulders
-        case "biceps": return .biceps
-        case "triceps": return .triceps
-        case "forearms": return .forearms
-        case "quadriceps": return .quads
-        case "hamstrings": return .hamstrings
-        case "glutes", "abductors", "adductors": return .glutes
-        case "calves": return .calves
-        case "abdominals": return .abs
-        default: return nil
+    public static func muscle(_ value: String) -> MuscleGroup? {
+        let v = value.lowercased()
+        switch v {
+        case "chest", "pectorals":
+            return .chest
+        case "lats", "middle back", "back", "upper back":
+            return .back
+        case "lower back", "spine":
+            return .lowerBack
+        case "traps", "neck", "trapezius", "levator scapulae":
+            return .traps
+        case "shoulders", "delts", "rear deltoids", "anterior deltoids", "lateral deltoids":
+            return .shoulders
+        case "biceps", "brachialis":
+            return .biceps
+        case "triceps":
+            return .triceps
+        case "forearms", "wrist flexors", "wrist extensors":
+            return .forearms
+        case "quadriceps", "quads":
+            return .quads
+        case "hamstrings":
+            return .hamstrings
+        case "glutes", "abductors", "adductors", "hip flexors", "piriformis":
+            return .glutes
+        case "calves", "soleus", "gastrocnemius", "ankle stabilizers":
+            return .calves
+        case "abdominals", "abs", "waist", "core", "obliques":
+            return .abs
+        case "cardiovascular system", "cardio":
+            return .quads
+        default:
+            return nil
         }
     }
 
-    static func equipment(_ value: String?) -> Equipment {
-        switch value?.lowercased() {
-        case "barbell": return .barbell
-        case "dumbbell": return .dumbbell
-        case "cable": return .cable
-        case "machine": return .machine
-        case "body only": return .bodyweight
-        case "kettlebells": return .kettlebell
-        case "bands": return .bands
-        case "e-z curl bar": return .ezBar
-        default: return .other
+    public static func equipment(_ value: String?) -> Equipment {
+        guard let v = value?.lowercased() else { return .other }
+        switch v {
+        case "barbell", "olympic barbell", "trap bar":
+            return .barbell
+        case "dumbbell":
+            return .dumbbell
+        case "cable":
+            return .cable
+        case "machine", "leverage machine", "smith machine", "sled machine":
+            return .machine
+        case "body only", "body weight", "assisted", "suspension":
+            return .bodyweight
+        case "kettlebells", "kettlebell":
+            return .kettlebell
+        case "bands", "band":
+            return .bands
+        case "e-z curl bar", "ez barbell":
+            return .ezBar
+        default:
+            return .other
         }
     }
 
-    static func mechanic(_ value: String?) -> Mechanic {
+    public static func mechanic(_ value: String?) -> Mechanic {
         switch value?.lowercased() {
         case "compound": return .compound
         case "isolation": return .isolation
@@ -72,7 +99,7 @@ public enum FreeExerciseDBMapper {
         }
     }
 
-    static func force(_ value: String?) -> ForceType? {
+    public static func force(_ value: String?) -> ForceType? {
         switch value?.lowercased() {
         case "push": return .push
         case "pull": return .pull
@@ -81,7 +108,7 @@ public enum FreeExerciseDBMapper {
         }
     }
 
-    static func difficulty(_ value: String) -> Difficulty {
+    public static func difficulty(_ value: String) -> Difficulty {
         switch value.lowercased() {
         case "beginner": return .beginner
         case "expert": return .expert
@@ -89,7 +116,7 @@ public enum FreeExerciseDBMapper {
         }
     }
 
-    static func isUnilateral(_ name: String) -> Bool {
+    public static func isUnilateral(_ name: String) -> Bool {
         let n = name.lowercased()
         let markers = ["single-arm", "single arm", "one-arm", "one arm",
                        "single-leg", "single leg", "one-leg", "one leg",

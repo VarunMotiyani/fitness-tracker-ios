@@ -37,6 +37,26 @@ public enum CoachSource: String, CaseIterable, Sendable, Codable, Equatable {
     case rule
 }
 
+public struct DropSetEntry: Sendable, Codable, Equatable {
+    public let loadKg: Double
+    public let reps: Int
+
+    public init(loadKg: Double, reps: Int) {
+        self.loadKg = loadKg
+        self.reps = reps
+    }
+}
+
+public struct RestPauseCluster: Sendable, Codable, Equatable {
+    public let reps: Int
+    public let restSeconds: Int
+
+    public init(reps: Int, restSeconds: Int = 15) {
+        self.reps = reps
+        self.restSeconds = restSeconds
+    }
+}
+
 public struct LoggedSetSnapshot: Sendable, Codable, Equatable {
     public let targetReps: Int
     public let targetLoadKg: Double?
@@ -50,8 +70,25 @@ public struct LoggedSetSnapshot: Sendable, Codable, Equatable {
     public let isDropSet: Bool
     public let toFailure: Bool
     public let assisted: Bool
+    public let drops: [DropSetEntry]
+    public let clusters: [RestPauseCluster]
 
-    public init(targetReps: Int, targetLoadKg: Double?, actualReps: Int, actualLoadKg: Double, startedAt: Date, completedAt: Date, restBeforeSec: Int, rpe: Double?, isWarmup: Bool, isDropSet: Bool, toFailure: Bool, assisted: Bool) {
+    public init(
+        targetReps: Int,
+        targetLoadKg: Double?,
+        actualReps: Int,
+        actualLoadKg: Double,
+        startedAt: Date,
+        completedAt: Date,
+        restBeforeSec: Int,
+        rpe: Double? = nil,
+        isWarmup: Bool = false,
+        isDropSet: Bool = false,
+        toFailure: Bool = false,
+        assisted: Bool = false,
+        drops: [DropSetEntry] = [],
+        clusters: [RestPauseCluster] = []
+    ) {
         self.targetReps = targetReps
         self.targetLoadKg = targetLoadKg
         self.actualReps = actualReps
@@ -64,6 +101,8 @@ public struct LoggedSetSnapshot: Sendable, Codable, Equatable {
         self.isDropSet = isDropSet
         self.toFailure = toFailure
         self.assisted = assisted
+        self.drops = drops
+        self.clusters = clusters
     }
 }
 
@@ -92,6 +131,11 @@ public struct CompletedEntrySnapshot: Sendable, Codable, Equatable {
 public extension LoggedSetSnapshot {
     /// A set that genuinely contributes to metrics: not a warm-up, and actually performed.
     var isWorkingSet: Bool { !isWarmup && actualReps > 0 }
+    
+    /// Total intensity-weighted volume of drops on top of the main set.
+    var extraDropVolumeKg: Double {
+        drops.reduce(0.0) { $0 + ($1.loadKg * Double($1.reps)) }
+    }
 }
 
 public extension CompletedEntrySnapshot {

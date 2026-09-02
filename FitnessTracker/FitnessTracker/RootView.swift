@@ -7,16 +7,14 @@
 
 import SwiftUI
 import SwiftData
+import FitnessDomain
 import ExerciseCatalog
+import Metrics
 
 struct RootView: View {
     @Environment(\.modelContext) private var context
     @Query private var profiles: [UserProfile]
     @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
-    // No `@Query(filter:)` here: a `#Predicate<ProviderProfile>` (bare-Bool
-    // *or* `== true`) makes CoreData's SQL generator thrash on iOS 26 and
-    // wedges the SwiftUI update pass. Fetch all, filter in Swift — the
-    // table is tiny (a handful of providers).
     @Query private var allProviderProfiles: [ProviderProfile]
     private var activeProfiles: [ProviderProfile] { allProviderProfiles.filter(\.isActive) }
     @Query(sort: \AICallRecord.timestamp) private var calls: [AICallRecord]
@@ -26,20 +24,54 @@ struct RootView: View {
     @State private var lastNote: String?
     @State private var isGenerating = false
 
+    // openGym 5-tab navigation state
+    @State private var selectedTab: AppTab = .home
+    @State private var activePlannedSession: PlannedSession?
+    @State private var showSettings = false
+
     private var summary: CostSummary {
         CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp, costUSD: $0.costUSD) },
                          now: .now)
     }
 
     var body: some View {
-        NavigationStack {
+        ZStack(alignment: .bottom) {
             content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // openGym Custom Bottom Navigation Bar
+            if profiles.first != nil, let plan = try? plans.first?.decodedPlan() {
+                CustomTabBar(
+                    selectedTab: $selectedTab,
+                    isWorkoutActive: activePlannedSession != nil,
+                    onStartPressed: {
+                        if let firstSession = plan.sessions.sorted(by: { $0.order < $1.order }).first {
+                            activePlannedSession = firstSession
+                        }
+                    }
+                )
+            }
+        }
+        .preferredColorScheme(.dark)
+        .fullScreenCover(item: $activePlannedSession) { session in
+            if let catalog {
+                SessionContainerView(planned: session, catalog: catalog) {
+                    activePlannedSession = nil
+                }
+            }
+        }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                SettingsView()
+            }
         }
         .overlay(alignment: .top) {
             if let lastNote {
                 Text(lastNote)
-                    .padding(8)
-                    .background(.thinMaterial, in: Capsule())
+                    .font(.system(size: 13, weight: .medium))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
                     .padding(.top, 8)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -48,7 +80,7 @@ struct RootView: View {
             if isGenerating {
                 ProgressView("Updating your plan…")
                     .padding()
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 12))
             }
         }
         .animation(.default, value: lastNote)
@@ -64,6 +96,23 @@ struct RootView: View {
                 do { catalog = try BundledCatalog.load() }
                 catch { loadFailed = true }
             }
+            if profiles.isEmpty, let catalog {
+                let defaultProfile = UserProfile(
+                    goalRaw: "buildMuscle",
+                    experienceRaw: "intermediate",
+                    heightCm: 178,
+                    weightKg: 75,
+                    birthYear: 2000,
+                    sexRaw: "male",
+                    sessionsPerWeek: 4,
+                    sessionLengthMinutes: 60,
+                    availableEquipmentRaws: ["barbell", "dumbbell", "cable", "machine", "bodyweight"],
+                    excludedMuscleRaws: [],
+                    excludedExerciseIDs: []
+                )
+                context.insert(defaultProfile)
+                regeneratePlan(for: defaultProfile)
+            }
         }
     }
 
@@ -72,27 +121,45 @@ struct RootView: View {
         if loadFailed {
             ContentUnavailableView("Couldn't load the exercise catalog",
                                    systemImage: "exclamationmark.triangle")
+        } else if let profile = profiles.first, let plan = try? plans.first?.decodedPlan(), let catalog {
+            Group {
+                switch selectedTab {
+                case .home:
+                    HomeView(
+                        profile: profile,
+                        plan: plan,
+                        catalog: catalog,
+                        costSummary: summary,
+                        onStartSession: { session in activePlannedSession = session },
+                        onOpenSettings: { showSettings = true }
+                    )
+                case .plan:
+                    PlanView(
+                        plan: plan,
+                        catalog: catalog,
+                        onStartSession: { session in activePlannedSession = session }
+                    )
+                case .start:
+                    WorkoutTabView(
+                        plan: plan,
+                        catalog: catalog,
+                        onStartSession: { session in activePlannedSession = session }
+                    )
+                case .stats:
+                    StatsView(
+                        plan: plan,
+                        catalog: catalog
+                    )
+                case .exercises:
+                    LibraryView(
+                        catalog: catalog
+                    )
+                }
+            }
         } else if profiles.isEmpty {
             OnboardingView { profile in
                 context.insert(profile)
                 regeneratePlan(for: profile)
-            }
-        } else if let plan = try? plans.first?.decodedPlan(), let catalog {
-            PlanView(plan: plan, catalog: catalog, costSummary: summary)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        NavigationLink { SettingsView() } label: {
-                            Image(systemName: "gearshape")
-                        }
-                    }
-                }
-        } else if let profile = profiles.first {
-            ContentUnavailableView {
-                Label("No plan yet", systemImage: "dumbbell")
-            } actions: {
-                Button("Generate plan") { regeneratePlan(for: profile) }
-                    .disabled(isGenerating)
-                NavigationLink("Settings") { SettingsView() }
             }
         } else {
             ProgressView()

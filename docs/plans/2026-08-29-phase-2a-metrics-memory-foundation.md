@@ -19,7 +19,7 @@ progression rule and finalize guardrail.
 strict concurrency, `swift test` (Swift Testing — Xcode/CLT bundled, no package
 dependency). Platforms `.iOS(.v26), .macOS(.v14)` as today.
 
-**Spec:** `docs/superpowers/specs/2026-08-29-phase-2-session-runner-design.md`
+**Spec:** `docs/specs/2026-08-29-phase-2-session-runner-design.md`
 (§7 memory, §8 data layer, §5.3/§5.4 guardrail + progression, §13 decisions).
 
 ## Global Constraints
