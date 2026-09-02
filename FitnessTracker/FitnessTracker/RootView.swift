@@ -18,6 +18,7 @@ struct RootView: View {
     @Query private var allProviderProfiles: [ProviderProfile]
     private var activeProfiles: [ProviderProfile] { allProviderProfiles.filter(\.isActive) }
     @Query(sort: \AICallRecord.timestamp) private var calls: [AICallRecord]
+    @Query private var completedSessions: [CompletedSessionModel]
 
     @State private var catalog: CatalogStore?
     @State private var loadFailed = false
@@ -112,6 +113,9 @@ struct RootView: View {
                 )
                 context.insert(defaultProfile)
                 regeneratePlan(for: defaultProfile)
+            }
+            if let catalog, completedSessions.isEmpty {
+                DemoSeedGenerator.seedDemoHistory(into: context, catalog: catalog)
             }
         }
     }

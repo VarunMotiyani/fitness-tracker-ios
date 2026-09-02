@@ -96,11 +96,29 @@ _Current Branch: `fitness-engine-v2` | Target: iPhone (iOS 17+) / Swift 6 Strict
   - `ExerciseMediaView.swift`:
     - `ExerciseThumbnailView`: CDN-cached visual image loader with smooth placeholder fallbacks.
     - `AnimatedGifView`: Hardware-accelerated inline GIF player with `GIF / Still` toggle.
+  - `LibraryView.swift`: Subtitle count (`1324 exercises with animations`), custom exercise creator card, green `+ Plan` buttons, and **"Show more"** dynamic batch pagination (+40 items per click).
   - `ExerciseDetailSheet.swift`: Interactive modal displaying exercise demonstration media, muscle chips, equipment tags, and instructions.
 
 ---
 
-### Milestone 5: Unified Settings & AI Intelligence Suite
+### Milestone 5: Stats & Analytics Engine (`StatsView.swift`)
+- **Status:** **COMPLETE**
+- **Components**:
+  - `StatsView.swift`:
+    - **Header & 4-Metric Grid**: `Workouts`, `This month`, `Week streak`, `Weight 30d`.
+    - **Activity Heatmap**: 52-week activity heatmap with duration/volume intensity.
+    - **Interactive Muscle Map**: `Muscle balance` (with `Week`, `30d`, `90d`, `All` pills & `Hard` filter), `Fatigue` mode, and `Strength` mode with interactive selection and body map.
+    - **Effort Card**: Window selectors `30d`, `90d`, `1Y`, `All`, average effort stat, `% at 2 RIR or harder`, and `Where the sets land` histogram.
+    - **Body Weight Card**: `🎯 Goal` button, `+ Log` button, `[ 1M | 3M | 1Y | All ]` range pills, and bezier line chart with goal line.
+    - **Exercise Progress Card**: Exercise picker menu, `[ Top set | Est. 1RM | Effort ]` options, estimated 1RM stat, line chart curve, and recent 3 performances breakdown.
+    - **Recent Workouts Section**: `Recent workouts` header with `All 33 >` button, listing the last 6 completed workouts with duration, sets, tonnage, and 1-tap detail sheet trigger.
+  - `InteractiveBodyMapView.swift` & `BodyMapSVGStore.swift`: Hardware-accelerated vector body map engine with openGym's full SVG geometry (Male & Female anterior/posterior), 5-level color shading (`.l0`–`.l4`), CSS transitions, white selection contour (`.sel`), two-way list binding, and tactile haptic feedback.
+  - `EffortAnalyticsEngine.swift`: Pure Swift domain calculation engine computing average RIR, hard set proportions, weekly rolling effort trends, histogram bins (RIR 0..4+), and exercise Epley 1RM progression from raw session snapshots.
+  - `DemoSeedGenerator.swift`: 12-week historical training and weigh-in generator.
+
+---
+
+### Milestone 6: Unified Settings & AI Intelligence Suite
 - **Status:** **COMPLETE**
 - **Components (`SettingsView.swift`)**:
   - Local-first privacy architecture: SwiftData on-device storage.

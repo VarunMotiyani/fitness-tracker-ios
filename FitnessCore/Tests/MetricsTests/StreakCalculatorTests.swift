@@ -12,19 +12,21 @@ struct StreakCalculatorTests {
         let entry = CompletedEntrySnapshot(
             exerciseID: "bench_press",
             performedOrder: 0,
+            state: .done,
+            skipped: false,
+            wasSwappedFrom: nil,
+            feel: nil,
+            note: nil,
             sets: [
                 LoggedSetSnapshot(targetReps: 8, targetLoadKg: 80, actualReps: 8, actualLoadKg: 80,
                                   startedAt: date, completedAt: date, restBeforeSec: 90, rpe: nil,
                                   isWarmup: false, isDropSet: false, toFailure: false, assisted: false)
-            ],
-            feel: .good,
-            note: nil,
-            skipped: false
+            ]
         )
         return CompletedSessionSnapshot(
             id: UUID(),
             date: date,
-            weekdayRaw: calendar.component(.weekday, from: date),
+            weekday: calendar.component(.weekday, from: date),
             timeOfDayMinutes: 600,
             plannedDurationMin: 60,
             actualDurationMin: 55,
@@ -32,8 +34,10 @@ struct StreakCalculatorTests {
             timeAvailableMin: 60,
             outcome: .complete,
             partialReason: nil,
-            overallNote: nil,
-            entries: [entry]
+            coachSource: .rule,
+            plannedSessionID: nil,
+            entries: [entry],
+            overallNote: nil
         )
     }
 

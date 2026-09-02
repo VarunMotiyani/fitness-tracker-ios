@@ -9,6 +9,7 @@ struct LibraryView: View {
     @State private var selectedMuscle: MuscleGroup? = nil
     @State private var selectedEquipment: Equipment? = nil
     @State private var selectedExerciseForDetail: Exercise? = nil
+    @State private var shownCount: Int = 40
 
     private var filteredExercises: [Exercise] {
         catalog.all.filter { ex in
@@ -22,28 +23,34 @@ struct LibraryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                // Header
-                VStack(alignment: .leading, spacing: 3) {
+                // Header (Exercises | 1324 exercises with animations)
+                VStack(alignment: .leading, spacing: 4) {
                     Text("Exercises")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .font(.system(size: 32, weight: .bold))
                         .foregroundStyle(GymTheme.label)
-                    Text("\(catalog.all.count) exercises in catalog")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(GymTheme.label2)
+                    Text("\(catalog.all.count) exercises with animations")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(Color(white: 0.60))
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.top, 12)
 
                 // Search Bar
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 15))
                         .foregroundStyle(GymTheme.label3)
-                    TextField("Search exercises...", text: $searchText)
+                    TextField("Search...", text: $searchText)
                         .font(.system(size: 15))
                         .foregroundStyle(GymTheme.label)
+                        .onChange(of: searchText) { _, _ in
+                            shownCount = 40
+                        }
                     if !searchText.isEmpty {
-                        Button { searchText = "" } label: {
+                        Button {
+                            searchText = ""
+                            shownCount = 40
+                        } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundStyle(GymTheme.label3)
                         }
@@ -54,45 +61,71 @@ struct LibraryView: View {
                 .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 10))
                 .padding(.horizontal, 16)
 
-                // Muscle Filter Pills
+                // Body Part / Muscle Filter Chips
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        filterPill(title: "All", isSelected: selectedMuscle == nil) {
+                        filterChip(title: "All", isSelected: selectedMuscle == nil) {
                             selectedMuscle = nil
+                            shownCount = 40
                         }
                         ForEach(MuscleGroup.allCases, id: \.self) { muscle in
-                            filterPill(title: muscle.label, isSelected: selectedMuscle == muscle) {
+                            filterChip(title: muscle.label, isSelected: selectedMuscle == muscle) {
                                 selectedMuscle = selectedMuscle == muscle ? nil : muscle
+                                shownCount = 40
                             }
                         }
                     }
                     .padding(.horizontal, 16)
                 }
 
-                // Equipment Filter Pills
+                // Equipment Filter Chips
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        filterPill(title: "Any equipment", isSelected: selectedEquipment == nil) {
+                        filterChip(title: "Any equipment", isSelected: selectedEquipment == nil) {
                             selectedEquipment = nil
+                            shownCount = 40
                         }
                         ForEach(Equipment.allCases, id: \.self) { eq in
-                            filterPill(title: eq.label, isSelected: selectedEquipment == eq) {
+                            filterChip(title: eq.label, isSelected: selectedEquipment == eq) {
                                 selectedEquipment = selectedEquipment == eq ? nil : eq
+                                shownCount = 40
                             }
                         }
                     }
                     .padding(.horizontal, 16)
                 }
 
-                // Exercise List
+                // Exercise Cards List
                 LazyVStack(spacing: 8) {
-                    ForEach(filteredExercises.prefix(60), id: \.id) { ex in
+                    // Custom Exercise Creation Card
+                    customExerciseCard
+
+                    // Filtered Exercises up to shownCount
+                    ForEach(filteredExercises.prefix(shownCount), id: \.id) { ex in
                         exerciseRow(ex)
+                    }
+
+                    // Show More Button
+                    if filteredExercises.count > shownCount {
+                        Button {
+                            let generator = UIImpactFeedbackGenerator(style: .light)
+                            generator.impactOccurred()
+                            shownCount += 40
+                        } label: {
+                            Text("Show more")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(GymTheme.green)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 12))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 6)
                     }
                 }
                 .padding(.horizontal, 16)
             }
-            .padding(.bottom, 80)
+            .padding(.bottom, 90)
         }
         .background(GymTheme.bg.ignoresSafeArea())
         .sheet(item: $selectedExerciseForDetail) { ex in
@@ -100,13 +133,15 @@ struct LibraryView: View {
         }
     }
 
+    // MARK: - Filter Chip
+
     @ViewBuilder
-    private func filterPill(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func filterChip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13, weight: isSelected ? .bold : .medium))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
                 .background(
                     isSelected ? GymTheme.green : GymTheme.surface2,
                     in: Capsule()
@@ -116,6 +151,41 @@ struct LibraryView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Custom Exercise Card
+
+    @ViewBuilder
+    private var customExerciseCard: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(GymTheme.surface2)
+                    .frame(width: 48, height: 48)
+                Image(systemName: "sparkles")
+                    .font(.system(size: 20))
+                    .foregroundStyle(GymTheme.green)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Create your own exercise")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(GymTheme.label)
+                Text("name + body part, no animation")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(Color(white: 0.55))
+            }
+
+            Spacer()
+
+            Image(systemName: "plus")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color(white: 0.55))
+        }
+        .padding(12)
+        .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    // MARK: - Exercise Row
+
     @ViewBuilder
     private func exerciseRow(_ ex: Exercise) -> some View {
         Button {
@@ -123,7 +193,7 @@ struct LibraryView: View {
         } label: {
             HStack(spacing: 12) {
                 // Exercise Thumbnail Image
-                ExerciseThumbnailView(urlString: ex.imagePaths.first, size: 52, cornerRadius: 8)
+                ExerciseThumbnailView(urlString: ex.imagePaths.first, size: 48, cornerRadius: 10)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(ex.name)
@@ -131,18 +201,31 @@ struct LibraryView: View {
                         .foregroundStyle(GymTheme.label)
                         .multilineTextAlignment(.leading)
                     Text("\(ex.primaryMuscle.label) · \(ex.equipment.label)")
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(GymTheme.label2)
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(Color(white: 0.60))
                 }
 
                 Spacer()
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(white: 0.35))
+                // + Plan Button
+                Button {
+                    selectedExerciseForDetail = ex
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("Plan")
+                            .font(.system(size: 13, weight: .bold))
+                    }
+                    .foregroundStyle(GymTheme.green)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(GymTheme.green.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
             }
             .padding(12)
-            .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+            .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
     }

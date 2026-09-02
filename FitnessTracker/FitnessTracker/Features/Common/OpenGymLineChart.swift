@@ -1,35 +1,54 @@
 import SwiftUI
+import FitnessDomain
 
 public struct ChartDataPoint: Identifiable, Sendable {
     public let id = UUID()
     public let date: Date
     public let value: Double
+    public let label: String?
     
-    public init(date: Date, value: Double) {
+    public init(date: Date, value: Double, label: String? = nil) {
         self.date = date
         self.value = value
+        self.label = label
     }
 }
 
-struct OpenGymLineChart: View {
-    let points: [ChartDataPoint]
-    let goal: Double?
-    let height: CGFloat
-    
-    init(points: [ChartDataPoint], goal: Double? = nil, height: CGFloat = 140) {
+public struct OpenGymLineChart: View {
+    public let points: [ChartDataPoint]
+    public let goal: Double?
+    public let height: CGFloat
+    public let lineColor: Color
+    public let invertY: Bool
+    public let tooltipText: String?
+    public let yStepsOverride: [Double]?
+
+    public init(
+        points: [ChartDataPoint],
+        goal: Double? = nil,
+        height: CGFloat = 140,
+        lineColor: Color = GymTheme.green,
+        invertY: Bool = false,
+        tooltipText: String? = nil,
+        yStepsOverride: [Double]? = nil
+    ) {
         self.points = points
         self.goal = goal
         self.height = height
+        self.lineColor = lineColor
+        self.invertY = invertY
+        self.tooltipText = tooltipText
+        self.yStepsOverride = yStepsOverride
     }
 
-    var body: some View {
+    public var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
             let padL: CGFloat = 34
-            let padR: CGFloat = 16
-            let padT: CGFloat = 10
-            let padB: CGFloat = 22
+            let padR: CGFloat = 18
+            let padT: CGFloat = 18
+            let padB: CGFloat = 24
 
             let safePoints = points.isEmpty ? [
                 ChartDataPoint(date: Date().addingTimeInterval(-60*86400), value: 82.5),
@@ -44,7 +63,7 @@ struct OpenGymLineChart: View {
             let allVals = goal != nil ? values + [goal!] : values
             let rawMin = allVals.min() ?? 70.0
             let rawMax = allVals.max() ?? 85.0
-            let pad = max(1.0, (rawMax - rawMin) * 0.15)
+            let pad = max(0.5, (rawMax - rawMin) * 0.18)
             let yMin = rawMin - pad
             let yMax = rawMax + pad
 
@@ -59,12 +78,14 @@ struct OpenGymLineChart: View {
 
             let yFor: (Double) -> CGFloat = { v in
                 let frac = CGFloat((v - yMin) / (yMax - yMin))
-                return padT + (1.0 - frac) * (h - padT - padB)
+                let standard = padT + (1.0 - frac) * (h - padT - padB)
+                let inverted = padT + frac * (h - padT - padB)
+                return invertY ? inverted : standard
             }
 
             ZStack {
                 // 1. Gridlines and Y-axis labels
-                let ySteps: [Double] = [rawMax, (rawMax + rawMin) / 2.0, rawMin]
+                let ySteps: [Double] = yStepsOverride ?? (invertY ? [2.0, 4.0] : [rawMax, (rawMax + rawMin) / 2.0, rawMin])
                 ForEach(ySteps, id: \.self) { yVal in
                     let yPos = yFor(yVal)
                     Path { p in
@@ -73,7 +94,7 @@ struct OpenGymLineChart: View {
                     }
                     .stroke(Color.white.opacity(0.08), style: StrokeStyle(lineWidth: 1, dash: [2, 4]))
 
-                    Text(String(format: "%.1f", yVal))
+                    Text(yVal == Double(Int(yVal)) ? String(format: "%.0f", yVal) : String(format: "%.1f", yVal))
                         .font(.system(size: 9.5, weight: .regular))
                         .foregroundStyle(Color(white: 0.50))
                         .position(x: padL - 16, y: yPos)
@@ -91,7 +112,7 @@ struct OpenGymLineChart: View {
                     Text(String(format: "%.0f", g))
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(GymTheme.yellow)
-                        .position(x: w - padR + 6, y: yPos - 8)
+                        .position(x: w - padR - 2, y: yPos - 8)
                 }
 
                 // 3. Gradient Fill under curve
@@ -109,13 +130,13 @@ struct OpenGymLineChart: View {
                 }
                 .fill(
                     LinearGradient(
-                        colors: [GymTheme.green.opacity(0.30), GymTheme.green.opacity(0.0)],
+                        colors: [lineColor.opacity(0.30), lineColor.opacity(0.0)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
 
-                // 4. Solid green line
+                // 4. Solid curve line
                 Path { p in
                     guard let first = safePoints.first else { return }
                     p.move(to: CGPoint(x: xFor(first.date), y: yFor(first.value)))
@@ -123,17 +144,34 @@ struct OpenGymLineChart: View {
                         p.addLine(to: CGPoint(x: xFor(pt.date), y: yFor(pt.value)))
                     }
                 }
-                .stroke(GymTheme.green, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                .stroke(lineColor, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
 
-                // 5. Active dot on last point
-                if let last = safePoints.last {
+                // 5. Data Point Circles
+                ForEach(safePoints) { pt in
                     Circle()
-                        .fill(GymTheme.green)
-                        .frame(width: 7, height: 7)
-                        .position(x: xFor(last.date), y: yFor(last.value))
+                        .fill(lineColor)
+                        .frame(width: 6, height: 6)
+                        .position(x: xFor(pt.date), y: yFor(pt.value))
                 }
 
-                // 6. X-axis month labels
+                // 6. Active Tooltip
+                if let tip = tooltipText, let activePt = safePoints.dropFirst().first {
+                    VStack(spacing: 0) {
+                        Text(tip)
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color(red: 0.16, green: 0.16, blue: 0.18), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                            )
+                    }
+                    .position(x: xFor(activePt.date) + 36, y: yFor(activePt.value) - 22)
+                }
+
+                // 7. X-axis month labels
                 HStack {
                     Text("Jul")
                     Spacer()
