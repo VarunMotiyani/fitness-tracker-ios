@@ -66,6 +66,9 @@ public struct ExerciseLoggedPerformance: Sendable, Codable, Equatable, Identifia
 }
 
 public enum EffortAnalyticsEngine {
+    public static let minRatedSetsForSummary = 5
+    public static let hardRIRThreshold: Double = 3.0
+
     public static func computeSummary(from sessions: [CompletedSessionSnapshot], windowDays: Int = 90, now: Date = .now) -> EffortSummary {
         let cal = Calendar.isoUTC
         let cutoff = windowDays > 0 ? cal.date(byAdding: .day, value: -windowDays, to: now) : nil
@@ -80,11 +83,10 @@ public enum EffortAnalyticsEngine {
             for entry in session.entries where entry.countsTowardMetrics {
                 for set in entry.sets where set.isWorkingSet {
                     totalCount += 1
-                    if let rpe = set.rpe {
-                        let rir = 10.0 - rpe
+                    if let rir = set.effortRIR {
                         ratedCount += 1
                         rirSum += rir
-                        if rir <= 3.0 {
+                        if rir <= hardRIRThreshold {
                             hardCount += 1
                         }
                     }
@@ -92,8 +94,9 @@ public enum EffortAnalyticsEngine {
             }
         }
 
-        let avgRir = ratedCount > 0 ? (rirSum / Double(ratedCount)) : nil
-        let hardPct = ratedCount > 0 ? (Double(hardCount) / Double(ratedCount)) : nil
+        let hasEnoughRated = ratedCount >= minRatedSetsForSummary
+        let avgRir = hasEnoughRated ? ((rirSum / Double(ratedCount) * 10).rounded() / 10) : nil
+        let hardPct = hasEnoughRated ? (Double(hardCount) / Double(ratedCount)) : nil
 
         return EffortSummary(
             ratedSets: ratedCount,
@@ -117,8 +120,7 @@ public enum EffortAnalyticsEngine {
                 for set in entry.sets where set.isWorkingSet {
                     var bucket = weeklyBuckets[weekStart] ?? (sumRIR: 0.0, count: 0, totalSets: 0)
                     bucket.totalSets += 1
-                    if let rpe = set.rpe {
-                        let rir = 10.0 - rpe
+                    if let rir = set.effortRIR {
                         bucket.sumRIR += rir
                         bucket.count += 1
                     }
@@ -128,7 +130,7 @@ public enum EffortAnalyticsEngine {
         }
 
         return weeklyBuckets.keys.sorted().compactMap { weekStart in
-            guard let bucket = weeklyBuckets[weekStart], bucket.count > 0 else { return nil }
+            guard let bucket = weeklyBuckets[weekStart], bucket.count >= 2 else { return nil }
             return WeeklyEffortTrend(
                 weekStart: weekStart,
                 averageRIR: (bucket.sumRIR / Double(bucket.count) * 10).rounded() / 10,
@@ -148,8 +150,8 @@ public enum EffortAnalyticsEngine {
             if let cutoff, session.date < cutoff { continue }
             for entry in session.entries where entry.countsTowardMetrics {
                 for set in entry.sets where set.isWorkingSet {
-                    if let rpe = set.rpe {
-                        let rir = max(0, Int((10.0 - rpe).rounded()))
+                    if let rirVal = set.effortRIR {
+                        let rir = max(0, Int(rirVal.rounded()))
                         let bucket = min(4, rir)
                         bins[bucket, default: 0] += 1
                         totalRated += 1
@@ -160,7 +162,7 @@ public enum EffortAnalyticsEngine {
 
         guard totalRated > 0 else {
             return [
-                EffortHistogramBin(rir: 0, label: "RIR 0", count: 0, percentage: 0, isHard: false),
+                EffortHistogramBin(rir: 0, label: "RIR 0", count: 0, percentage: 0, isHard: true),
                 EffortHistogramBin(rir: 1, label: "RIR 1", count: 0, percentage: 0, isHard: true),
                 EffortHistogramBin(rir: 2, label: "RIR 2", count: 0, percentage: 0, isHard: true),
                 EffortHistogramBin(rir: 3, label: "RIR 3", count: 0, percentage: 0, isHard: true),
@@ -172,15 +174,24 @@ public enum EffortAnalyticsEngine {
             let count = bins[rir] ?? 0
             let pct = Double(count) / Double(totalRated)
             let label = rir == 4 ? "RIR 4+" : "RIR \(rir)"
-            let isHard = rir >= 1 && rir <= 3
+            let isHard = rir <= 3
             return EffortHistogramBin(rir: rir, label: label, count: count, percentage: pct, isHard: isHard)
         }
+    }
+
+    public static func exerciseCurve(
+        exerciseID: String,
+        sessions: [CompletedSessionSnapshot],
+        formula: OneRMFormula = .epley
+    ) -> [ExerciseLoggedPerformance] {
+        computeExercisePerformances(exerciseID: exerciseID, sessions: sessions, limit: Int.max, formula: formula)
     }
 
     public static func computeExercisePerformances(
         exerciseID: String,
         sessions: [CompletedSessionSnapshot],
-        limit: Int = 5
+        limit: Int = 5,
+        formula: OneRMFormula = .epley
     ) -> [ExerciseLoggedPerformance] {
         var performances: [ExerciseLoggedPerformance] = []
 
@@ -204,13 +215,12 @@ public enum EffortAnalyticsEngine {
                         topLoad = load
                         topReps = reps
                     }
-                    let e1 = Estimated1RM.epley(loadKg: load, reps: reps)
+                    let e1 = Estimated1RM.estimate(loadKg: load, reps: reps, formula: formula) ?? 0.0
                     if e1 > bestE1RM {
                         bestE1RM = e1
                     }
 
-                    if let rpe = set.rpe {
-                        let rir = (10.0 - rpe)
+                    if let rir = set.effortRIR {
                         let rirStr = rir == Double(Int(rir)) ? "\(Int(rir))" : String(format: "%.1f", rir)
                         setDescriptions.append("\(load == Double(Int(load)) ? "\(Int(load))" : String(format: "%.1f", load))×\(reps) (RIR \(rirStr))")
                         rirSum += rir
@@ -220,7 +230,7 @@ public enum EffortAnalyticsEngine {
                     }
                 }
 
-                let avgRIR = ratedSets > 0 ? (rirSum / Double(ratedSets)) : nil
+                let avgRIR = ratedSets > 0 ? ((rirSum / Double(ratedSets) * 10).rounded() / 10) : nil
 
                 performances.append(
                     ExerciseLoggedPerformance(

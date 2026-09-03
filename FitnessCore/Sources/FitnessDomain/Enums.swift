@@ -29,3 +29,10 @@ public enum ForceType: String, Codable, Sendable {
 public enum Difficulty: String, Codable, Sendable {
     case beginner, intermediate, expert
 }
+
+public enum WeightUnit: String, Codable, Sendable, CaseIterable {
+    case kg, lb
+}
+
+public typealias MassUnit = WeightUnit
+

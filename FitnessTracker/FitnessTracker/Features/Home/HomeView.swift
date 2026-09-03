@@ -85,13 +85,12 @@ struct HomeView: View {
         return currentWeight - prev
     }
 
-    private var streakSummary: (currentStreakWeeks: Int, workoutsThisWeek: Int) {
-        let cal = Calendar.isoUTC
-        let now = Date()
-        let thisWeekSessions = completedSessions.filter {
-            $0.finishedAt != nil && cal.isDate($0.startedAt, equalTo: now, toGranularity: .weekOfYear)
-        }
-        return (1, max(2, thisWeekSessions.count))
+    private var sessionSnapshots: [CompletedSessionSnapshot] {
+        completedSessions.map { $0.toSnapshot() }
+    }
+
+    private var streakSummary: StreakCalculator.Summary {
+        StreakCalculator.computeSummary(from: sessionSnapshots, plannedPerWeek: plan.sessions.count, now: .now)
     }
 
     private var chartPoints: [ChartDataPoint] {
@@ -484,11 +483,11 @@ struct HomeView: View {
 
                 // Streak details
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(streakSummary.currentStreakWeeks > 0 ? streakSummary.currentStreakWeeks : 1) week streak")
+                    Text("\(streakSummary.currentStreakWeeks) week streak")
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(GymTheme.label)
 
-                    Text("\(streakSummary.workoutsThisWeek)/\(plan.sessions.count) this week · \(completedSessions.count) workouts total")
+                    Text("\(streakSummary.workoutsThisWeek)/\(plan.sessions.count) this week · \(streakSummary.totalWorkouts) workouts total")
                         .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(Color(white: 0.60))
                 }

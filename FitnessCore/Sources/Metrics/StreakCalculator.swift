@@ -23,8 +23,12 @@ public struct StreakCalculator: Sendable {
         from sessions: [CompletedSessionSnapshot],
         plannedPerWeek: Int,
         now: Date = .now,
+        weekStart: WeekStart = .monday,
         calendar: Calendar = .isoUTC
     ) -> Summary {
+        var cal = calendar
+        cal.firstWeekday = (weekStart == .sunday) ? 1 : 2
+
         let validSessions = sessions.filter { $0.entries.contains { $0.countsTowardMetrics } }
         let totalCount = validSessions.count
         guard totalCount > 0 else {
@@ -34,20 +38,16 @@ public struct StreakCalculator: Sendable {
         // Build set of week keys
         var trainedWeeks = Set<String>()
         for s in validSessions {
-            guard let start = calendar.dateInterval(of: .weekOfYear, for: s.date)?.start else { continue }
-            let yr = calendar.component(.yearForWeekOfYear, from: start)
-            let wk = calendar.component(.weekOfYear, from: start)
-            trainedWeeks.insert("\(yr)-W\(wk)")
+            let k = WeekKey.key(s.date, weekStart: weekStart, calendar: cal)
+            trainedWeeks.insert(k)
         }
 
         // Current week info
-        guard let currentWeekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start else {
-            return Summary(currentStreakWeeks: 0, workoutsThisWeek: 0, plannedPerWeek: plannedPerWeek, totalWorkouts: totalCount)
-        }
+        let currentWeekKey = WeekKey.key(now, weekStart: weekStart, calendar: cal)
+        let currentWeekStart = WeekKey.startOfWeek(now, weekStart: weekStart, calendar: cal)
 
         let thisWeekCount = validSessions.filter { s in
-            guard let sStart = calendar.dateInterval(of: .weekOfYear, for: s.date)?.start else { return false }
-            return calendar.isDate(sStart, equalTo: currentWeekStart, toGranularity: .day)
+            WeekKey.key(s.date, weekStart: weekStart, calendar: cal) == currentWeekKey
         }.count
 
         // Streak counting
@@ -55,17 +55,25 @@ public struct StreakCalculator: Sendable {
         var cursor = currentWeekStart
 
         for i in 0..<520 { // up to 10 years
-            let yr = calendar.component(.yearForWeekOfYear, from: cursor)
-            let wk = calendar.component(.weekOfYear, from: cursor)
-            let key = "\(yr)-W\(wk)"
+            let key = WeekKey.key(cursor, weekStart: weekStart, calendar: cal)
+            let isTrained = trainedWeeks.contains(key)
 
-            if trainedWeeks.contains(key) {
-                streak += 1
-            } else if i > 0 {
-                // Gap in past weeks breaks the streak
-                break
+            if i == 0 {
+                // Current week: if trained, streak = 1; if not, streak can still continue from last week
+                if isTrained {
+                    streak += 1
+                }
+            } else {
+                if isTrained {
+                    streak += 1
+                } else {
+                    break
+                }
             }
-            guard let prev = calendar.date(byAdding: .weekOfYear, value: -1, to: cursor) else { break }
+
+            // Move back one calendar week. `.weekOfYear` (not −7 days) so the cursor stays
+            // on a week boundary even if a non-UTC calendar with DST is passed in.
+            guard let prev = cal.date(byAdding: .weekOfYear, value: -1, to: cursor) else { break }
             cursor = prev
         }
 

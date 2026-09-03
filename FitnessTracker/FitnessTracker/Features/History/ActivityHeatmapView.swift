@@ -21,45 +21,46 @@ public struct ActivityHeatmapView: View {
     public let activityDays: [Date: (count: Int, volume: Double)]
     public let calendar: Calendar
     public let now: Date
+    public var accentColor: Color
     
     public init(
         activityDays: [Date: (count: Int, volume: Double)] = [:],
         calendar: Calendar = .isoUTC,
-        now: Date = .now
+        now: Date = .now,
+        accentColor: Color = GymTheme.green
     ) {
         self.activityDays = activityDays
         self.calendar = calendar
         self.now = now
+        self.accentColor = accentColor
     }
     
     private var weeks: [[Date]] {
-        // Build 52 weeks leading up to today
         var result: [[Date]] = []
-        let today = calendar.startOfDay(for: now)
-        guard let oneYearAgo = calendar.date(byAdding: .weekOfYear, value: -51, to: today) else {
+        let currentWeekStart = WeekKey.startOfWeek(now, weekStart: .monday, calendar: calendar)
+        guard let start = calendar.date(byAdding: .weekOfYear, value: -51, to: currentWeekStart) else {
             return []
         }
-        
-        var current = oneYearAgo
-        var currentWeek: [Date] = []
-        
-        while current <= today {
-            currentWeek.append(current)
-            if currentWeek.count == 7 {
-                result.append(currentWeek)
-                currentWeek = []
+        for w in 0..<52 {
+            guard let weekDate = calendar.date(byAdding: .weekOfYear, value: w, to: start) else { continue }
+            var days: [Date] = []
+            for d in 0..<7 {
+                if let day = calendar.date(byAdding: .day, value: d, to: weekDate) {
+                    days.append(day)
+                }
             }
-            guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
-            current = next
-        }
-        if !currentWeek.isEmpty {
-            result.append(currentWeek)
+            result.append(days)
         }
         return result
     }
     
     private var totalWorkoutsThisYear: Int {
         activityDays.values.reduce(0) { $0 + $1.count }
+    }
+
+    private var maxVolume: Double {
+        let maxVal = activityDays.values.map(\.volume).max() ?? 0.0
+        return max(1000.0, maxVal)
     }
     
     public var body: some View {
@@ -97,13 +98,13 @@ public struct ActivityHeatmapView: View {
                 cellColor(count: 0)
                     .frame(width: 10, height: 10)
                     .clipShape(RoundedRectangle(cornerRadius: 2))
-                cellColor(count: 1, volume: 1000)
+                cellColor(count: 1, volume: maxVolume * 0.2)
                     .frame(width: 10, height: 10)
                     .clipShape(RoundedRectangle(cornerRadius: 2))
-                cellColor(count: 1, volume: 5000)
+                cellColor(count: 1, volume: maxVolume * 0.5)
                     .frame(width: 10, height: 10)
                     .clipShape(RoundedRectangle(cornerRadius: 2))
-                cellColor(count: 1, volume: 10000)
+                cellColor(count: 1, volume: maxVolume * 0.9)
                     .frame(width: 10, height: 10)
                     .clipShape(RoundedRectangle(cornerRadius: 2))
                 Text("More")
@@ -118,26 +119,33 @@ public struct ActivityHeatmapView: View {
     
     @ViewBuilder
     private func dayCell(for day: Date) -> some View {
-        let startOfDay = calendar.startOfDay(for: day)
-        let info = activityDays[startOfDay]
-        let count = info?.count ?? 0
-        let vol = info?.volume ?? 0
+        let (count, vol) = dayInfo(for: day)
         
         RoundedRectangle(cornerRadius: 2.5)
             .fill(cellColor(count: count, volume: vol))
             .frame(width: 11, height: 11)
+    }
+
+    private func dayInfo(for day: Date) -> (count: Int, volume: Double) {
+        let targetStart = calendar.startOfDay(for: day)
+        for (k, v) in activityDays {
+            if calendar.isDate(k, inSameDayAs: targetStart) {
+                return (v.count, v.volume)
+            }
+        }
+        return (0, 0)
     }
     
     private func cellColor(count: Int, volume: Double = 0) -> Color {
         guard count > 0 else {
             return Color(white: 0.22)
         }
-        if volume > 8000 || count > 1 {
-            return Color.green
-        } else if volume > 4000 {
-            return Color.green.opacity(0.75)
+        if volume >= maxVolume * 0.66 || count >= 2 {
+            return accentColor
+        } else if volume >= maxVolume * 0.33 {
+            return accentColor.opacity(0.70)
         } else {
-            return Color.green.opacity(0.45)
+            return accentColor.opacity(0.40)
         }
     }
 }

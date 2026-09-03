@@ -20,15 +20,15 @@ struct PlanCoordinatorTests {
        {"order":0,"focusMuscles":["chest","back","quads"],"items":[
          {"exerciseID":"0025","sets":4,"repMin":8,"repMax":12,"restSeconds":150,"coachNote":"x"},
          {"exerciseID":"2330","sets":4,"repMin":8,"repMax":12,"restSeconds":150,"coachNote":"x"},
-         {"exerciseID":"0043","sets":4,"repMin":8,"repMax":12,"restSeconds":150,"coachNote":"x"}]},
+         {"exerciseID":"0026","sets":4,"repMin":8,"repMax":12,"restSeconds":150,"coachNote":"x"}]},
        {"order":1,"focusMuscles":["chest","back","quads"],"items":[
          {"exerciseID":"0047","sets":4,"repMin":8,"repMax":12,"restSeconds":150,"coachNote":"x"},
          {"exerciseID":"0027","sets":4,"repMin":8,"repMax":12,"restSeconds":150,"coachNote":"x"},
-         {"exerciseID":"0739","sets":4,"repMin":8,"repMax":12,"restSeconds":150,"coachNote":"x"}]},
+         {"exerciseID":"0585","sets":4,"repMin":8,"repMax":12,"restSeconds":150,"coachNote":"x"}]},
        {"order":2,"focusMuscles":["chest","back","quads"],"items":[
          {"exerciseID":"0025","sets":4,"repMin":10,"repMax":15,"restSeconds":90,"coachNote":"x"},
          {"exerciseID":"0027","sets":4,"repMin":10,"repMax":15,"restSeconds":90,"coachNote":"x"},
-         {"exerciseID":"0585","sets":4,"repMin":10,"repMax":15,"restSeconds":90,"coachNote":"x"}]}
+         {"exerciseID":"0026","sets":4,"repMin":10,"repMax":15,"restSeconds":90,"coachNote":"x"}]}
      ],
      "weeklyVolumeTargets":[{"muscle":"chest","targetSets":12},{"muscle":"back","targetSets":12},{"muscle":"quads","targetSets":12}]}
     """

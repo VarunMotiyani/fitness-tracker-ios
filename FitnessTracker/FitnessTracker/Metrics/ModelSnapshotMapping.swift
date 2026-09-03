@@ -78,7 +78,9 @@ extension LoggedSetModel {
             toFailure: toFailure,
             assisted: assisted,
             drops: decodeDrops(dropsJSON),
-            clusters: decodeClusters(clustersJSON)
+            clusters: decodeClusters(clustersJSON),
+            heldSec: heldSec,
+            rir: rir
         )
     }
 }

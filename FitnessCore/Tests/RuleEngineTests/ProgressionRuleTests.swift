@@ -185,3 +185,113 @@ private let range = RepRange(min: 8, max: 10)
     #expect(d.direction == .decreaseLoad)
     #expect((d.targetLoadKg / 2.5).rounded() * 2.5 == d.targetLoadKg)
 }
+
+// MARK: - openGym Parity Tests
+
+struct OpenGymProgressionParityTests {
+    private let now = Date()
+
+    private func makeReading(goal: Int, reps: [Int], weight: Double, ok: Bool) -> SessionReading {
+        SessionReading(
+            mode: .reps,
+            goal: goal,
+            repsPerSet: reps,
+            heldPerSet: [],
+            weightKg: weight,
+            count: reps.count,
+            low: reps.min() ?? 0,
+            amrap: reps.last ?? 0,
+            ok: ok
+        )
+    }
+
+    @Test func linearProgressionIncreasesOnSuccess() {
+        let history = [makeReading(goal: 10, reps: [10, 10, 10], weight: 100, ok: true)]
+        let target = PrescriptionTarget(sets: 3, reps: 10, loadKg: 100, incKg: 2.5, policy: .linear)
+        let p = ProgressionRule().next(current: target, mechanic: .compound, history: history)
+
+        #expect(p.kind == .up)
+        #expect(p.weightKg == 102.5)
+        #expect(p.why.render().contains("2.5 kg more"))
+    }
+
+    @Test func linearProgressionHoldsUntilThreeMissesThenDeloads() {
+        let rule = ProgressionRule()
+        let target = PrescriptionTarget(sets: 3, reps: 10, loadKg: 100, incKg: 2.5, policy: .linear)
+        let miss = makeReading(goal: 10, reps: [9, 8, 8], weight: 100, ok: false)
+
+        let p1 = rule.next(current: target, mechanic: .compound, history: [miss])
+        #expect(p1.kind == .hold)
+        #expect(p1.weightKg == 100)
+
+        let p2 = rule.next(current: target, mechanic: .compound, history: [miss, miss])
+        #expect(p2.kind == .hold)
+
+        let p3 = rule.next(current: target, mechanic: .compound, history: [miss, miss, miss])
+        #expect(p3.kind == .deload)
+        #expect(p3.weightKg == 90.0) // 100 * 0.9 = 90
+    }
+
+    @Test func greyskullDeloadsOnFirstMiss() {
+        let miss = makeReading(goal: 5, reps: [5, 5, 4], weight: 100, ok: false)
+        let target = PrescriptionTarget(sets: 3, reps: 5, loadKg: 100, incKg: 2.5, policy: .greyskull)
+        let p = ProgressionRule().next(current: target, mechanic: .compound, history: [miss])
+
+        #expect(p.kind == .deload)
+        #expect(p.weightKg == 90.0)
+    }
+
+    @Test func greyskullDoubleJumpWhenAMRAPDoubled() {
+        let bigSuccess = makeReading(goal: 5, reps: [5, 5, 10], weight: 100, ok: true)
+        let target = PrescriptionTarget(sets: 3, reps: 5, loadKg: 100, incKg: 2.5, policy: .greyskull)
+        let p = ProgressionRule().next(current: target, mechanic: .compound, history: [bigSuccess])
+
+        #expect(p.kind == .up)
+        #expect(p.weightKg == 105.0) // 2.5 * 2 = 5.0 jump
+        #expect(p.why.render().contains("double jump"))
+    }
+
+    @Test func doubleProgressionClimbsThenResetsReps() {
+        let rule = ProgressionRule()
+        let target = PrescriptionTarget(sets: 3, reps: 12, repsMin: 8, loadKg: 80, incKg: 2.5, policy: .double)
+
+        // Success: hit top of range (12) -> weight goes up, reps reset to bottom (8)
+        let success = makeReading(goal: 12, reps: [12, 12, 12], weight: 80, ok: true)
+        let pUp = rule.next(current: target, mechanic: .compound, history: [success])
+        #expect(pUp.kind == .up)
+        #expect(pUp.weightKg == 82.5)
+        #expect(pUp.reps == 8)
+
+        // Hold: low was 9 reps -> aim for 10
+        let mid = makeReading(goal: 12, reps: [11, 10, 9], weight: 80, ok: false)
+        let pHold = rule.next(current: target, mechanic: .compound, history: [mid])
+        #expect(pHold.kind == .hold)
+        #expect(pHold.reps == 10)
+    }
+
+    @Test func bodyweightProgressionGrowsRepsAndSets() {
+        let rule = ProgressionRule()
+        let target = PrescriptionTarget(sets: 3, reps: 10, repsMax: 20, loadKg: 0, policy: .linear)
+
+        // 1. Success with reps below max -> rep increment
+        let r1 = makeReading(goal: 10, reps: [10, 10, 10], weight: 0, ok: true)
+        let p1 = rule.next(current: target, mechanic: .compound, history: [r1])
+        #expect(p1.kind == .up)
+        #expect(p1.reps == 11)
+        #expect(p1.weightKg == 0)
+
+        // 2. Goal reached top of range (20) -> add set (from 3 to 4), reset reps to bottom (10)
+        let r2 = makeReading(goal: 20, reps: [20, 20, 20], weight: 0, ok: true)
+        let p2 = rule.next(current: target, mechanic: .compound, history: [r2])
+        #expect(p2.kind == .up)
+        #expect(p2.sets == 4)
+        #expect(p2.reps == 10)
+
+        // 3. Max sets reached (6 sets) -> hold and advise harder variation
+        let maxSetsTarget = PrescriptionTarget(sets: 6, reps: 10, repsMax: 20, loadKg: 0, policy: .linear)
+        let r3 = makeReading(goal: 20, reps: [20, 20, 20, 20, 20, 20], weight: 0, ok: true)
+        let p3 = rule.next(current: maxSetsTarget, mechanic: .compound, history: [r3])
+        #expect(p3.kind == .hold)
+        #expect(p3.why.render().contains("harder variation"))
+    }
+}

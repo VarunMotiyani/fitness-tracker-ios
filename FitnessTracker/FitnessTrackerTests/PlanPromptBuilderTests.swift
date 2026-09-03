@@ -17,10 +17,10 @@ struct PlanPromptBuilderTests {
 
     @Test func userPromptOnlyListsOwnedNonExcludedExercises() throws {
         let u = try builder().user(context: ctx())
-        #expect(u.contains("0047"))             // Incline Dumbbell Press (dumbbell, owned)
+        #expect(u.contains("0047"))             // Barbell Incline Bench Press (barbell, owned)
         #expect(!u.contains("0025 |"))          // Barbell Bench Press (excluded id)
         #expect(!u.contains("Standing Calf"))   // calves (excluded muscle)
-        #expect(!u.contains("0027 |"))          // Lat Pulldown (cable not owned)
+        #expect(!u.contains("0007 |"))          // Alternate Lateral Pulldown (cable not owned)
         #expect(u.contains("60"))               // session length
     }
 
