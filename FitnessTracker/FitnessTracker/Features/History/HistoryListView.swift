@@ -2,18 +2,24 @@ import SwiftUI
 import SwiftData
 import FitnessDomain
 import ExerciseCatalog
+import Metrics
 
 struct HistoryListView: View {
+    @Environment(\.modelContext) private var context
     let catalog: CatalogStore
+    var plan: WeeklyPlan? = nil
 
     @Query(sort: \CompletedSessionModel.startedAt, order: .reverse)
     private var sessions: [CompletedSessionModel]
 
-    init(catalog: CatalogStore) {
+    @State private var showingBackfillSheet = false
+
+    init(catalog: CatalogStore, plan: WeeklyPlan? = nil) {
         self.catalog = catalog
+        self.plan = plan
     }
 
-    public var body: some View {
+    var body: some View {
         List {
             if sessions.isEmpty {
                 ContentUnavailableView("No Workouts Yet", systemImage: "clock.arrow.circlepath", description: Text("Completed sessions will appear here with tonnage, PRs, and exercise breakdowns."))
@@ -31,6 +37,83 @@ struct HistoryListView: View {
         .scrollContentBackground(.hidden)
         .background(Color.black.ignoresSafeArea())
         .navigationTitle("Workout History")
+        .toolbar {
+            if let plan {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingBackfillSheet = true
+                    } label: {
+                        Label("Log Past Workout", systemImage: "plus")
+                            .foregroundStyle(GymTheme.green)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingBackfillSheet) {
+            if let plan {
+                BackfillEntryView(plan: plan) { plannedSession, date, durationMin, replaceID in
+                    createBackfilledSession(planned: plannedSession, date: date, durationMin: durationMin, replaceID: replaceID)
+                }
+            }
+        }
+    }
+
+    private func createBackfilledSession(planned: PlannedSession, date: Date, durationMin: Int, replaceID: UUID?) {
+        if let replaceID {
+            let matches = sessions.filter { $0.id == replaceID }
+            for match in matches {
+                context.delete(match)
+            }
+        }
+
+        let cal = Calendar.isoUTC
+        let weekday = cal.component(.weekday, from: date)
+        let hour = cal.component(.hour, from: date)
+        let minute = cal.component(.minute, from: date)
+        let timeOfDay = hour * 60 + minute
+
+        let session = CompletedSessionModel(
+            id: UUID(),
+            startedAt: date,
+            weekdayRaw: weekday,
+            timeOfDayMinutes: timeOfDay,
+            plannedDurationMin: durationMin,
+            energyRaw: "ready",
+            timeAvailableMin: durationMin,
+            plannedSessionID: planned.id
+        )
+        session.finishedAt = date.addingTimeInterval(Double(durationMin * 60))
+        session.actualDurationMin = durationMin
+        session.outcomeRaw = "complete"
+        context.insert(session)
+
+        for (idx, item) in planned.items.enumerated() {
+            let entry = CompletedEntryModel(
+                exerciseID: item.exerciseID,
+                performedOrder: idx
+            )
+            entry.stateRaw = "done"
+            entry.session = session
+            context.insert(entry)
+
+            for sIdx in 0..<item.targetSets {
+                let setStart = date.addingTimeInterval(Double(sIdx * 120))
+                let setDone = setStart.addingTimeInterval(45)
+                let setModel = LoggedSetModel(
+                    targetReps: item.targetReps.max,
+                    targetLoadKg: item.targetLoadKg,
+                    actualReps: item.targetReps.min,
+                    actualLoadKg: item.targetLoadKg ?? 20.0,
+                    startedAt: setStart,
+                    completedAt: setDone,
+                    restBeforeSec: item.restSeconds,
+                    isWarmup: false
+                )
+                setModel.entry = entry
+                context.insert(setModel)
+            }
+        }
+        try? context.save()
     }
 
     @ViewBuilder

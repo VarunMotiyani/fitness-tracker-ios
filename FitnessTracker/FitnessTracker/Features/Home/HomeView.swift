@@ -457,6 +457,7 @@ struct HomeView: View {
             // Bezier Curve Chart with Goal Line
             OpenGymLineChart(
                 points: chartPoints,
+                goal: targetWeight
             )
             .padding(.top, 4)
         }

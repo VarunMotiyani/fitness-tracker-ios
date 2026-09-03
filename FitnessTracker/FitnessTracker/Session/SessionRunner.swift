@@ -159,6 +159,20 @@ final class SessionRunner {
         try? modelContext.save()
     }
 
+    func removeLastSet(entryIndex: Int) {
+        let entries = orderedEntries
+        guard entries.indices.contains(entryIndex) else { return }
+        let entry = entries[entryIndex]
+        if !entry.sets.isEmpty {
+            let lastSet = entry.sets.removeLast()
+            modelContext.delete(lastSet)
+            if entry.sets.isEmpty {
+                entry.stateRaw = EntryState.notStarted.rawValue
+            }
+            try? modelContext.save()
+        }
+    }
+
     func markDone(entryIndex: Int) {
         let entries = orderedEntries
         guard entries.indices.contains(entryIndex) else { return }

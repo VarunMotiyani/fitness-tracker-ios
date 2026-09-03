@@ -33,23 +33,26 @@ struct GymStepper: View {
                 value = max(minVal, value - step)
             } label: {
                 Image(systemName: "minus")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 32, height: 38)
+                    .frame(width: 24, height: 36)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
             // Centered Value
-            HStack(spacing: 2) {
+            HStack(spacing: 1) {
                 Text(isDecimal ? String(format: "%.1f", value) : "\(Int(value))")
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 if let unit {
                     Text(unit)
-                        .font(.system(size: 11, weight: .regular))
+                        .font(.system(size: 10, weight: .regular))
                         .foregroundStyle(Color(white: 0.6))
+                        .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -60,14 +63,14 @@ struct GymStepper: View {
                 value = min(maxVal, value + step)
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 32, height: 38)
+                    .frame(width: 24, height: 36)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
-        .frame(height: 38)
-        .background(Color(white: 0.18), in: RoundedRectangle(cornerRadius: 10))
+        .frame(height: 36)
+        .background(Color(white: 0.18), in: RoundedRectangle(cornerRadius: 8))
     }
 }

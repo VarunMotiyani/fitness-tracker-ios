@@ -728,10 +728,13 @@ struct StatsView: View {
     @ViewBuilder
     private var effortAnalyticsCard: some View {
         let sum = effortSummary
-        let avgRirText = sum.averageRIR != nil ? String(format: "%.1f RIR", sum.averageRIR!) : "2.9 RIR"
-        let hardPctText = sum.hardSetsPercentage != nil ? "\(Int(sum.hardSetsPercentage! * 100))%" : "61%"
-        let ratedSetsCount = sum.ratedSets > 0 ? sum.ratedSets : 509
-        let totalSetsCount = sum.totalSets > 0 ? sum.totalSets : 615
+        // Below MIN_RATED (5) an average is noise — show a dash rather than a number.
+        let minRated = 5
+        let hasEnough = sum.ratedSets >= minRated
+        let avgRirText = (hasEnough && sum.averageRIR != nil) ? String(format: "%.1f RIR", sum.averageRIR!) : "—"
+        let hardPctText = (hasEnough && sum.hardSetsPercentage != nil) ? "\(Int((sum.hardSetsPercentage!) * 100))%" : "—"
+        let ratedSetsCount = sum.ratedSets
+        let totalSetsCount = sum.totalSets
 
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -775,44 +778,43 @@ struct StatsView: View {
             }
             .padding(.vertical, 2)
 
-            Text("\(ratedSetsCount) of \(totalSetsCount) finished sets rated")
+            Text(totalSetsCount > 0
+                 ? "\(ratedSetsCount) of \(totalSetsCount) finished sets rated"
+                 : "No finished sets in this window yet")
                 .font(.system(size: 13))
                 .foregroundStyle(Color(white: 0.55))
 
+            if !hasEnough {
+                Text("Rate a few sets during your workouts (RIR or RPE, in Settings) and this fills in.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color(white: 0.45))
+                    .padding(.top, 2)
+            }
+
             // Week by week
-            Text("Week by week")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(Color(white: 0.75))
-                .padding(.top, 4)
-
-            // Weekly Inverted Curve Chart with Dynamic Data
             let computedTrends = weeklyEffortTrends
-            let effortPts: [ChartDataPoint] = computedTrends.isEmpty ? [
-                ChartDataPoint(date: Date().addingTimeInterval(-70*86400), value: 3.4),
-                ChartDataPoint(date: Date().addingTimeInterval(-56*86400), value: 3.1),
-                ChartDataPoint(date: Date().addingTimeInterval(-42*86400), value: 2.8),
-                ChartDataPoint(date: Date().addingTimeInterval(-28*86400), value: 4.6),
-                ChartDataPoint(date: Date().addingTimeInterval(-14*86400), value: 3.0),
-                ChartDataPoint(date: Date().addingTimeInterval(-7*86400), value: 2.9),
-                ChartDataPoint(date: Date(), value: 2.1)
-            ] : computedTrends.map { ChartDataPoint(date: $0.weekStart, value: $0.averageRIR) }
+            if !computedTrends.isEmpty {
+                Text("Week by week")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color(white: 0.75))
+                    .padding(.top, 4)
 
-            let tipText: String = {
-                if let firstTrend = computedTrends.first {
-                    let d = firstTrend.weekStart.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
-                    return "\(d) · \(firstTrend.averageRIR) RIR · \(firstTrend.setsCount) sets"
-                }
-                return "Mon 15 Jun · 3.1 RIR · 56 sets"
-            }()
+                let effortPts = computedTrends.map { ChartDataPoint(date: $0.weekStart, value: $0.averageRIR) }
+                let tipText: String = {
+                    let f = computedTrends[0]
+                    let d = f.weekStart.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+                    return "\(d) · \(String(format: "%.1f", f.averageRIR)) RIR · \(f.setsCount) sets"
+                }()
 
-            OpenGymLineChart(
-                points: effortPts,
-                height: 140,
-                lineColor: GymTheme.yellow,
-                invertY: true,
-                tooltipText: tipText,
-                yStepsOverride: [2.0, 4.0]
-            )
+                OpenGymLineChart(
+                    points: effortPts,
+                    height: 140,
+                    lineColor: GymTheme.yellow,
+                    invertY: true,
+                    tooltipText: tipText,
+                    yStepsOverride: [2.0, 4.0]
+                )
+            }
 
             // Where the sets land
             Text("Where the sets land")
@@ -995,41 +997,26 @@ struct StatsView: View {
             .background(Color(red: 0.12, green: 0.12, blue: 0.14), in: RoundedRectangle(cornerRadius: 10))
 
             // Progression Curve Points
-            let chartPoints: [ChartDataPoint] = performances.isEmpty ? [
-                ChartDataPoint(date: Date().addingTimeInterval(-60*86400), value: 120.0),
-                ChartDataPoint(date: Date().addingTimeInterval(-45*86400), value: 125.0),
-                ChartDataPoint(date: Date().addingTimeInterval(-30*86400), value: 130.0),
-                ChartDataPoint(date: Date().addingTimeInterval(-22*86400), value: 120.0),
-                ChartDataPoint(date: Date().addingTimeInterval(-14*86400), value: 137.5),
-                ChartDataPoint(date: Date().addingTimeInterval(-7*86400), value: 145.0),
-                ChartDataPoint(date: Date().addingTimeInterval(-3*86400), value: 150.0),
-                ChartDataPoint(date: Date(), value: 152.5)
-            ] : performances.reversed().map { perf in
-                let val = (exerciseMetricMode == .e1rm) ? perf.estimated1RM : ((exerciseMetricMode == .effort) ? (perf.averageRIR ?? 2.5) : perf.topSetWeightKg)
-                return ChartDataPoint(date: perf.date, value: val)
-            }
-
-            let bestWeight = performances.map(\.topSetWeightKg).max() ?? 152.5
-
-            OpenGymLineChart(
-                points: chartPoints,
-                height: 140,
-                lineColor: exerciseMetricMode == .effort ? GymTheme.yellow : Color(red: 0.18, green: 0.52, blue: 0.98),
-                invertY: exerciseMetricMode == .effort,
-                yStepsOverride: [140.0, 120.0]
-            )
-
-            // Recent 5 Logged Performances List
+            let bestWeight = performances.map(\.topSetWeightKg).max() ?? 0
             if performances.isEmpty {
-                VStack(spacing: 8) {
-                    exerciseHistoryRow(day: "Fri 28", month: "Aug", sets: "152.5×12 (RIR 3.5) 152.5×12 (RIR 2.5)\n152.5×11 (RIR 2)")
-                    exerciseHistoryRow(day: "Fri 21", month: "Aug", sets: "150×12 (RIR 4) 150×12 (RIR 3.5)\n150×12 (RIR 2)")
-                    exerciseHistoryRow(day: "Fri 14", month: "Aug", sets: "147.5×12 (RIR 3.5) 147.5×12 (RIR 3.5)\n147.5×11 (RIR 2.5)")
-                    exerciseHistoryRow(day: "Fri 7", month: "Aug", sets: "145×12 (RIR 4.5) 145×12 (RIR 3.5)\n145×11 (RIR 2)")
-                    exerciseHistoryRow(day: "Fri 24", month: "Jul", sets: "137.5×12 (RIR 5) 137.5×12 137.5×11 (RIR 3.5)")
-                }
-                .padding(.top, 4)
+                Text("No logged sets for this exercise yet.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color(white: 0.5))
+                    .frame(maxWidth: .infinity, minHeight: 100, alignment: .center)
             } else {
+                let chartPoints: [ChartDataPoint] = performances.reversed().map { perf in
+                    let val = (exerciseMetricMode == .e1rm) ? perf.estimated1RM
+                        : ((exerciseMetricMode == .effort) ? (perf.averageRIR ?? 0) : perf.topSetWeightKg)
+                    return ChartDataPoint(date: perf.date, value: val)
+                }
+                OpenGymLineChart(
+                    points: chartPoints,
+                    height: 140,
+                    lineColor: exerciseMetricMode == .effort ? GymTheme.yellow : Color(red: 0.18, green: 0.52, blue: 0.98),
+                    invertY: exerciseMetricMode == .effort,
+                    yStepsOverride: [140.0, 120.0]
+                )
+
                 VStack(spacing: 8) {
                     ForEach(performances) { perf in
                         let dParts = perf.date.formatted(.dateTime.weekday(.abbreviated).day()).components(separatedBy: " ")
@@ -1042,19 +1029,21 @@ struct StatsView: View {
             }
 
             // Footer notes
-            HStack(spacing: 4) {
-                Text("Best set weight per workout · Best:")
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(Color(white: 0.55))
-                Text(String(format: "%.1f kg", bestWeight))
-                    .font(.system(size: 12.5, weight: .bold))
-                    .foregroundStyle(GymTheme.green)
-            }
-            .padding(.top, 2)
+            if !performances.isEmpty {
+                HStack(spacing: 4) {
+                    Text("Best set weight per workout · Best:")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Color(white: 0.55))
+                    Text(String(format: "%.1f kg", bestWeight))
+                        .font(.system(size: 12.5, weight: .bold))
+                        .foregroundStyle(GymTheme.green)
+                }
+                .padding(.top, 2)
 
-            Text("A fuller dot means less left in the tank — the same weight at a lower RIR is progress the line alone does not show.")
-                .font(.system(size: 12))
-                .foregroundStyle(Color(white: 0.45))
+                Text("A fuller dot means less left in the tank — the same weight at a lower RIR is progress the line alone does not show.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color(white: 0.45))
+            }
         }
         .padding(16)
         .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))

@@ -11,12 +11,27 @@ struct LibraryView: View {
     @State private var selectedExerciseForDetail: Exercise? = nil
     @State private var shownCount: Int = 40
 
-    private var filteredExercises: [Exercise] {
+    /// Exercises matching search + muscle only — the pool the equipment chips describe.
+    private var searchAndMuscleMatches: [Exercise] {
         catalog.all.filter { ex in
             let matchesSearch = searchText.isEmpty || ex.name.localizedCaseInsensitiveContains(searchText)
             let matchesMuscle = selectedMuscle == nil || ex.primaryMuscle == selectedMuscle! || ex.secondaryMuscles.contains(selectedMuscle!)
-            let matchesEquipment = selectedEquipment == nil || ex.equipment == selectedEquipment!
-            return matchesSearch && matchesMuscle && matchesEquipment
+            return matchesSearch && matchesMuscle
+        }
+    }
+
+    private var filteredExercises: [Exercise] {
+        searchAndMuscleMatches.filter { selectedEquipment == nil || $0.equipment == selectedEquipment! }
+    }
+
+    /// Equipment values actually present in the current search/muscle pool, most common
+    /// first — so every chip on screen has results behind it.
+    private var availableEquipment: [Equipment] {
+        var counts: [Equipment: Int] = [:]
+        for ex in searchAndMuscleMatches { counts[ex.equipment, default: 0] += 1 }
+        return counts.keys.sorted { lhs, rhs in
+            let (cl, cr) = (counts[lhs] ?? 0, counts[rhs] ?? 0)
+            return cl != cr ? cl > cr : lhs.label < rhs.label
         }
     }
 
@@ -28,7 +43,7 @@ struct LibraryView: View {
                     Text("Exercises")
                         .font(.system(size: 32, weight: .bold))
                         .foregroundStyle(GymTheme.label)
-                    Text("\(catalog.all.count) exercises with animations")
+                    Text("\(catalog.all.count) exercises with photos & instructions")
                         .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(Color(white: 0.60))
                 }
@@ -85,7 +100,7 @@ struct LibraryView: View {
                             selectedEquipment = nil
                             shownCount = 40
                         }
-                        ForEach(Equipment.allCases, id: \.self) { eq in
+                        ForEach(availableEquipment, id: \.self) { eq in
                             filterChip(title: eq.label, isSelected: selectedEquipment == eq) {
                                 selectedEquipment = selectedEquipment == eq ? nil : eq
                                 shownCount = 40

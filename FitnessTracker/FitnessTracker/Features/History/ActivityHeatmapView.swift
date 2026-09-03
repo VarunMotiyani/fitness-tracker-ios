@@ -54,13 +54,30 @@ public struct ActivityHeatmapView: View {
         return result
     }
     
+    /// Day → activity, keyed by a stable `yyyy-MM-dd` string so a cell lookup is O(1) and
+    /// never depends on `Date` equality across calendars or times of day (the reason the
+    /// grid was rendering blank).
+    private var dayIndex: [String: (count: Int, volume: Double)] {
+        var out: [String: (count: Int, volume: Double)] = [:]
+        for (date, v) in activityDays {
+            let k = Self.key(date, calendar)
+            let prev = out[k] ?? (0, 0)
+            out[k] = (prev.count + v.count, prev.volume + v.volume)
+        }
+        return out
+    }
+
+    private static func key(_ date: Date, _ calendar: Calendar) -> String {
+        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
+
     private var totalWorkoutsThisYear: Int {
         activityDays.values.reduce(0) { $0 + $1.count }
     }
 
-    private var maxVolume: Double {
-        let maxVal = activityDays.values.map(\.volume).max() ?? 0.0
-        return max(1000.0, maxVal)
+    private var maxDayVolume: Double {
+        max(1.0, dayIndex.values.map(\.volume).max() ?? 1.0)
     }
     
     public var body: some View {
@@ -90,24 +107,16 @@ public struct ActivityHeatmapView: View {
                 .padding(.vertical, 4)
             }
             
-            // Legend
+            // Legend (5-level intensity gradient)
             HStack(spacing: 6) {
-                Text("Less")
+                Text("Less time")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                cellColor(count: 0)
-                    .frame(width: 10, height: 10)
-                    .clipShape(RoundedRectangle(cornerRadius: 2))
-                cellColor(count: 1, volume: maxVolume * 0.2)
-                    .frame(width: 10, height: 10)
-                    .clipShape(RoundedRectangle(cornerRadius: 2))
-                cellColor(count: 1, volume: maxVolume * 0.5)
-                    .frame(width: 10, height: 10)
-                    .clipShape(RoundedRectangle(cornerRadius: 2))
-                cellColor(count: 1, volume: maxVolume * 0.9)
-                    .frame(width: 10, height: 10)
-                    .clipShape(RoundedRectangle(cornerRadius: 2))
-                Text("More")
+                ForEach([0.0, 0.25, 0.50, 0.75, 1.0], id: \.self) { level in
+                    shade(for: level)
+                        .frame(width: 10, height: 10)
+                        .clipShape(RoundedRectangle(cornerRadius: 2))
+                }
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -119,33 +128,23 @@ public struct ActivityHeatmapView: View {
     
     @ViewBuilder
     private func dayCell(for day: Date) -> some View {
-        let (count, vol) = dayInfo(for: day)
-        
         RoundedRectangle(cornerRadius: 2.5)
-            .fill(cellColor(count: count, volume: vol))
+            .fill(shade(for: intensity(for: day)))
             .frame(width: 11, height: 11)
     }
 
-    private func dayInfo(for day: Date) -> (count: Int, volume: Double) {
-        let targetStart = calendar.startOfDay(for: day)
-        for (k, v) in activityDays {
-            if calendar.isDate(k, inSameDayAs: targetStart) {
-                return (v.count, v.volume)
-            }
-        }
-        return (0, 0)
+    /// 0 = no session that day; otherwise a 0…1 level. A session day is always at least
+    /// 0.35 so it reads as trained; volume relative to the busiest day nudges it up.
+    private func intensity(for day: Date) -> Double {
+        guard let info = dayIndex[Self.key(day, calendar)], info.count > 0 else { return 0 }
+        if info.count >= 2 { return 1 }
+        let volFrac = min(1, info.volume / maxDayVolume)
+        return max(0.35, 0.35 + volFrac * 0.65)
     }
-    
-    private func cellColor(count: Int, volume: Double = 0) -> Color {
-        guard count > 0 else {
-            return Color(white: 0.22)
-        }
-        if volume >= maxVolume * 0.66 || count >= 2 {
-            return accentColor
-        } else if volume >= maxVolume * 0.33 {
-            return accentColor.opacity(0.70)
-        } else {
-            return accentColor.opacity(0.40)
-        }
+
+    private func shade(for level: Double) -> Color {
+        guard level > 0 else { return Color(white: 0.22) }
+        // 0.35 → faint, 1.0 → full accent.
+        return accentColor.opacity(0.30 + level * 0.70)
     }
 }

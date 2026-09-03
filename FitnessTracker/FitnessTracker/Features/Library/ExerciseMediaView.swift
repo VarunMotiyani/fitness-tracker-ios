@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import ExerciseCatalog
 
 // MARK: - Animated GIF Player
 
@@ -46,6 +47,18 @@ struct ExerciseThumbnailView: View {
     let urlString: String?
     var size: CGFloat = 52
     var cornerRadius: CGFloat = 8
+
+    init(urlString: String?, size: CGFloat = 52, cornerRadius: CGFloat = 8) {
+        self.urlString = urlString
+        self.size = size
+        self.cornerRadius = cornerRadius
+    }
+
+    init(exercise: Exercise?, size: CGFloat = 52, cornerRadius: CGFloat = 8) {
+        self.urlString = exercise?.imagePaths.first
+        self.size = size
+        self.cornerRadius = cornerRadius
+    }
 
     var body: some View {
         ZStack {
