@@ -3,6 +3,7 @@ import SwiftData
 import FitnessDomain
 import ExerciseCatalog
 import Metrics
+import LLMKit
 
 /// Phase router for the session runner. Owns the `SessionRunner` (built lazily
 /// in `.task`, since it needs the `modelContext`) and swaps in the screen for
@@ -15,6 +16,12 @@ struct SessionContainerView: View {
 
     @Environment(\.modelContext) private var context
     @Query private var profiles: [UserProfile]
+    // Plain @Query + Swift-side filter, not a #Predicate on `isActive` — a
+    // #Predicate<ProviderProfile> boolean filter thrashing CoreData's SQL
+    // generator is exactly what hung Settings/Providers earlier this project.
+    @Query private var allProviderProfiles: [ProviderProfile]
+    @Query private var allMemories: [CoachMemoryModel]
+    private var activeProviderProfile: ProviderProfile? { allProviderProfiles.first { $0.isActive } }
 
     /// Optional because `SessionRunner` needs `modelContext`, which isn't
     /// available at `init`. Built once in `.task`.
@@ -43,7 +50,17 @@ struct SessionContainerView: View {
                         catalog: cat,
                         plannedSessionsPerWeek: profiles.first?.sessionsPerWeek ?? 3
                     )
-                    let fin = SessionFinalizer(catalog: cat, repository: repo)
+                    let ruleEngineFallback = RuleEngineFinalizer(catalog: cat, repository: repo)
+
+                    var provider: (any LLMProvider)?
+                    if let activeProviderProfile {
+                        provider = try? LLMProviderFactory.make(from: activeProviderProfile)
+                    }
+                    let fin: any SessionFinalizing = SessionFinalizeCoordinator(
+                        catalog: cat, context: context, provider: provider,
+                        memories: allMemories.map { $0.toDomain() },
+                        ruleEngineFallback: ruleEngineFallback
+                    )
                     runner = SessionRunner(modelContext: context, catalog: cat,
                                            repository: repo, finalizer: fin)
                 }
@@ -59,7 +76,7 @@ struct SessionContainerView: View {
             ProgressView("Preparing…")
         case .idle:
             SessionStartView(planned: planned, catalog: catalog) { energy, minutes in
-                runner?.start(planned: planned, energy: energy, timeAvailableMin: minutes)
+                Task { await runner?.start(planned: planned, energy: energy, timeAvailableMin: minutes) }
             }
         case .finalizing:
             ProgressView("Building today's session…")

@@ -39,8 +39,8 @@ import Metrics
                                   plannedSessionsPerWeek: 3, catalog: catalog())
     }
 
-    private func finalizer() -> SessionFinalizer {
-        SessionFinalizer(catalog: catalog(), repository: emptyRepo())
+    private func finalizer() -> RuleEngineFinalizer {
+        RuleEngineFinalizer(catalog: catalog(), repository: emptyRepo())
     }
 
     private func plannedSession() -> PlannedSession {
@@ -61,9 +61,9 @@ import Metrics
 
     // MARK: - Scenarios
 
-    @Test func startCreatesActiveSessionWithTwoNotStartedEntries() throws {
+    @Test func startCreatesActiveSessionWithTwoNotStartedEntries() async throws {
         let (runner, ctx) = try makeRunner()
-        runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
+        await runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
 
         #expect(runner.phase == .active)
         #expect(runner.finalized != nil)
@@ -77,9 +77,9 @@ import Metrics
         #expect(sessions.first?.plannedSessionID != nil)
     }
 
-    @Test func logSetAppendsSetsAndMarksInProgress() throws {
+    @Test func logSetAppendsSetsAndMarksInProgress() async throws {
         let (runner, _) = try makeRunner()
-        runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
+        await runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
 
         runner.logSet(entryIndex: 0, actualReps: 8, actualLoadKg: 60, restBeforeSec: 90)
         runner.logSet(entryIndex: 0, actualReps: 7, actualLoadKg: 60, restBeforeSec: 120)
@@ -89,10 +89,10 @@ import Metrics
         #expect(entry.stateRaw == EntryState.inProgress.rawValue)
     }
 
-    @Test func finishWithAllEntriesDoneIsComplete() throws {
+    @Test func finishWithAllEntriesDoneIsComplete() async throws {
         var t = Date(timeIntervalSince1970: 1_000_000)
         let (runner, _) = try makeRunner(now: { t })
-        runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
+        await runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
 
         runner.logSet(entryIndex: 0, actualReps: 8, actualLoadKg: 60, restBeforeSec: 90)
         runner.markDone(entryIndex: 0)
@@ -111,9 +111,9 @@ import Metrics
         #expect(runner.phase == .finished(.complete))
     }
 
-    @Test func finishWithIncompleteEntriesIsPartial() throws {
+    @Test func finishWithIncompleteEntriesIsPartial() async throws {
         let (runner, _) = try makeRunner()
-        runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
+        await runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
 
         runner.markDone(entryIndex: 0) // entry 1 left notStarted
 
@@ -126,9 +126,9 @@ import Metrics
         #expect(runner.phase == .finished(.partial))
     }
 
-    @Test func heaviestLoadSetProducesPersonalRecord() throws {
+    @Test func heaviestLoadSetProducesPersonalRecord() async throws {
         let (runner, ctx) = try makeRunner()
-        runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
+        await runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
 
         runner.logSet(entryIndex: 0, actualReps: 5, actualLoadKg: 100, restBeforeSec: 90)
         runner.markDone(entryIndex: 0)
@@ -141,9 +141,9 @@ import Metrics
         #expect(prs.contains { $0.exerciseID == "bench" && $0.typeRaw == PRType.heaviestWeight.rawValue && $0.value == 100 })
     }
 
-    @Test func logSetAfterReorderTakesTargetsFromTheReorderedExercise() throws {
+    @Test func logSetAfterReorderTakesTargetsFromTheReorderedExercise() async throws {
         let (runner, ctx) = try makeRunner()
-        runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
+        await runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
 
         // bench (entry 0, load 60) and row (entry 1, load 50) with distinct
         // finalized targets, read back so the assertion doesn't assume progression held.
@@ -193,10 +193,10 @@ import Metrics
     /// F1: sets logged on an entry the user never ticked "Done" must still feed
     /// PRs and volume — `finish` promotes the entry — while the overall outcome
     /// stays `.partial` because another entry was never touched.
-    @Test func finishPromotesWorkedButNotDoneEntries() throws {
+    @Test func finishPromotesWorkedButNotDoneEntries() async throws {
         var t = Date(timeIntervalSince1970: 1_000_000)
         let (runner, ctx) = try makeRunner(now: { t })
-        runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
+        await runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
 
         runner.logSet(entryIndex: 0, actualReps: 5, actualLoadKg: 100, restBeforeSec: 90)
         runner.logSet(entryIndex: 0, actualReps: 5, actualLoadKg: 100, restBeforeSec: 90)
@@ -223,9 +223,9 @@ import Metrics
     }
 
     /// F3: every entry skipped is a `.partial` session, not `.complete`.
-    @Test func finishWithAllEntriesSkippedIsPartial() throws {
+    @Test func finishWithAllEntriesSkippedIsPartial() async throws {
         let (runner, _) = try makeRunner()
-        runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
+        await runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
 
         runner.markSkipped(entryIndex: 0)
         runner.markSkipped(entryIndex: 1)
@@ -237,10 +237,10 @@ import Metrics
     }
 
     /// F4: a second `finish` is a no-op — one PR row per PR, note / PR reveal intact.
-    @Test func finishIsIdempotent() throws {
+    @Test func finishIsIdempotent() async throws {
         var t = Date(timeIntervalSince1970: 1_000_000)
         let (runner, ctx) = try makeRunner(now: { t })
-        runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
+        await runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
 
         runner.logSet(entryIndex: 0, actualReps: 5, actualLoadKg: 100, restBeforeSec: 90)
         runner.markDone(entryIndex: 0)
@@ -267,7 +267,7 @@ import Metrics
     /// F7: an orphan in-progress session for a planned slot is closed as
     /// `.partial` with full volume/PR credit, and a fresh `start` for the same
     /// slot creates a distinct session.
-    @Test func closeSessionAsPartialClosesOrphanAndStartMakesDistinctSession() throws {
+    @Test func closeSessionAsPartialClosesOrphanAndStartMakesDistinctSession() async throws {
         let ctx = ModelContext(try container())
         let planned = plannedSession()
         let started = Date(timeIntervalSince1970: 1_000_000)
@@ -297,7 +297,7 @@ import Metrics
 
         let runner = SessionRunner(modelContext: ctx, catalog: catalog(),
                                    repository: emptyRepo(), finalizer: finalizer(), now: { now })
-        runner.start(planned: planned, energy: .normal, timeAvailableMin: 999)
+        await runner.start(planned: planned, energy: .normal, timeAvailableMin: 999)
         #expect(runner.session?.id != orphan.id)
 
         let unfinished = try ctx.fetch(FetchDescriptor<CompletedSessionModel>())

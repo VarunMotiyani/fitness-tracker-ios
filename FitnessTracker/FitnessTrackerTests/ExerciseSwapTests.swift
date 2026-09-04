@@ -37,8 +37,8 @@ import Metrics
                                   plannedSessionsPerWeek: 3, catalog: catalog())
     }
 
-    private func finalizer() -> SessionFinalizer {
-        SessionFinalizer(catalog: catalog(), repository: emptyRepo())
+    private func finalizer() -> RuleEngineFinalizer {
+        RuleEngineFinalizer(catalog: catalog(), repository: emptyRepo())
     }
 
     private func plannedSession() -> PlannedSession {
@@ -48,7 +48,7 @@ import Metrics
         ])
     }
 
-    @Test func swapExerciseReplacesExerciseIDInActiveSession() throws {
+    @Test func swapExerciseReplacesExerciseIDInActiveSession() async throws {
         let cont = try container()
         let ctx = ModelContext(cont)
         let cat = catalog()
@@ -56,7 +56,7 @@ import Metrics
                                    repository: emptyRepo(), finalizer: finalizer(), now: { Date() })
 
         let plan = plannedSession()
-        runner.start(planned: plan, energy: .normal, timeAvailableMin: 60)
+        await runner.start(planned: plan, energy: .normal, timeAvailableMin: 60)
         #expect(runner.entriesInOrder.count == 1)
         #expect(runner.entriesInOrder[0].exerciseID == "bench")
 

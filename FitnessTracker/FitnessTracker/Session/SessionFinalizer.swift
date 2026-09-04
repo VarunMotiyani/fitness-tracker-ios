@@ -18,9 +18,11 @@ nonisolated struct FinalizedSession: Sendable {
 
 /// Deterministic rule-engine session finalisation (spec §5.4): progression per
 /// exercise, then an energy trim, then a time trim. No AI, no network. This is
-/// the seam Phase 2c later swaps the AI `finalize` call into.
+/// the fallback `SessionFinalizeCoordinator` uses when no AI provider is
+/// configured, or when the AI's output fails `FinalizeGuardrail` twice —
+/// conforms to `SessionFinalizing` via the `extension` in `SessionFinalizing.swift`.
 @MainActor
-struct SessionFinalizer {
+struct RuleEngineFinalizer {
     private let catalog: CatalogStore
     private let repository: any MetricsRepository
 

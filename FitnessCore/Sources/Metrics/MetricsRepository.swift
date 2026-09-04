@@ -18,7 +18,7 @@ public struct ExercisePerformance: Sendable, Codable, Equatable {
 }
 
 /// The single typed query surface over all recorded training metrics.
-public protocol MetricsRepository: Sendable {
+public protocol MetricsRepository {
     /// Most recent session containing `exerciseID`, with that entry's sets and feel.
     func lastPerformance(exerciseID: String) -> ExercisePerformance?
 

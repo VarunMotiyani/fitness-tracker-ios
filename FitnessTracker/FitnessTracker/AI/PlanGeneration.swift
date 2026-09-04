@@ -111,6 +111,8 @@ private func factoryErrorReason(_ error: Error) -> String {
     case .missingAPIKey: "missing API key"
     case .missingBaseURL: "missing base URL"
     case .invalidBaseURL: "invalid base URL"
+    case .missingRegion: "missing region"
+    case .malformedCredentials: "malformed credentials"
     case .none: "configuration error"
     }
 }

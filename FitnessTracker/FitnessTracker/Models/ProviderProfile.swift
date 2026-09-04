@@ -5,6 +5,18 @@ nonisolated enum AdapterKind: String, Codable, Sendable, CaseIterable {
     case openAICompatible
     case gemini
     case appleOnDevice
+    /// Google Cloud Vertex AI — Gemini models via a GCP project/location
+    /// endpoint, authenticated with an OAuth2 bearer token instead of a
+    /// simple API key. `baseURL` holds the full path up to and including
+    /// `.../publishers/google/models/` (the user's project + location), the
+    /// same "paste your endpoint" pattern as `openAICompatible`; `apiKeyRef`
+    /// holds the bearer token (e.g. from `gcloud auth print-access-token`).
+    case vertexAI
+    /// AWS Bedrock — `apiKeyRef` holds a JSON string
+    /// `{"accessKeyId":"...","secretAccessKey":"...","sessionToken":"..."}`
+    /// (sessionToken optional); `baseURL` holds the AWS region (e.g.
+    /// `"us-east-1"`), not a URL — the endpoint is derived from it.
+    case bedrock
 }
 
 @Model

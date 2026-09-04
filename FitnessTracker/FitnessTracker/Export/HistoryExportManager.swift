@@ -44,9 +44,23 @@ public enum HistoryExportManager {
 
     @MainActor
     public static func exportFullJSON(context: ModelContext, catalog: CatalogStore) -> URL? {
+        guard let data = exportFullJSONData(context: context, catalog: catalog) else { return nil }
+        let tempDir = FileManager.default.temporaryDirectory
+        let fileURL = tempDir.appendingPathComponent("pulseai-backup-\(dateStamp()).json")
+        try? data.write(to: fileURL)
+        return fileURL
+    }
+
+    /// The same full-history payload `exportFullJSON` writes to disk for the
+    /// Settings "Export backup" feature, returned as in-memory `Data` instead
+    /// — the shape `QueryTrainingDataTool` reads (design spec §4.4). One
+    /// payload, two callers, so the two never drift apart.
+    public static func exportFullJSONData(context: ModelContext, catalog: CatalogStore) -> Data? {
         let sessions = (try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? []
         let bws = (try? context.fetch(FetchDescriptor<BodyweightEntryModel>())) ?? []
         let prs = (try? context.fetch(FetchDescriptor<PersonalRecordModel>())) ?? []
+        let observations = (try? context.fetch(FetchDescriptor<ObservationModel>())) ?? []
+        let checkins = (try? context.fetch(FetchDescriptor<DailyCheckinModel>())) ?? []
 
         var sessionsList: [[String: Any]] = []
         let df = ISO8601DateFormatter()
@@ -105,22 +119,44 @@ public enum HistoryExportManager {
             ])
         }
 
+        // Observations: the generic {kind, value, unit, timestamp} channel —
+        // where InBody-style body-composition metrics land once the AI
+        // coach layer's `measurementCandidates` starts writing to it.
+        var observationsList: [[String: Any]] = []
+        for o in observations {
+            observationsList.append([
+                "kind": o.kind,
+                "value": o.value,
+                "unit": o.unit,
+                "timestamp": df.string(from: o.timestamp),
+                "sessionId": o.sessionID?.uuidString as Any,
+                "entryExerciseId": o.entryExerciseID as Any
+            ])
+        }
+
+        // Daily subjective check-ins: sleep quality, soreness, free-text note.
+        var checkinsList: [[String: Any]] = []
+        for c in checkins {
+            checkinsList.append([
+                "date": df.string(from: c.date),
+                "sleepQuality": c.sleepQuality as Any,
+                "soreness": c.soreness as Any,
+                "note": c.note as Any
+            ])
+        }
+
         let fullBackup: [String: Any] = [
             "appName": "PulseAI",
-            "version": 2,
+            "version": 3,
             "exportedAt": df.string(from: Date()),
             "workouts": sessionsList,
             "bodyweight": bwList,
-            "personalRecords": prList
+            "personalRecords": prList,
+            "observations": observationsList,
+            "dailyCheckins": checkinsList
         ]
 
-        if let data = try? JSONSerialization.data(withJSONObject: fullBackup, options: .prettyPrinted) {
-            let tempDir = FileManager.default.temporaryDirectory
-            let fileURL = tempDir.appendingPathComponent("pulseai-backup-\(dateStamp()).json")
-            try? data.write(to: fileURL)
-            return fileURL
-        }
-        return nil
+        return try? JSONSerialization.data(withJSONObject: fullBackup, options: .prettyPrinted)
     }
 
     private static func escapeCSV(_ str: String) -> String {

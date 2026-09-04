@@ -3,7 +3,7 @@ import LLMKit
 
 nonisolated enum LLMProviderFactory {
     enum FactoryError: Error, Equatable {
-        case missingBaseURL, missingAPIKey, invalidBaseURL
+        case missingBaseURL, missingAPIKey, invalidBaseURL, missingRegion, malformedCredentials
     }
 
     static func make(kind: AdapterKind, baseURL: String?, apiKey: String?,
@@ -23,6 +23,24 @@ nonisolated enum LLMProviderFactory {
             return GeminiProvider(apiKey: apiKey, modelID: modelID, session: session)
         case .appleOnDevice:
             return FoundationModelsProvider()
+        case .vertexAI:
+            guard let baseURL,
+                  let url = URL(string: baseURL),
+                  let scheme = url.scheme?.lowercased(),
+                  scheme == "https",
+                  url.host != nil
+            else { throw FactoryError.invalidBaseURL }
+            guard let apiKey, !apiKey.isEmpty else { throw FactoryError.missingAPIKey }
+            return VertexAIProvider(bearerToken: apiKey, modelsBaseURL: url, modelID: modelID, session: session)
+        case .bedrock:
+            guard let baseURL, !baseURL.isEmpty else { throw FactoryError.missingRegion }
+            guard let apiKey, !apiKey.isEmpty else { throw FactoryError.missingAPIKey }
+            guard let credentials = BedrockProvider.parseCredentials(apiKey) else {
+                throw FactoryError.malformedCredentials
+            }
+            return BedrockProvider(
+                accessKeyId: credentials.accessKeyId, secretAccessKey: credentials.secretAccessKey,
+                sessionToken: credentials.sessionToken, region: baseURL, modelID: modelID, session: session)
         }
     }
 

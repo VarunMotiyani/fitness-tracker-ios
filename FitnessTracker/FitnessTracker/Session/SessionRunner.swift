@@ -44,16 +44,21 @@ final class SessionRunner {
     private let modelContext: ModelContext
     private let catalog: CatalogStore
     private let repository: any MetricsRepository
-    private let finalizer: SessionFinalizer
+    private let finalizer: any SessionFinalizing
     private let now: () -> Date
 
     /// The outcome computed by `finish`, replayed by `closeSummary`.
     private var resolvedOutcome: SessionOutcome = .partial
 
+    /// Whether the currently-active session's plan came from the AI coach or
+    /// the deterministic rule-engine fallback — drives the "backup coach"
+    /// indicator (design spec §3).
+    private(set) var coachSource: CoachSource = .rule
+
     init(modelContext: ModelContext,
          catalog: CatalogStore,
          repository: any MetricsRepository,
-         finalizer: SessionFinalizer,
+         finalizer: any SessionFinalizing,
          now: @escaping () -> Date = { .now }) {
         self.modelContext = modelContext
         self.catalog = catalog
@@ -83,12 +88,14 @@ final class SessionRunner {
 
     // MARK: - Lifecycle
 
-    func start(planned: PlannedSession, energy: EnergyRating, timeAvailableMin: Int) {
+    func start(planned: PlannedSession, energy: EnergyRating, timeAvailableMin: Int) async {
         guard phase == .idle else { return }   // F4: no second CompletedSessionModel on a double-tap
         phase = .finalizing
 
-        let fin = finalizer.finalize(planned, energy: energy, timeAvailableMin: timeAvailableMin)
+        let result = await finalizer.finalize(planned, energy: energy, timeAvailableMin: timeAvailableMin)
+        let fin = result.session
         self.finalized = fin
+        self.coachSource = result.coachSource
 
         let ts = now()
         let cal = Calendar.isoUTC
@@ -109,6 +116,7 @@ final class SessionRunner {
             timeAvailableMin: timeAvailableMin,
             plannedSessionID: planned.id
         )
+        it.coachSourceRaw = result.coachSource.rawValue
         modelContext.insert(it)
 
         for (idx, item) in fin.session.items.enumerated() {
