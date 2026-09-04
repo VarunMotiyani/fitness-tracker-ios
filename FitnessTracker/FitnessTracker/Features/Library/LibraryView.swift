@@ -11,12 +11,43 @@ struct LibraryView: View {
     @State private var selectedExerciseForDetail: Exercise? = nil
     @State private var shownCount: Int = 40
 
-    /// Exercises matching search + muscle only — the pool the equipment chips describe.
+    @AppStorage("gym_equip_filter_on") private var equipFilterOn: Bool = false
+    @AppStorage("gym_active_profile_id") private var activeProfileID: String = "commercial_gym"
+    @AppStorage("gym_equipment_profiles_json") private var profilesJSON: String = ""
+
+    /// Which exercise-media source the Library is browsing right now. This is scoped to
+    /// Library only — workout sessions, plans, and history always resolve against the
+    /// catalog passed in from `RootView`, so switching this never breaks an exerciseID a
+    /// plan or a logged set already points at. See `docs/plans/2026-09-04-*` for why two
+    /// sources exist: `catalog.json`'s media is hotlinked from a commercial stock library
+    /// with no redistribution license; `free_exercise_db.json` is the public-domain
+    /// (Unlicense) `yuhonas/free-exercise-db` dataset, static images only.
+    @AppStorage("gym_media_source") private var mediaSourceRaw: String = ExerciseMediaSource.gymVisual.rawValue
+    @State private var freeCatalog: CatalogStore?
+
+    private var mediaSource: ExerciseMediaSource {
+        ExerciseMediaSource(rawValue: mediaSourceRaw) ?? .gymVisual
+    }
+
+    /// The catalog actually being browsed: the shared (Gym Visual) catalog, or the
+    /// separately-loaded free-exercise-db catalog once it's been read from disk.
+    private var displayCatalog: CatalogStore {
+        mediaSource == .freeStatic ? (freeCatalog ?? catalog) : catalog
+    }
+
+    /// Exercises matching search + muscle + the active equipment profile — the pool the
+    /// equipment chips describe.
     private var searchAndMuscleMatches: [Exercise] {
-        catalog.all.filter { ex in
+        displayCatalog.all.filter { ex in
             let matchesSearch = searchText.isEmpty || ex.name.localizedCaseInsensitiveContains(searchText)
             let matchesMuscle = selectedMuscle == nil || ex.primaryMuscle == selectedMuscle! || ex.secondaryMuscles.contains(selectedMuscle!)
-            return matchesSearch && matchesMuscle
+            let matchesEquipmentProfile = EquipmentFilter.isAvailable(
+                ex,
+                filterOn: equipFilterOn,
+                activeID: activeProfileID,
+                profilesJSON: profilesJSON
+            )
+            return matchesSearch && matchesMuscle && matchesEquipmentProfile
         }
     }
 
@@ -38,17 +69,22 @@ struct LibraryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                // Header (Exercises | 1324 exercises with animations)
+                // Header (Exercises | N exercises with animations / with photos)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Exercises")
                         .font(.system(size: 32, weight: .bold))
                         .foregroundStyle(GymTheme.label)
-                    Text("\(catalog.all.count) exercises with photos & instructions")
+                    Text("\(displayCatalog.all.count) exercises \(mediaSource == .freeStatic ? "with photos & instructions" : "with animations")")
                         .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(Color(white: 0.60))
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
+
+                // Media-source flag: lets you compare the animated (hotlinked, unlicensed
+                // for redistribution) source against the public-domain static one.
+                mediaSourcePicker
+                    .padding(.horizontal, 16)
 
                 // Search Bar
                 HStack(spacing: 8) {
@@ -145,6 +181,31 @@ struct LibraryView: View {
         .background(GymTheme.bg.ignoresSafeArea())
         .sheet(item: $selectedExerciseForDetail) { ex in
             ExerciseDetailSheet(exercise: ex)
+        }
+        .task(id: mediaSourceRaw) {
+            guard mediaSource == .freeStatic, freeCatalog == nil else { return }
+            freeCatalog = try? BundledCatalog.load(resourceName: "free_exercise_db")
+        }
+    }
+
+    // MARK: - Media Source Picker
+
+    @ViewBuilder
+    private var mediaSourcePicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("Exercise media", selection: $mediaSourceRaw) {
+                Text("Gym Visual").tag(ExerciseMediaSource.gymVisual.rawValue)
+                Text("Free (public domain)").tag(ExerciseMediaSource.freeStatic.rawValue)
+            }
+            .pickerStyle(.segmented)
+
+            Text(
+                mediaSource == .freeStatic
+                    ? "yuhonas/free-exercise-db — Unlicense (public domain), static photos only."
+                    : "hasaneyldrm/exercises-dataset — © Gym visual, hotlinked; no redistribution license."
+            )
+            .font(.system(size: 11, weight: .regular))
+            .foregroundStyle(Color(white: 0.50))
         }
     }
 

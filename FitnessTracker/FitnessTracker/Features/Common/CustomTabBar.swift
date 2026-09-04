@@ -16,6 +16,9 @@ struct CustomTabBar: View {
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
 
+    /// Drives the "unfinished workout" ring around the FAB — see `centerStartButton`.
+    @State private var resumePulse: Bool = false
+
     var body: some View {
         HStack(spacing: 0) {
             // 1. Home
@@ -79,6 +82,17 @@ struct CustomTabBar: View {
         } label: {
             VStack(spacing: 2) {
                 ZStack {
+                    // Pulsing ring — draws the eye back to an unfinished workout, the way
+                    // openGym's `@keyframes ping` does around its Resume button.
+                    if isWorkoutActive {
+                        Circle()
+                            .stroke(GymTheme.orange, lineWidth: 2)
+                            .frame(width: 44, height: 44)
+                            .scaleEffect(resumePulse ? 1.45 : 1.0)
+                            .opacity(resumePulse ? 0 : 0.7)
+                            .animation(.easeOut(duration: 1.9).repeatForever(autoreverses: false), value: resumePulse)
+                    }
+
                     Circle()
                         .fill(isWorkoutActive ? GymTheme.orange : activeAccent)
                         .frame(width: 44, height: 44)
@@ -98,5 +112,11 @@ struct CustomTabBar: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
+        .onAppear {
+            if isWorkoutActive { resumePulse = true }
+        }
+        .onChange(of: isWorkoutActive) { _, active in
+            resumePulse = active
+        }
     }
 }

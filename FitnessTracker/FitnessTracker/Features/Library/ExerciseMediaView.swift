@@ -7,6 +7,18 @@ import ExerciseCatalog
 struct AnimatedGifView: UIViewRepresentable {
     let url: URL
 
+    /// Tracks which URL is currently loaded so `updateUIView` — called on *every*
+    /// re-render of whatever contains this view, not just when `url` changes — doesn't
+    /// reload the page every time. Without this guard, a screen with a ticking timer
+    /// (the workout runner's elapsed-time counter, the rest timer) re-evaluates its body
+    /// every second, and an unconditional `loadHTMLString` here made the GIF blank out
+    /// and restart from frame one every single second.
+    final class Coordinator {
+        var loadedURL: URL?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
@@ -17,10 +29,18 @@ struct AnimatedGifView: UIViewRepresentable {
         webView.scrollView.bounces = false
         webView.layer.cornerRadius = 14
         webView.layer.masksToBounds = true
+        // This is a static animated image, nothing inside it is interactive — without
+        // this, WebKit's own gesture recognizers grab every tap before the SwiftUI
+        // `Button` wrapping this view ever sees it, so tapping the media (or the
+        // "Expand" pill layered on top of it) silently did nothing.
+        webView.isUserInteractionEnabled = false
         return webView
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
+        guard context.coordinator.loadedURL != url else { return }
+        context.coordinator.loadedURL = url
+
         let html = """
         <!DOCTYPE html>
         <html>

@@ -40,6 +40,8 @@ struct SettingsView: View {
     @State private var showResetConfirm = false
     @State private var showExportShare = false
     @State private var showFileImporter = false
+    @State private var showAppImporter = false
+    @State private var showHevyAPISheet = false
     @State private var showEquipmentSheet = false
     @State private var exportURL: URL?
 
@@ -103,12 +105,20 @@ struct SettingsView: View {
                 .foregroundStyle(activeAccent)
             }
         }
+        .task {
+            if catalog == nil {
+                catalog = try? BundledCatalog.load()
+            }
+        }
         .sheet(isPresented: $showEffortHelp) {
             effortHelpSheet
         }
         .sheet(isPresented: $showEquipmentSheet) {
-            if let p = profiles.first {
-                EquipmentProfileSheet(profile: p)
+            EquipmentProfileSheet()
+        }
+        .sheet(isPresented: $showHevyAPISheet) {
+            if let cat = catalog {
+                HevyAPISyncSheet(catalog: cat)
             }
         }
         .sheet(isPresented: $showExportShare) {
@@ -123,45 +133,36 @@ struct SettingsView: View {
         ) { result in
             handleImportResult(result)
         }
-        .confirmationDialog(
-            "Reset everything?",
-            isPresented: $showResetConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("Delete everything", role: .destructive) { resetAllData() }
+        .fileImporter(
+            isPresented: $showAppImporter,
+            allowedContentTypes: [.commaSeparatedText, .xml, .plainText],
+            allowsMultipleSelection: false
+        ) { result in
+            handleAppImportResult(result)
+        }
+        .confirmationDialog("Reset Everything?", isPresented: $showResetConfirm, titleVisibility: .visible) {
+            Button("Delete Everything", role: .destructive) {
+                resetAllData()
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Deletes your plan, workouts and body weight on this device. This cannot be undone.")
+            Text("Deletes your plan, workout history, body weight, and PRs on this device. This action cannot be undone.")
         }
-        .overlay(alignment: .top) {
-            if let lastNote {
-                Text(lastNote)
-                    .font(.system(size: 13, weight: .medium))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .animation(.default, value: lastNote)
-        .task(id: lastNote) {
-            guard lastNote != nil else { return }
-            try? await Task.sleep(for: .seconds(3))
-            lastNote = nil
-        }
-        .task {
-            if catalog == nil { catalog = try? BundledCatalog.load() }
-            UIApplication.shared.isIdleTimerDisabled = keepAwake
-        }
-        .onChange(of: keepAwake) { _, newValue in
-            UIApplication.shared.isIdleTimerDisabled = newValue
-        }
-        .onChange(of: reminderOn) { _, newValue in
-            if newValue {
-                requestNotificationPermissionAndSchedule()
-            } else {
-                UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        .overlay(alignment: .bottom) {
+            if let note = lastNote {
+                Text(note)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(activeAccent, in: Capsule())
+                    .padding(.bottom, 90)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                            withAnimation { lastNote = nil }
+                        }
+                    }
             }
         }
     }
@@ -173,14 +174,15 @@ struct SettingsView: View {
         Section {
             HStack(spacing: 12) {
                 Image(systemName: "lock.shield.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(activeAccent)
+                    .font(.title2)
+                    .foregroundStyle(GymTheme.green)
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text("All data stays on this device")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.headline)
                         .foregroundStyle(GymTheme.label)
-                    Text("Local-first SwiftData storage — no mandatory account, export backups anytime.")
-                        .font(.system(size: 12))
+                    Text("Zero account required, no third-party tracking. Back up anytime with JSON export.")
+                        .font(.caption)
                         .foregroundStyle(Color(white: 0.60))
                 }
             }
@@ -339,6 +341,13 @@ struct SettingsView: View {
         Section {
             Toggle("Workout day reminder", isOn: $reminderOn)
                 .tint(activeAccent)
+                .onChange(of: reminderOn) { _, newValue in
+                    if newValue {
+                        requestNotificationPermissionAndSchedule()
+                    } else {
+                        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+                    }
+                }
 
             if reminderOn {
                 HStack {
@@ -386,10 +395,6 @@ struct SettingsView: View {
                     Text("Equipment Profile")
                         .foregroundStyle(GymTheme.label)
                     Spacer()
-                    if let p = profiles.first {
-                        Text("\(p.availableEquipmentRaws.count) selected")
-                            .foregroundStyle(Color(white: 0.60))
-                    }
                     Image(systemName: "chevron.right")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Color(white: 0.45))
@@ -398,7 +403,7 @@ struct SettingsView: View {
         } header: {
             Text("Equipment")
         } footer: {
-            Text("Customize the equipment available in your gym for auto-plan generation and substitutions.")
+            Text("Customize equipment profiles (Home Gym, Commercial Gym, Travel) to filter the exercise library and auto-plan generation.")
         }
     }
 
@@ -458,7 +463,7 @@ struct SettingsView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Data Section (openGym style rows)
+    // MARK: - Data Section (openGym Full Parity)
 
     @ViewBuilder
     private var dataSection: some View {
@@ -470,8 +475,42 @@ struct SettingsView: View {
                     Image(systemName: "sparkles")
                         .foregroundStyle(activeAccent)
                         .frame(width: 20)
-                    Text("Load Starter Plan (PPL)")
+                    Text("Load starter plan (PPL)")
                         .foregroundStyle(activeAccent)
+                }
+            }
+
+            Button {
+                showAppImporter = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "arrow.triangle.swap")
+                        .foregroundStyle(GymTheme.teal)
+                        .frame(width: 20)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Import from another app")
+                            .foregroundStyle(GymTheme.label)
+                        Text("FitNotes, Strong, Hevy, or Apple Health XML")
+                            .font(.caption2)
+                            .foregroundStyle(GymTheme.label3)
+                    }
+                }
+            }
+
+            Button {
+                showHevyAPISheet = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "key.fill")
+                        .foregroundStyle(GymTheme.teal)
+                        .frame(width: 20)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Import from Hevy")
+                            .foregroundStyle(GymTheme.label)
+                        Text("Sync with a Hevy Developer API key")
+                            .font(.caption2)
+                            .foregroundStyle(GymTheme.label3)
+                    }
                 }
             }
 
@@ -483,6 +522,18 @@ struct SettingsView: View {
                         .foregroundStyle(GymTheme.sky)
                         .frame(width: 20)
                     Text("Import backup (JSON)")
+                        .foregroundStyle(GymTheme.label)
+                }
+            }
+
+            Button {
+                exportWorkoutHistoryCSV()
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "doc.text.fill")
+                        .foregroundStyle(GymTheme.sky)
+                        .frame(width: 20)
+                    Text("Export workout history (CSV)")
                         .foregroundStyle(GymTheme.label)
                 }
             }
@@ -617,26 +668,18 @@ struct SettingsView: View {
         lastNote = "Starter plan & 12-week demo history loaded"
     }
 
+    private func exportWorkoutHistoryCSV() {
+        guard let cat = catalog else { return }
+        if let url = HistoryExportManager.exportCSV(context: context, catalog: cat) {
+            self.exportURL = url
+            self.showExportShare = true
+        }
+    }
+
     private func exportBackupJSON() {
-        let sessions = (try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? []
-        let storedPlans = (try? context.fetch(FetchDescriptor<StoredPlan>())) ?? []
-        let bws = (try? context.fetch(FetchDescriptor<BodyweightEntryModel>())) ?? []
-        let prs = (try? context.fetch(FetchDescriptor<PersonalRecordModel>())) ?? []
-
-        let exportDict: [String: Any] = [
-            "version": 2,
-            "exportedAt": ISO8601DateFormatter().string(from: Date()),
-            "sessionsCount": sessions.count,
-            "plansCount": storedPlans.count,
-            "bodyweightCount": bws.count,
-            "prsCount": prs.count
-        ]
-
-        if let data = try? JSONSerialization.data(withJSONObject: exportDict, options: .prettyPrinted) {
-            let tempDir = FileManager.default.temporaryDirectory
-            let fileURL = tempDir.appendingPathComponent("opengym-backup-\(ISO8601DateFormatter().string(from: Date())).json")
-            try? data.write(to: fileURL)
-            self.exportURL = fileURL
+        guard let cat = catalog else { return }
+        if let url = HistoryExportManager.exportFullJSON(context: context, catalog: cat) {
+            self.exportURL = url
             self.showExportShare = true
         }
     }
@@ -648,10 +691,36 @@ struct SettingsView: View {
             if url.startAccessingSecurityScopedResource() {
                 defer { url.stopAccessingSecurityScopedResource() }
                 if let data = try? Data(contentsOf: url),
-                   let _ = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    lastNote = "Backup imported successfully"
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    lastNote = "Backup imported successfully (\(json["workouts"] != nil ? "Complete backup" : "JSON"))"
                 } else {
                     lastNote = "Invalid backup file format"
+                }
+            }
+        case .failure(let error):
+            lastNote = "Import failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func handleAppImportResult(_ result: Result<[URL], Error>) {
+        guard let cat = catalog else { return }
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            if url.startAccessingSecurityScopedResource() {
+                defer { url.stopAccessingSecurityScopedResource() }
+                if let text = try? String(contentsOf: url, encoding: .utf8) {
+                    if text.contains("<?xml") || text.contains("<HealthData") {
+                        let weights = AppleHealthXMLImporter.parse(xmlString: text)
+                        let count = HistoryIngestionService.ingestBodyweights(weights, into: context)
+                        lastNote = "Imported \(count) bodyweight entries from Apple Health XML"
+                    } else {
+                        let (source, sessions) = ExternalAppImporter.importCSV(text)
+                        let (imported, skipped) = HistoryIngestionService.ingestSessions(sessions, catalog: cat, into: context)
+                        lastNote = "Imported \(imported) workouts from \(source.rawValue) (skipped \(skipped))"
+                    }
+                } else {
+                    lastNote = "Could not read file"
                 }
             }
         case .failure(let error):

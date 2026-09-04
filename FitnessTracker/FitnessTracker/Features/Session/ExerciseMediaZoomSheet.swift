@@ -16,7 +16,18 @@ public struct ExerciseMediaZoomSheet: View {
             ScrollView {
                 VStack(spacing: 20) {
                     if let ex = exercise {
-                        if let firstImage = ex.imagePaths.first, let url = URL(string: firstImage) {
+                        if let gifPath = ex.gifImagePath, let url = URL(string: gifPath) {
+                            AnimatedGifView(url: url)
+                                .frame(height: 300)
+                                .scaleEffect(scale)
+                                .gesture(
+                                    MagnificationGesture()
+                                        .onChanged { scale = $0 }
+                                        .onEnded { _ in withAnimation { scale = 1.0 } }
+                                )
+                                .padding(16)
+                                .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                        } else if let firstImage = ex.imagePaths.first, let url = URL(string: firstImage) {
                             AsyncImage(url: url) { phase in
                                 switch phase {
                                 case .empty:

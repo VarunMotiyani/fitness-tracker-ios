@@ -10,34 +10,78 @@ import XCTest
 final class FitnessTrackerUITests: XCTestCase {
 
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
-    }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
     }
 
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    func testAppFlowAndCaptureScreenshots() throws {
         let app = XCUIApplication()
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
+        // 1. Home screen verification
+        let pulseTitle = app.staticTexts["PulseAI"]
+        XCTAssertTrue(pulseTitle.waitForExistence(timeout: 5.0))
+        saveScreenshot(app: app, name: "audit_ui_home")
+
+        // 2. Open Settings
+        let gearButton = app.buttons["settings_gear_button"]
+        if gearButton.waitForExistence(timeout: 3.0) {
+            gearButton.tap()
+            sleep(1)
+            saveScreenshot(app: app, name: "audit_ui_settings_top")
+
+            // Scroll down
+            app.swipeUp()
+            sleep(1)
+            saveScreenshot(app: app, name: "audit_ui_settings_middle")
+
+            app.swipeUp()
+            sleep(1)
+            saveScreenshot(app: app, name: "audit_ui_settings_bottom")
+
+            app.swipeUp()
+            sleep(1)
+            saveScreenshot(app: app, name: "audit_ui_settings_data")
+
+            // Check if Equipment Profile exists
+            let equipmentRow = app.staticTexts["Equipment Profile"]
+            if equipmentRow.waitForExistence(timeout: 2.0) {
+                equipmentRow.tap()
+                sleep(1)
+                saveScreenshot(app: app, name: "audit_ui_equipment_profiles")
+                let doneBtn = app.buttons["Done"]
+                if doneBtn.exists { doneBtn.tap() }
+                sleep(1)
+            }
+
+            // Check Hevy API sync sheet
+            let hevyRow = app.staticTexts["Import from Hevy (API Key)"]
+            if hevyRow.waitForExistence(timeout: 2.0) {
+                hevyRow.tap()
+                sleep(1)
+                saveScreenshot(app: app, name: "audit_ui_hevy_sync_sheet")
+                let cancelBtn = app.buttons["Cancel"]
+                if cancelBtn.exists { cancelBtn.tap() }
+                sleep(1)
+            }
+
+            let settingsDone = app.buttons["Done"]
+            if settingsDone.exists {
+                settingsDone.tap()
+                sleep(1)
+            }
+        }
     }
 
     @MainActor
-    func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
-        measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
-        }
+    private func saveScreenshot(app: XCUIApplication, name: String) {
+        let screenshot = app.screenshot()
+        let tmpPath = "/tmp/\(name).png"
+        let tmpUrl = URL(fileURLWithPath: tmpPath)
+        try? screenshot.pngRepresentation.write(to: tmpUrl)
+        
+        let brainPath = "/Users/vmotiyani/.gemini/antigravity/brain/dbf13674-330a-445a-a665-5736a817fde4/\(name).png"
+        let brainUrl = URL(fileURLWithPath: brainPath)
+        try? screenshot.pngRepresentation.write(to: brainUrl)
     }
 }

@@ -40,6 +40,17 @@ struct HomeView: View {
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
 
+    /// The same day→routine map `PlanView` writes (`0`=Monday…`6`=Sunday). Reading it here
+    /// is what lets the week strip tell a real rest day from a scheduled one that just
+    /// hasn't been trained yet, instead of guessing from weekday position.
+    @AppStorage("gym_week_schedule_json") private var scheduleJSON: String = ""
+    private var weekSchedule: [Int: UUID] {
+        guard let data = scheduleJSON.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([Int: UUID].self, from: data)
+        else { return [:] }
+        return decoded
+    }
+
     @State private var weekOffset: Int = 0
     @State private var activeSheet: HomeSheetType?
     @State private var targetWeight: Double? = 77.0
@@ -62,6 +73,16 @@ struct HomeView: View {
 
     private var todaySession: PlannedSession? {
         plan.sessions.sorted { $0.order < $1.order }.first
+    }
+
+    /// A finished session that happened today, if any — drives the TODAY row's
+    /// completed/not-yet-done state.
+    private var todayCompletedSession: CompletedSessionModel? {
+        let cal = Calendar.isoUTC
+        return completedSessions.first { session in
+            guard session.finishedAt != nil else { return false }
+            return cal.isDateInToday(session.startedAt)
+        }
     }
 
     private var sessionDisplayName: String {
@@ -273,7 +294,7 @@ struct HomeView: View {
                     let isToday = cal.isDateInToday(dayDate)
                     let trainedSessions = sessionsByDate[cal.startOfDay(for: dayDate)] ?? []
                     let isTrained = !trainedSessions.isEmpty
-                    let dayOffset = dayIndex
+                    let isScheduledTrainingDay = weekSchedule[dayIndex] != nil
 
                     Button {
                         let generator = UIImpactFeedbackGenerator(style: .light)
@@ -305,9 +326,10 @@ struct HomeView: View {
                             }
                             .frame(height: 32)
 
-                            // Status dot (Green = done, Orange = rescheduled, Gray = planned, Clear = rest)
+                            // Status dot, derived from real state: accent = trained,
+                            // gray = a scheduled training day not trained yet, clear = rest day.
                             Circle()
-                                .fill(isTrained ? activeAccent : (dayOffset == 0 ? activeAccent : (dayOffset == 1 ? GymTheme.orange : (dayOffset <= 4 ? Color(white: 0.40) : Color.clear))))
+                                .fill(isTrained ? activeAccent : (isScheduledTrainingDay ? Color(white: 0.40) : Color.clear))
                                 .frame(width: 4, height: 4)
                         }
                         .frame(maxWidth: .infinity)
@@ -317,22 +339,25 @@ struct HomeView: View {
                 }
             }
 
-            // Nested Today Routine Card (1-tap action)
+            // Nested Today Routine Card (1-tap action) — reads as done/not-done from
+            // whether a session actually finished today, not a static label.
             if let today = todaySession {
+                let isDoneToday = todayCompletedSession != nil
+
                 Button {
                     let generator = UIImpactFeedbackGenerator(style: .medium)
                     generator.impactOccurred()
                     onStartSession(today)
                 } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: "figure.strengthtraining.traditional")
+                        Image(systemName: isDoneToday ? "checkmark" : "figure.strengthtraining.traditional")
                             .font(.system(size: 20))
                             .foregroundStyle(.black)
                             .frame(width: 40, height: 40)
                             .background(activeAccent, in: RoundedRectangle(cornerRadius: 10))
 
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("TODAY")
+                            Text(isDoneToday ? "COMPLETED TODAY" : "TODAY")
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(Color(white: 0.50))
 
@@ -343,7 +368,7 @@ struct HomeView: View {
 
                         Spacer()
 
-                        Text("Start")
+                        Text(isDoneToday ? "Redo" : "Start")
                             .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(activeAccent)
                             .padding(.horizontal, 16)
@@ -454,10 +479,12 @@ struct HomeView: View {
                 .padding(.top, 2)
             }
 
-            // Bezier Curve Chart with Goal Line
+            // Bezier Curve Chart with Goal Line — themed to the active accent, like
+            // openGym's weight chart (`<LineChart>` defaults to `var(--acc)`).
             OpenGymLineChart(
                 points: chartPoints,
-                goal: targetWeight
+                goal: targetWeight,
+                lineColor: activeAccent
             )
             .padding(.top, 4)
         }

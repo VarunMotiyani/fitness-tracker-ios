@@ -67,6 +67,11 @@ public enum FreeExerciseDBMapper {
         }
     }
 
+    /// Maps a raw equipment string from either bundled catalog (Gym Visual's 28-value
+    /// vocabulary or free-exercise-db's 12-value one) onto `Equipment`. "weighted" (a
+    /// bodyweight movement done with added load, e.g. a weighted pull-up) maps to
+    /// `.bodyweight` — the base movement, and what an equipment-availability check
+    /// actually cares about, is bodyweight.
     public static func equipment(_ value: String?) -> Equipment {
         guard let v = value?.lowercased() else { return .other }
         switch v {
@@ -76,16 +81,33 @@ public enum FreeExerciseDBMapper {
             return .dumbbell
         case "cable":
             return .cable
-        case "machine", "leverage machine", "smith machine", "sled machine":
+        case "machine":
             return .machine
-        case "body only", "body weight", "assisted", "suspension":
+        case "smith machine":
+            return .smithMachine
+        case "leverage machine":
+            return .leverageMachine
+        case "sled machine", "sled":
+            return .sled
+        case "body only", "body weight", "assisted", "suspension", "weighted":
             return .bodyweight
         case "kettlebells", "kettlebell":
             return .kettlebell
-        case "bands", "band":
+        case "bands", "band", "resistance band":
             return .bands
         case "e-z curl bar", "ez barbell":
             return .ezBar
+        case "stability ball", "exercise ball", "bosu ball":
+            return .stabilityBall
+        case "medicine ball":
+            return .medicineBall
+        case "rope":
+            return .rope
+        case "roller", "wheel roller", "foam roll":
+            return .roller
+        case "upper body ergometer", "skierg machine", "stationary bike",
+             "elliptical machine", "stepmill machine":
+            return .cardioMachine
         default:
             return .other
         }

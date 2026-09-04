@@ -23,7 +23,7 @@ struct WeightInputView: View {
             // Main Stepper: [-] 78.7 kg [+]
             HStack(spacing: 20) {
                 Button {
-                    step(by: -0.1)
+                    step(by: isInteger ? -1.0 : -0.1)
                 } label: {
                     Image(systemName: "minus")
                         .font(.system(size: 20, weight: .bold))
@@ -45,7 +45,7 @@ struct WeightInputView: View {
                 .frame(minWidth: 160)
 
                 Button {
-                    step(by: +0.1)
+                    step(by: isInteger ? +1.0 : +0.1)
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 20, weight: .bold))
@@ -57,16 +57,25 @@ struct WeightInputView: View {
             }
             .padding(.top, 4)
 
-            // Increment Chips: [-1] [-0.5] [+0.5] [+1]
+            // Increment Chips — whole-number jumps when the display itself only
+            // ever shows whole numbers; a "+0.5" chip that visibly does nothing
+            // (or silently jumps a whole kg) is worse than not offering it.
             HStack(spacing: 10) {
-                chipButton(label: "−1", delta: -1.0)
-                chipButton(label: "−0.5", delta: -0.5)
-                chipButton(label: "+0.5", delta: +0.5)
-                chipButton(label: "+1", delta: +1.0)
+                if isInteger {
+                    chipButton(label: "−5", delta: -5.0)
+                    chipButton(label: "−1", delta: -1.0)
+                    chipButton(label: "+1", delta: +1.0)
+                    chipButton(label: "+5", delta: +5.0)
+                } else {
+                    chipButton(label: "−1", delta: -1.0)
+                    chipButton(label: "−0.5", delta: -0.5)
+                    chipButton(label: "+0.5", delta: +0.5)
+                    chipButton(label: "+1", delta: +1.0)
+                }
             }
 
             // Slider
-            Slider(value: $value, in: minVal...maxVal, step: 0.5)
+            Slider(value: $value, in: minVal...maxVal, step: isInteger ? 1.0 : 0.5)
                 .tint(activeAccent)
                 .padding(.horizontal, 4)
                 .padding(.top, 2)
@@ -77,7 +86,12 @@ struct WeightInputView: View {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
         let raw = value + delta
-        let rounded = (raw * 10).rounded() / 10
+        // Round to whatever precision is actually displayed — otherwise a fractional
+        // step (the ±0.5 chips, or the slider) can leave the stored value off by a
+        // few tenths that never show up on screen (isInteger's "%.0f" hides them),
+        // making a later ±1 tap look like it did nothing when it just crossed the
+        // same rounded display value.
+        let rounded = isInteger ? raw.rounded() : (raw * 10).rounded() / 10
         value = max(minVal, min(maxVal, rounded))
     }
 

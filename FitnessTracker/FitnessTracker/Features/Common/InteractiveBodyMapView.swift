@@ -4,7 +4,7 @@ import FitnessDomain
 import Metrics
 
 public enum MuscleMapModeState: Equatable {
-    case balance([String: Int], hard: Bool)
+    case balance([String: Double], hard: Bool)
     case fatigue([String: Double])
     case strength([String: Double])
 }
@@ -117,17 +117,8 @@ struct BodyMapWebKitView: UIViewRepresentable {
 
     private func modeDataJSON() -> String {
         switch modeState {
-        case .balance(let counts, let hard):
-            let maxCount = max(1, counts.values.max() ?? 1)
-            var levels: [String: Int] = [:]
-            for (k, v) in counts {
-                let ratio = Double(v) / Double(maxCount)
-                if ratio >= 0.75 { levels[k] = 4 }
-                else if ratio >= 0.50 { levels[k] = 3 }
-                else if ratio >= 0.25 { levels[k] = 2 }
-                else if ratio > 0 { levels[k] = 1 }
-                else { levels[k] = 0 }
-            }
+        case .balance(let load, let hard):
+            let levels = MuscleBalanceModel.levelsOf(load: load)
             if let data = try? JSONSerialization.data(withJSONObject: ["type": "balance", "hard": hard, "levels": levels]),
                let str = String(data: data, encoding: .utf8) {
                 return str

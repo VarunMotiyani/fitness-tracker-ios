@@ -53,3 +53,25 @@ public enum GymTheme {
         }
     }
 }
+
+/// A small fade+slide `ViewModifier` — the Swift side of openGym's
+/// `@keyframes viewfade { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }`,
+/// which fades and nudges every route change in by 4px instead of a hard cut.
+private struct ViewFadeModifier: ViewModifier {
+    let isIdentity: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isIdentity ? 1 : 0)
+            .offset(y: isIdentity ? 0 : 4)
+    }
+}
+
+public extension AnyTransition {
+    static var viewFade: AnyTransition {
+        .modifier(
+            active: ViewFadeModifier(isIdentity: false),
+            identity: ViewFadeModifier(isIdentity: true)
+        )
+    }
+}

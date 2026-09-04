@@ -255,6 +255,32 @@ final class SessionRunner {
         phase = .summary
     }
 
+    /// Mid-session exercise swap. If the entry has no logged work, replaces in place.
+    /// If work was already logged, inserts the replacement as the next entry.
+    func swapExercise(at index: Int, to newExerciseID: String) {
+        let entries = orderedEntries
+        guard entries.indices.contains(index) else { return }
+        let current = entries[index]
+        let originalID = current.exerciseID
+
+        if !current.sets.contains(where: { $0.actualReps > 0 }) {
+            current.exerciseID = newExerciseID
+            current.wasSwappedFrom = originalID
+        } else {
+            guard let session else { return }
+            let replacement = CompletedEntryModel(exerciseID: newExerciseID, performedOrder: current.performedOrder + 1)
+            replacement.wasSwappedFrom = originalID
+            replacement.session = session
+            modelContext.insert(replacement)
+            session.entries.append(replacement)
+
+            for other in session.entries where other !== replacement && other.performedOrder > current.performedOrder {
+                other.performedOrder += 1
+            }
+        }
+        try? modelContext.save()
+    }
+
     // MARK: - Abandoned-session sweep
 
     /// Called once from `RootView.task`. Any session left unfinished for longer

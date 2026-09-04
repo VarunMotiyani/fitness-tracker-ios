@@ -32,6 +32,14 @@ extension Equipment {
         case .kettlebell:  "Kettlebells"
         case .bands:       "Resistance bands"
         case .ezBar:       "EZ curl bar"
+        case .smithMachine:    "Smith machine"
+        case .leverageMachine: "Leverage machine"
+        case .stabilityBall:   "Stability ball"
+        case .medicineBall:    "Medicine ball"
+        case .sled:            "Sled"
+        case .rope:            "Rope"
+        case .roller:          "Foam roller"
+        case .cardioMachine:   "Cardio machine"
         case .other:       "Other"
         }
     }

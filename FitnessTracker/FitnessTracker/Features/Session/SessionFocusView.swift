@@ -12,7 +12,7 @@ private enum ActiveFocusSheet: Identifiable {
     case exerciseDetail(Exercise)
     case exerciseNote(name: String, id: String, instruction: String?)
     case sessionNote
-    case swapExercise
+    case swapExercise(Exercise)
     case workingWeight(name: String, id: String, maxWeight: Double)
 
     var id: String {
@@ -22,7 +22,7 @@ private enum ActiveFocusSheet: Identifiable {
         case .exerciseDetail(let ex): return "exerciseDetail_\(ex.id)"
         case .exerciseNote: return "exerciseNote"
         case .sessionNote: return "sessionNote"
-        case .swapExercise: return "swapExercise"
+        case .swapExercise(let ex): return "swapExercise_\(ex.id)"
         case .workingWeight: return "workingWeight"
         }
     }
@@ -57,6 +57,9 @@ struct SessionFocusView: View {
     private var previousSessions: [CompletedSessionModel]
 
     @AppStorage("gym_working_weights_json") private var workingWeightsJSON: String = "{}"
+    @AppStorage("gym_keep_awake") private var keepAwake: Bool = true
+    @AppStorage("gym_timer_flash") private var timerFlash: Bool = true
+    @AppStorage("gym_media_source") private var mediaSourceRaw: String = ExerciseMediaSource.gymVisual.rawValue
 
     // Draft interactive state for upcoming sets in current exercise
     @State private var draftRows: [DraftSetRow] = []
@@ -64,6 +67,7 @@ struct SessionFocusView: View {
     @State private var elapsedSeconds: Int = 0
     @State private var isSupersetWithNext: Bool = false
     @State private var restTimer = RestTimer()
+    @State private var flashTriggerID = UUID()
 
     @State private var currentExerciseNote: String = ""
     @State private var currentExercisePin: Bool = false
@@ -86,33 +90,51 @@ struct SessionFocusView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Top Session-Level Navigation Header (openGym Parity)
-            sessionTopHeader
+        ZStack {
+            VStack(spacing: 0) {
+                // Top Session-Level Navigation Header (openGym Parity)
+                sessionTopHeader
 
-            // Pinned Total-Set Progress Bar
-            totalSetProgressBar
+                // Pinned Total-Set Progress Bar
+                totalSetProgressBar
 
-            // Main Exercise Scroll Body
-            Group {
-                if let finalized = runner.finalized, let entry = runner.currentEntry {
-                    let planned = finalized.session.items.first { $0.exerciseID == entry.exerciseID }
-                    contentView(entry: entry, planned: planned, finalized: finalized)
-                } else {
-                    ContentUnavailableView("No active exercise", systemImage: "dumbbell")
+                // Main Exercise Scroll Body
+                Group {
+                    if let finalized = runner.finalized, let entry = runner.currentEntry {
+                        let planned = finalized.session.items.first { $0.exerciseID == entry.exerciseID }
+                        contentView(entry: entry, planned: planned, finalized: finalized)
+                    } else {
+                        ContentUnavailableView("No active exercise", systemImage: "dumbbell")
+                    }
                 }
+            }
+            .background(GymTheme.bg.ignoresSafeArea())
+
+            if timerFlash {
+                TimerFlashOverlay(triggerID: flashTriggerID)
             }
         }
         .background(GymTheme.bg.ignoresSafeArea())
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .onReceive(timer) { _ in
-            if let start = runner.session?.startedAt {
+            // Clock starts from your first logged set, not from when this screen
+            // opened — you need a moment to look at the exercise before you actually
+            // start, and that shouldn't count against the workout's elapsed time.
+            if let start = firstLoggedSetTime {
                 elapsedSeconds = max(0, Int(Date().timeIntervalSince(start)))
+            } else {
+                elapsedSeconds = 0
             }
         }
         .onAppear {
+            if keepAwake {
+                UIApplication.shared.isIdleTimerDisabled = true
+            }
             seedCurrentExercise()
+        }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
         }
         .onChange(of: runner.currentEntryIndex) { _, _ in
             seedCurrentExercise()
@@ -137,12 +159,10 @@ struct SessionFocusView: View {
                 )
             case .sessionNote:
                 SessionNoteSheet(sessionNote: $sessionNoteText)
-            case .swapExercise:
-                ExercisePickerCatalogSheet(catalog: catalog) { picked in
-                    if let entry = runner.currentEntry {
-                        entry.exerciseID = picked.id
-                        seedCurrentExercise()
-                    }
+            case .swapExercise(let currentEx):
+                ExerciseSwapSheet(currentExercise: currentEx, catalog: catalog) { replacement, _, _ in
+                    runner.swapExercise(at: runner.currentEntryIndex, to: replacement.id)
+                    seedCurrentExercise()
                 }
             case .workingWeight(let name, let id, let maxW):
                 WorkingWeightSheet(
@@ -198,16 +218,26 @@ struct SessionFocusView: View {
 
             Spacer()
 
-            // Center: Routine Name + Elapsed mm:ss + Total Sets
-            VStack(spacing: 2) {
-                Text(routineName)
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(GymTheme.label)
-
-                Text("\(formattedElapsedTime) · \(totalDoneSets)/\(totalTargetSets) sets")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(GymTheme.label3)
+            // Center: Routine Name + Elapsed mm:ss + Total Sets — tap to see every
+            // exercise in the session (done/in-progress/pending) and jump around.
+            Button {
+                onOpenList()
+            } label: {
+                VStack(spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(routineName)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(GymTheme.label)
+                        Image(systemName: "list.bullet")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(GymTheme.label3)
+                    }
+                    Text("\(formattedElapsedTime) · \(totalDoneSets)/\(totalTargetSets) sets")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(GymTheme.label3)
+                }
             }
+            .buttonStyle(.plain)
 
             Spacer()
 
@@ -322,31 +352,71 @@ struct SessionFocusView: View {
 
     @ViewBuilder
     private func mediaStageCard(exercise: Exercise?) -> some View {
-        Button {
-            activeSheet = .mediaZoom(exercise)
-        } label: {
-            ZStack(alignment: .bottomLeading) {
-                ExerciseThumbnailView(exercise: exercise, size: 200)
+        // Free-exercise-db only has a same-named match for ~10% of exercises — most
+        // will keep showing Gym Visual even with "Free" selected below.
+        let alternateImages = exercise.flatMap { AlternateMediaLookup.imagePaths(forExerciseNamed: $0.name) }
+        let preferFree = ExerciseMediaSource(rawValue: mediaSourceRaw) == .freeStatic
+        let showingAlternate = preferFree && alternateImages != nil
+
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                activeSheet = .mediaZoom(exercise)
+            } label: {
+                ZStack(alignment: .bottomLeading) {
+                    Group {
+                        if showingAlternate, let firstAlt = alternateImages?.first, let url = URL(string: firstAlt) {
+                            AsyncImage(url: url) { phase in
+                                if case .success(let image) = phase {
+                                    image.resizable().scaledToFit()
+                                } else {
+                                    ProgressView()
+                                }
+                            }
+                        } else if let gifPath = exercise?.gifImagePath, let url = URL(string: gifPath) {
+                            AnimatedGifView(url: url)
+                        } else {
+                            ExerciseThumbnailView(exercise: exercise, size: 200)
+                        }
+                    }
                     .frame(maxWidth: .infinity)
                     .frame(height: 180)
                     .background(Color.white)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
 
-                // Expand pill
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 10, weight: .bold))
-                    Text("Expand")
-                        .font(.system(size: 11, weight: .bold))
+                    // Expand pill
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("Expand")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.black.opacity(0.70), in: Capsule())
+                    .padding(10)
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.black.opacity(0.70), in: Capsule())
-                .padding(10)
+            }
+            .buttonStyle(.plain)
+
+            // Media-source picker, right here in the workout — same preference the
+            // Exercises tab uses (`gym_media_source`), so setting it in either place
+            // carries through to the other, and to every future workout.
+            HStack(spacing: 8) {
+                Picker("Exercise media", selection: $mediaSourceRaw) {
+                    Text("Gym Visual").tag(ExerciseMediaSource.gymVisual.rawValue)
+                    Text("Free").tag(ExerciseMediaSource.freeStatic.rawValue)
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 200)
+
+                if preferFree && alternateImages == nil {
+                    Text("No free equivalent for this exercise")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(GymTheme.label3)
+                }
             }
         }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -464,7 +534,7 @@ struct SessionFocusView: View {
                 Text("REPS")
                     .frame(maxWidth: .infinity)
                 Text("RIR")
-                    .frame(width: 60)
+                    .frame(width: 76)
                 Text("DONE")
                     .frame(width: 40, alignment: .trailing)
             }
@@ -523,12 +593,12 @@ struct SessionFocusView: View {
                 Text(String(format: "%.1f", rir))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(GymTheme.green)
-                    .frame(width: 60)
+                    .frame(width: 76)
             } else {
                 Text("—")
                     .font(.system(size: 14))
                     .foregroundStyle(GymTheme.label3)
-                    .frame(width: 60)
+                    .frame(width: 76)
             }
 
             // Checked indicator
@@ -565,7 +635,7 @@ struct SessionFocusView: View {
 
             // RIR Stepper (Always Accessible)
             EffortStepper(value: $draftRows[draftIdx].rir, mode: "rir")
-                .frame(width: 60)
+                .frame(width: 76)
 
             // Log / Checkmark Action Button
             Button {
@@ -595,6 +665,8 @@ struct SessionFocusView: View {
             } label: {
                 Label("Add warm-up set", systemImage: "flame.fill")
                     .font(.system(size: 12, weight: .bold))
+                    .lineLimit(1)
+                    .fixedSize()
                     .foregroundStyle(GymTheme.orange)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -608,6 +680,8 @@ struct SessionFocusView: View {
                 } label: {
                     Label("Remove set", systemImage: "minus")
                         .font(.system(size: 12, weight: .bold))
+                        .lineLimit(1)
+                        .fixedSize()
                         .foregroundStyle(GymTheme.red)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -621,6 +695,8 @@ struct SessionFocusView: View {
             } label: {
                 Label("Add set", systemImage: "plus")
                     .font(.system(size: 12, weight: .bold))
+                    .lineLimit(1)
+                    .fixedSize()
                     .foregroundStyle(GymTheme.green)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -686,6 +762,10 @@ struct SessionFocusView: View {
         return String(format: "%d:%02d", min, sec)
     }
 
+    private var firstLoggedSetTime: Date? {
+        runner.entriesInOrder.flatMap(\.sets).map(\.startedAt).min()
+    }
+
     private var allLoggedSetsCount: Int {
         runner.entriesInOrder.reduce(0) { $0 + $1.sets.count }
     }
@@ -697,7 +777,7 @@ struct SessionFocusView: View {
     private func seedCurrentExercise() {
         guard let entry = runner.currentEntry else { return }
         let plannedItem = runner.finalized?.session.items.first { $0.exerciseID == entry.exerciseID }
-        let baseLoad = plannedItem?.targetLoadKg ?? 60.0
+        let baseLoad = plannedItem?.targetLoadKg ?? defaultLoadKg(for: catalog.exercise(id: entry.exerciseID))
         let baseReps = Double(plannedItem?.targetReps.min ?? 8)
         let setsCount = plannedItem?.targetSets ?? 3
 
@@ -744,9 +824,34 @@ struct SessionFocusView: View {
     private func addWarmupSet() {
         guard let entry = runner.currentEntry else { return }
         let plannedItem = runner.finalized?.session.items.first { $0.exerciseID == entry.exerciseID }
-        let baseLoad = (plannedItem?.targetLoadKg ?? 60.0) * 0.6
+        let baseLoad = (plannedItem?.targetLoadKg ?? defaultLoadKg(for: catalog.exercise(id: entry.exerciseID))) * 0.6
         draftRows.insert(DraftSetRow(loadKg: baseLoad, reps: 10, rir: nil, isWarmup: true), at: 0)
         targetTotalSets += 1
+    }
+
+    /// A starting weight for an exercise with no logged history yet, sized to what
+    /// its equipment actually is — not a single flat number for everything, and not
+    /// a blanket 0 for anything tagged bodyweight either: an assisted-machine
+    /// movement (assisted pull-up/dip) uses that number as a real counterweight/
+    /// assistance setting, where 0 would mean "no assistance," the opposite of what
+    /// a first-time set on that machine should default to.
+    private func defaultLoadKg(for exercise: Exercise?) -> Double {
+        guard let exercise else { return 20.0 }
+        if exercise.name.localizedCaseInsensitiveContains("assisted") {
+            return 20.0 // a middling assistance/counterweight setting to start from
+        }
+        switch exercise.equipment {
+        case .bodyweight, .bands, .stabilityBall, .rope, .roller, .cardioMachine:
+            return 0.0 // no plates to add — bodyweight, or not a loaded implement at all
+        case .dumbbell, .ezBar:
+            return 10.0
+        case .kettlebell:
+            return 16.0
+        case .medicineBall:
+            return 5.0
+        case .barbell, .cable, .machine, .smithMachine, .leverageMachine, .sled, .other:
+            return 20.0
+        }
     }
 
     private func addExtraSet() {
@@ -775,7 +880,10 @@ struct SessionFocusView: View {
 
         if runner.currentEntryIndex < runner.entriesInOrder.count - 1 {
             runner.markDone(entryIndex: runner.currentEntryIndex)
-            runner.currentEntryIndex += 1
+            // Land on the exercise list, not straight into the next exercise — the
+            // one you just finished now shows green there, and you pick (or
+            // substitute) what's next instead of always taking it in plan order.
+            onOpenList()
         } else {
             showCompleteDialog = true
         }

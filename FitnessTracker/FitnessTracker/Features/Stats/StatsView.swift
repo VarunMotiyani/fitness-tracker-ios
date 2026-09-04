@@ -20,6 +20,8 @@ struct StatsView: View {
 
     @AppStorage("athleteBodyModel") private var athleteBodyModel: String = "male"
     @AppStorage("targetWeightKg") private var targetWeightKg: Double = 77.0
+    @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
+    private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
 
     // Map & Window states
     @State private var selectedMapMode: MapMode = .balance
@@ -59,36 +61,12 @@ struct StatsView: View {
         self.catalog = catalog
     }
 
-    // MARK: - Slugs Mapping
-
     private func slugFor(muscle: MuscleGroup) -> String {
-        switch muscle {
-        case .chest: return "chest"
-        case .abs: return "abs"
-        case .biceps: return "biceps"
-        case .triceps: return "triceps"
-        case .shoulders: return "deltoids"
-        case .traps: return "trapezius"
-        case .forearms: return "forearm"
-        case .quads: return "quadriceps"
-        case .calves: return "calves"
-        case .back: return "upper-back"
-        case .lowerBack: return "lower-back"
-        case .glutes: return "gluteal"
-        case .hamstrings: return "hamstring"
-        }
+        MuscleBalanceModel.canonicalSlug(for: muscle)
     }
 
     private func displayName(for slug: String) -> String {
-        let names: [String: String] = [
-            "chest": "Chest", "abs": "Abs", "biceps": "Biceps", "triceps": "Triceps",
-            "deltoids": "Shoulders", "trapezius": "Traps", "forearm": "Forearms",
-            "quadriceps": "Quads", "calves": "Calves", "upper-back": "Upper back",
-            "lower-back": "Lower back", "gluteal": "Glutes", "hamstring": "Hamstrings",
-            "obliques": "Obliques", "adductors": "Adductors", "serratus": "Serratus",
-            "hip-flexors": "Hip flexors", "tibialis": "Shins"
-        ]
-        return names[slug] ?? slug.capitalized
+        MuscleBalanceModel.displayName(for: slug)
     }
 
     // MARK: - Computed Domain Analytics (The Backend)
@@ -141,28 +119,28 @@ struct StatsView: View {
         return map
     }
 
-    private var muscleSetCountsInWindow: [String: Int] {
+    private var muscleSetCountsInWindow: [String: Double] {
         let cal = Calendar.isoUTC
         let cutoff = balanceWindowDays > 0 ? cal.date(byAdding: .day, value: -balanceWindowDays, to: .now) : nil
-        var counts: [String: Int] = [:]
+        var items: [MuscleBalanceModel.EffectiveSetItem] = []
 
         for s in completedSessions where s.finishedAt != nil {
             if let cutoff, s.startedAt < cutoff { continue }
             for entry in s.entries where !entry.skipped {
                 guard let ex = catalog.exercise(id: entry.exerciseID) else { continue }
-                let slug = slugFor(muscle: ex.primaryMuscle)
-                for set in entry.sets where !set.isWarmup {
+                let doneSets = entry.sets.filter { set in
+                    guard !set.isWarmup else { return false }
                     if filterHardSetsOnly {
-                        if let rpe = set.rpe, rpe >= 8.0 {
-                            counts[slug, default: 0] += 1
-                        }
-                    } else {
-                        counts[slug, default: 0] += 1
+                        return (set.rpe ?? 0.0) >= 8.0
                     }
+                    return true
+                }.count
+                if doneSets > 0 {
+                    items.append(MuscleBalanceModel.EffectiveSetItem(exercise: ex, sets: doneSets))
                 }
             }
         }
-        return counts
+        return MuscleBalanceModel.loadOf(items: items)
     }
 
     private var bodyMapModeState: MuscleMapModeState {
@@ -463,17 +441,17 @@ struct StatsView: View {
 
             // Selected Muscle Highlight Row or Top Worked Muscle Bars
             let counts = muscleSetCountsInWindow
-            let sorted = counts.sorted { $0.value > $1.value }
-            let maxCount = max(1, sorted.first?.value ?? 1)
+            let (workedSlugs, missedSlugs) = MuscleBalanceModel.rankOf(load: counts)
+            let maxCount = max(1.0, workedSlugs.compactMap { counts[$0] }.max() ?? 1.0)
 
             if let sel = selectedMuscleSlug {
-                let selCount = counts[sel] ?? 0
+                let selCount = counts[sel] ?? 0.0
                 HStack {
                     Text(displayName(for: sel))
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(GymTheme.label)
                     Spacer()
-                    Text(selCount > 0 ? "\(Double(selCount)) sets" : "not trained")
+                    Text(selCount > 0 ? String(format: "%.1f sets", selCount) : "not trained")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(selCount > 0 ? GymTheme.green : Color(white: 0.55))
                 }
@@ -481,9 +459,10 @@ struct StatsView: View {
                 .padding(.horizontal, 14)
                 .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 10))
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            } else if !sorted.isEmpty {
+            } else if !workedSlugs.isEmpty {
                 VStack(spacing: 8) {
-                    ForEach(sorted.prefix(4), id: \.key) { slug, count in
+                    ForEach(workedSlugs.prefix(4), id: \.self) { slug in
+                        let count = counts[slug] ?? 0.0
                         Button {
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                                 selectedMuscleSlug = slug
@@ -505,7 +484,7 @@ struct StatsView: View {
                                 }
                                 .frame(height: 8)
 
-                                Text(String(format: "%.1f sets", Double(count)))
+                                Text(String(format: "%.1f sets", count))
                                     .font(.system(size: 13, weight: .bold))
                                     .foregroundStyle(Color(white: 0.65))
                                     .frame(width: 65, alignment: .trailing)
@@ -518,11 +497,6 @@ struct StatsView: View {
             }
 
             // Missed muscles chips
-            let allSlugs = [
-                "chest", "abs", "biceps", "triceps", "deltoids", "trapezius", "forearm",
-                "quadriceps", "calves", "upper-back", "lower-back", "gluteal", "hamstring", "obliques", "hip-flexors", "tibialis"
-            ]
-            let missedSlugs = allSlugs.filter { counts[$0] == nil || counts[$0] == 0 }
             if !missedSlugs.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(filterHardSetsOnly ? "No hard sets in this period" : "Not trained in this period")
@@ -924,12 +898,13 @@ struct StatsView: View {
                 rangePill(title: "All", days: 0, selected: $weightRangeDays)
             }
 
-            // Weight Chart Points with Goal
+            // Weight Chart Points with Goal — themed to the active accent, like
+            // openGym's weight chart (`<LineChart>` defaults to `var(--acc)`).
             OpenGymLineChart(
                 points: pts,
                 goal: targetWeightKg,
                 height: 150,
-                lineColor: GymTheme.green,
+                lineColor: activeAccent,
                 yStepsOverride: [82.5, 80.0, 77.5]
             )
         }
@@ -1208,13 +1183,26 @@ struct ExercisePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     let catalog: CatalogStore
     @Binding var selectedExerciseID: String
+
+    @AppStorage("gym_equip_filter_on") private var equipFilterOn: Bool = false
+    @AppStorage("gym_active_profile_id") private var activeProfileID: String = "commercial_gym"
+    @AppStorage("gym_equipment_profiles_json") private var profilesJSON: String = ""
+
     @State private var searchText = ""
 
     var filteredExercises: [Exercise] {
+        let pool = catalog.all.filter {
+            EquipmentFilter.isAvailable(
+                $0,
+                filterOn: equipFilterOn,
+                activeID: activeProfileID,
+                profilesJSON: profilesJSON
+            )
+        }
         if searchText.isEmpty {
-            return Array(catalog.all.prefix(40))
+            return Array(pool.prefix(40))
         } else {
-            return catalog.all.filter {
+            return pool.filter {
                 $0.name.localizedCaseInsensitiveContains(searchText) ||
                 $0.primaryMuscle.label.localizedCaseInsensitiveContains(searchText)
             }

@@ -13,8 +13,16 @@ public enum MuscleGroup: String, Codable, Sendable, CaseIterable {
     case abs
 }
 
+/// Equipment vocabulary, sized to what the bundled catalogs actually distinguish — the
+/// union of Gym Visual's 28 raw equipment strings and free-exercise-db's 12. The
+/// original 9 cases (barbell...other) collapsed everything past the basics into `other`;
+/// these additions recover the equipment categories with real substitution value (a
+/// smith machine and a leverage machine are both "machine" but not interchangeable when
+/// checking what a home gym actually has).
 public enum Equipment: String, Codable, Sendable, CaseIterable {
-    case barbell, dumbbell, cable, machine, bodyweight, kettlebell, bands, ezBar, other
+    case barbell, dumbbell, cable, machine, bodyweight, kettlebell, bands, ezBar
+    case smithMachine, leverageMachine, stabilityBall, medicineBall, sled, rope, roller, cardioMachine
+    case other
 }
 
 public enum Mechanic: String, Codable, Sendable {
