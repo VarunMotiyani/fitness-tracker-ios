@@ -40,11 +40,32 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
             now: .now
         )
 
-        let exportJSON = HistoryExportManager.exportFullJSONData(context: context, catalog: catalog) ?? Data("{}".utf8)
-        let tools = ToolRegistry(tools: [QueryTrainingDataTool(exportJSON: exportJSON)])
-
         let system = MemoryKeeperPromptBuilder.system()
         let user = MemoryKeeperPromptBuilder.user(session: session, checkin: checkin, memoryDigest: memoryDigest(from: recalled.selected))
+        await runToolLoopAndApply(system: system, user: user, existingMemories: existingMemories, sessionID: session.id)
+    }
+
+    /// Second trigger for the same pipeline (design spec §5.2's "run in two
+    /// places, not one"): after a chat turn instead of a finished session. No
+    /// session-scoped context (no entries/checkin/exerciseIDs) — recall uses an
+    /// empty `RecallContext`, matching the "durable facts only" fallback
+    /// `MemoryRecall.isRelevant` already applies to preference/goal/constraint
+    /// kinds regardless of context.
+    func run(chatExchange userMessage: String, assistantReply: String) async {
+        guard provider != nil else { return }
+
+        let existingMemories = ((try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []).map { $0.toDomain() }
+        let recalled = MemoryRecall.select(from: existingMemories, context: RecallContext(), now: .now)
+        let system = ChatMemoryPromptBuilder.system()
+        let user = ChatMemoryPromptBuilder.user(userMessage: userMessage, assistantReply: assistantReply, memoryDigest: memoryDigest(from: recalled.selected))
+        await runToolLoopAndApply(system: system, user: user, existingMemories: existingMemories, sessionID: nil)
+    }
+
+    private func runToolLoopAndApply(system: String, user: String, existingMemories: [CoachMemory], sessionID: UUID?) async {
+        guard let provider else { return }
+
+        let exportJSON = HistoryExportManager.exportFullJSONData(context: context, catalog: catalog) ?? Data("{}".utf8)
+        let tools = ToolRegistry(tools: [QueryTrainingDataTool(exportJSON: exportJSON)])
 
         let calls: [CallOutcome]
         let dto: MemoryKeeperDTO
@@ -66,7 +87,7 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
 
         recordCalls(calls)
         applyMemoryCandidates(dto.memoryCandidates, existing: existingMemories)
-        applyMeasurementCandidates(dto.measurementCandidates, sessionID: session.id)
+        applyMeasurementCandidates(dto.measurementCandidates, sessionID: sessionID)
         try? context.save()
     }
 
@@ -105,7 +126,7 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
         }
     }
 
-    private func applyMeasurementCandidates(_ dtos: [MeasurementCandidateDTO], sessionID: UUID) {
+    private func applyMeasurementCandidates(_ dtos: [MeasurementCandidateDTO], sessionID: UUID?) {
         for dto in dtos where MeasurementGuardrail.isPlausible(kind: dto.kind, value: dto.value, unit: dto.unit) {
             let model = ObservationModel(kind: dto.kind, value: dto.value, unit: dto.unit, timestamp: .now)
             model.confirmed = false
@@ -142,4 +163,5 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
 @MainActor
 protocol MemoryKeeperRunning {
     func run(session: CompletedSessionSnapshot) async
+    func run(chatExchange userMessage: String, assistantReply: String) async
 }

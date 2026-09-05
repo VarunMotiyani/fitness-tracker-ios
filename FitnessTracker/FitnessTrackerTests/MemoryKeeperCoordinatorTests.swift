@@ -180,4 +180,36 @@ import LLMKit
         #expect(abs(memories[0].confidence - 0.45) < 0.0001)
         #expect(provider.lastUser.contains(existingModel.id.uuidString))
     }
+
+    @Test func chatExchangeWritesNewMemoryFromModelOutput() async throws {
+        let cont = try container()
+        let ctx = ModelContext(cont)
+        let finalTurn = """
+        {"decision":"final","final":{
+          "memoryCandidates":[{"kind":"preference","statement":"Prefers dumbbells over barbells.",
+            "action":null,"exerciseID":null,"muscle":null,"equipment":"dumbbell",
+            "freeTags":[],"relation":"new","relatedMemoryID":null}],
+          "measurementCandidates":[]
+        }}
+        """
+        let provider = StubLLMProvider(responses: [.success(finalTurn)])
+        let coordinator = MemoryKeeperCoordinator(catalog: catalog(), context: ctx, provider: provider, activeProfile: nil)
+
+        await coordinator.run(chatExchange: "I like dumbbells more than barbells for pressing", assistantReply: "Noted, I'll favor dumbbell presses.")
+
+        let memories = try ctx.fetch(FetchDescriptor<CoachMemoryModel>())
+        #expect(memories.count == 1)
+        #expect(memories[0].kindRaw == "preference")
+    }
+
+    @Test func chatExchangeNoProviderIsANoOp() async throws {
+        let cont = try container()
+        let ctx = ModelContext(cont)
+        let coordinator = MemoryKeeperCoordinator(catalog: catalog(), context: ctx, provider: nil, activeProfile: nil)
+
+        await coordinator.run(chatExchange: "anything", assistantReply: "anything")
+
+        #expect(try ctx.fetch(FetchDescriptor<CoachMemoryModel>()).isEmpty)
+        #expect(try ctx.fetch(FetchDescriptor<AICallRecord>()).isEmpty)
+    }
 }
