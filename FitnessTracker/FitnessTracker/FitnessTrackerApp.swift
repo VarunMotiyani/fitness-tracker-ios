@@ -17,6 +17,7 @@ struct FitnessTrackerApp: App {
                 CompletedSessionModel.self, CompletedEntryModel.self, LoggedSetModel.self,
                 BodyweightEntryModel.self, DailyCheckinModel.self, ObservationModel.self,
                 PersonalRecordModel.self, CoachMemoryModel.self,
+                ChatMessageModel.self, ChatSummaryModel.self,
             ])
     }
 }
