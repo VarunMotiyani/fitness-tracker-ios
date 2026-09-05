@@ -58,11 +58,17 @@ struct SessionContainerView: View {
                     }
                     let fin: any SessionFinalizing = SessionFinalizeCoordinator(
                         catalog: cat, context: context, provider: provider,
+                        activeProfile: activeProviderProfile,
                         memories: allMemories.map { $0.toDomain() },
                         ruleEngineFallback: ruleEngineFallback
                     )
+                    let keeper: (any MemoryKeeperRunning)? = provider.map {
+                        MemoryKeeperCoordinator(catalog: cat, context: context, provider: $0,
+                                                activeProfile: activeProviderProfile,
+                                                memories: allMemories.map { $0.toDomain() })
+                    }
                     runner = SessionRunner(modelContext: context, catalog: cat,
-                                           repository: repo, finalizer: fin)
+                                           repository: repo, finalizer: fin, memoryKeeper: keeper)
                 }
             }
     }

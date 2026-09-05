@@ -45,6 +45,7 @@ final class SessionRunner {
     private let catalog: CatalogStore
     private let repository: any MetricsRepository
     private let finalizer: any SessionFinalizing
+    private let memoryKeeper: (any MemoryKeeperRunning)?
     private let now: () -> Date
 
     /// The outcome computed by `finish`, replayed by `closeSummary`.
@@ -59,11 +60,13 @@ final class SessionRunner {
          catalog: CatalogStore,
          repository: any MetricsRepository,
          finalizer: any SessionFinalizing,
+         memoryKeeper: (any MemoryKeeperRunning)? = nil,
          now: @escaping () -> Date = { .now }) {
         self.modelContext = modelContext
         self.catalog = catalog
         self.repository = repository
         self.finalizer = finalizer
+        self.memoryKeeper = memoryKeeper
         self.now = now
     }
 
@@ -249,6 +252,13 @@ final class SessionRunner {
         lastSessionPRs = new
         resolvedOutcome = outcome
         phase = .summary
+
+        // Fire-and-forget: never blocks the transition to .summary above. A
+        // finished/failed/skipped call is always a silent, valid outcome.
+        if let memoryKeeper {
+            let snapshot = session.toSnapshot()
+            Task { await memoryKeeper.run(session: snapshot) }
+        }
     }
 
     func closeSummary() {

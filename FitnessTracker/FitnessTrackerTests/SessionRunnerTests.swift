@@ -322,4 +322,30 @@ import Metrics
         #expect(sessions.first?.finishedAt == nil)
         #expect(sessions.first?.outcomeRaw == nil)
     }
+
+    /// Task 5: `finish` fires the injected `MemoryKeeperRunning` as a
+    /// fire-and-forget background `Task` — never blocks the transition to
+    /// `.summary`, but does eventually run.
+    @Test func finishFiresMemoryKeeperWhenOneIsProvided() async throws {
+        final class SpyKeeper: MemoryKeeperRunning {
+            var calledWithNote: String??
+            func run(session: CompletedSessionSnapshot) async {
+                calledWithNote = session.overallNote
+            }
+        }
+        let cont = try container()
+        let ctx = ModelContext(cont)
+        let cat = catalog()
+        let spy = SpyKeeper()
+        let runner = SessionRunner(modelContext: ctx, catalog: cat, repository: emptyRepo(),
+                                   finalizer: finalizer(), memoryKeeper: spy, now: { Date() })
+
+        await runner.start(planned: plannedSession(), energy: .normal, timeAvailableMin: 999)
+        runner.finish(partialReason: nil, overallNote: "Felt strong today.")
+
+        // finish() fires the keeper as a detached Task — give the run loop one
+        // tick to let it actually execute before asserting.
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(spy.calledWithNote == "Felt strong today.")
+    }
 }
