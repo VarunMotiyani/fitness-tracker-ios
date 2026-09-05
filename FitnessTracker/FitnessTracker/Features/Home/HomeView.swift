@@ -47,6 +47,16 @@ struct HomeView: View {
         allObservations.filter { !$0.confirmed }
     }
 
+    // Same plain @Query + Swift-side filter as `pendingObservations` above —
+    // a boolean #Predicate on `resolvedAt == nil` is the exact shape that hung
+    // Settings/Root and Settings/Providers earlier this project.
+    @Query private var allSuggestions: [PendingCoachSuggestion]
+    private var pendingSuggestions: [PendingCoachSuggestion] {
+        allSuggestions.filter { $0.resolvedAt == nil }
+    }
+
+    @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
+
     // Same plain @Query + Swift-side filter as `SessionContainerView`'s
     // `activeProviderProfile` — a #Predicate boolean filter here is what hung
     // Settings/Root and Settings/Providers earlier this project.
@@ -168,6 +178,32 @@ struct HomeView: View {
                         },
                         onDismiss: {
                             context.delete(observation)
+                            try? context.save()
+                        }
+                    )
+                }
+
+                // Pending AI-derived plan suggestions awaiting your review
+                // (Ask Coach proposals + coverage-gap detector).
+                ForEach(pendingSuggestions) { suggestion in
+                    SuggestionCard(
+                        suggestion: suggestion,
+                        catalog: catalog,
+                        onAccept: {
+                            guard let stored = plans.first else { return }
+                            do {
+                                try SuggestionApplier.apply(suggestion, storedPlan: stored)
+                                try context.save()
+                            } catch {
+                                // apply() throws before mutating `suggestion` on failure
+                                // (e.g. its target session ID is stale), so `resolvedAt`
+                                // stays nil and the card simply remains for another look
+                                // instead of vanishing with no visible effect.
+                                print("SuggestionCard: accept failed for \(suggestion.id): \(error)")
+                            }
+                        },
+                        onSkip: {
+                            SuggestionApplier.skip(suggestion)
                             try? context.save()
                         }
                     )
