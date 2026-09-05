@@ -24,17 +24,18 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
     let context: ModelContext
     let provider: (any LLMProvider)?
     let activeProfile: ProviderProfile?
-    let memories: [CoachMemory]
 
     func run(session: CompletedSessionSnapshot) async {
         guard let provider else { return }
+
+        let existingMemories = ((try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []).map { $0.toDomain() }
 
         let checkin = (try? context.fetch(FetchDescriptor<DailyCheckinModel>()))?
             .first { Calendar.isoUTC.isDate($0.date, inSameDayAs: session.date) }
             .map { DailyCheckinSnapshot(date: $0.date, sleepQuality: $0.sleepQuality, soreness: $0.soreness, note: $0.note) }
 
         let recalled = MemoryRecall.select(
-            from: memories,
+            from: existingMemories,
             context: RecallContext(exerciseIDs: Set(session.entries.map(\.exerciseID))),
             now: .now
         )
@@ -43,7 +44,7 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
         let tools = ToolRegistry(tools: [QueryTrainingDataTool(exportJSON: exportJSON)])
 
         let system = MemoryKeeperPromptBuilder.system()
-        let user = MemoryKeeperPromptBuilder.user(session: session, checkin: checkin, memoryDigest: recalled.digest)
+        let user = MemoryKeeperPromptBuilder.user(session: session, checkin: checkin, memoryDigest: memoryDigest(from: recalled.selected))
 
         let calls: [CallOutcome]
         let dto: MemoryKeeperDTO
@@ -64,17 +65,31 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
         }
 
         recordCalls(calls)
-        applyMemoryCandidates(dto.memoryCandidates)
+        applyMemoryCandidates(dto.memoryCandidates, existing: existingMemories)
         applyMeasurementCandidates(dto.measurementCandidates, sessionID: session.id)
         try? context.save()
     }
 
-    private func applyMemoryCandidates(_ dtos: [MemoryCandidateDTO]) {
+    /// Renders `selected` as `"- [{uuid}] {statement} → {action}"` lines so the
+    /// model can echo an ID back as `relatedMemoryID` (Critical Finding #1) —
+    /// `MemoryRecall.digest` alone carries no IDs.
+    private func memoryDigest(from selected: [CoachMemory]) -> String {
+        selected
+            .map { memory in
+                var line = "- [\(memory.id.uuidString)] \(memory.statement)"
+                if let action = memory.action, !action.isEmpty {
+                    line += " → " + action
+                }
+                return line
+            }
+            .joined(separator: "\n")
+    }
+
+    private func applyMemoryCandidates(_ dtos: [MemoryCandidateDTO], existing: [CoachMemory]) {
         let candidates = dtos.compactMap { $0.toDomain() }
         guard !candidates.isEmpty else { return }
 
-        let existingDomain = memories
-        let result = MemoryConsolidation.reconcile(existing: existingDomain, candidates: candidates, now: .now)
+        let result = MemoryConsolidation.reconcile(existing: existing, candidates: candidates, now: .now)
 
         for memory in result.writes {
             context.insert(coachMemoryModel(from: memory))
@@ -91,7 +106,7 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
     }
 
     private func applyMeasurementCandidates(_ dtos: [MeasurementCandidateDTO], sessionID: UUID) {
-        for dto in dtos where MeasurementGuardrail.isPlausible(kind: dto.kind, value: dto.value) {
+        for dto in dtos where MeasurementGuardrail.isPlausible(kind: dto.kind, value: dto.value, unit: dto.unit) {
             let model = ObservationModel(kind: dto.kind, value: dto.value, unit: dto.unit, timestamp: .now)
             model.confirmed = false
             model.sessionID = sessionID

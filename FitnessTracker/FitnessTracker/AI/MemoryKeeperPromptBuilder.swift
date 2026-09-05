@@ -4,16 +4,26 @@ import Metrics
 import LLMKit
 
 nonisolated enum MemoryKeeperPromptBuilder {
-    static let finalSchema = JSONSchema(json: """
-    {
-      "memoryCandidates": [{"kind": "preference|constraint|observation|goal|responsePattern",
-                            "statement": "string", "action": "string|null",
-                            "exerciseID": "string|null", "muscle": "string|null",
-                            "equipment": "string|null", "freeTags": ["string"],
-                            "relation": "new|reinforces|contradicts", "relatedMemoryID": "string|null"}],
-      "measurementCandidates": [{"kind": "string", "value": "number", "unit": "string"}]
+    /// "bodyweight (kg), bodyFatPercent (%), muscleMassKg (kg)" — built from
+    /// `MeasurementGuardrail`'s own vocabulary so this prompt can never drift
+    /// from what the guardrail actually accepts.
+    private static let measurementKindVocabulary: String = MeasurementGuardrail.knownKinds
+        .map { kind in "\(kind) (\(MeasurementGuardrail.expectedUnit(for: kind) ?? "?"))" }
+        .joined(separator: ", ")
+
+    static var finalSchema: JSONSchema {
+        let kindEnum = MeasurementGuardrail.knownKinds.joined(separator: "|")
+        return JSONSchema(json: """
+        {
+          "memoryCandidates": [{"kind": "preference|constraint|observation|goal|responsePattern",
+                                "statement": "string", "action": "string|null",
+                                "exerciseID": "string|null", "muscle": "string|null",
+                                "equipment": "string|null", "freeTags": ["string"],
+                                "relation": "new|reinforces|contradicts", "relatedMemoryID": "string|null"}],
+          "measurementCandidates": [{"kind": "\(kindEnum)", "value": "number", "unit": "string"}]
+        }
+        """)
     }
-    """)
 
     /// The persona is the same coach voice as `FinalizePromptBuilder`, but the
     /// job here is purely observational — this call never changes anything,
@@ -32,11 +42,15 @@ nonisolated enum MemoryKeeperPromptBuilder {
         failure. Set "relation" to "new" for a fact you haven't seen before, \
         "reinforces" (with "relatedMemoryID") when it confirms an existing \
         memory you were given, or "contradicts" (with "relatedMemoryID") when \
-        it supersedes one.
+        it supersedes one. The bracketed ID shown before each fact under \
+        "what you already know about this athlete" is exactly what you should \
+        pass back as "relatedMemoryID".
         - measurementCandidates: only an explicit numeric body-composition \
         measurement the athlete reported in their notes (e.g. an InBody scan \
         result) — never a number you calculated yourself, and never a set/rep/ \
-        load figure from the workout itself.
+        load figure from the workout itself. "kind" must be one of: \
+        \(measurementKindVocabulary) — and "unit" must exactly match the unit \
+        shown for that kind.
 
         Only extract what is actually stated. Do not infer an injury from a \
         single hard set, and do not invent a preference from one exercise \
@@ -64,9 +78,25 @@ nonisolated enum MemoryKeeperPromptBuilder {
             ? "No standing memory yet for this athlete."
             : "What you already know about this athlete:\n\(memoryDigest)"
 
+        var outcomeLine = "Session outcome: \(session.outcome), energy: \(session.energy), " +
+            "duration: \(session.actualDurationMin)/\(session.plannedDurationMin) min."
+        if let partialReason = session.partialReason {
+            outcomeLine += " Partial reason: \(partialReason)."
+        }
+
+        let entriesSection = session.entries.isEmpty ? "" : "What was actually logged:\n" +
+            session.entries.map { entry -> String in
+                var line = "- \(entry.exerciseID): \(entry.sets.count) sets"
+                if let feel = entry.feel { line += ", feel: \(feel)" }
+                if entry.skipped { line += ", skipped" }
+                if let note = entry.note, !note.isEmpty { line += " — note: \(note)" }
+                return line
+            }.joined(separator: "\n")
+
         let sections = [
-            "Session outcome: \(session.outcome), energy: \(session.energy).",
+            outcomeLine,
             noteSection,
+            entriesSection,
             checkinSection,
             memorySection,
             "Decide what, if anything, is worth remembering from this session."

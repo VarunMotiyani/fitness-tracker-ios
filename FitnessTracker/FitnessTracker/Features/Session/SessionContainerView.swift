@@ -64,8 +64,7 @@ struct SessionContainerView: View {
                     )
                     let keeper: (any MemoryKeeperRunning)? = provider.map {
                         MemoryKeeperCoordinator(catalog: cat, context: context, provider: $0,
-                                                activeProfile: activeProviderProfile,
-                                                memories: allMemories.map { $0.toDomain() })
+                                                activeProfile: activeProviderProfile)
                     }
                     runner = SessionRunner(modelContext: context, catalog: cat,
                                            repository: repo, finalizer: fin, memoryKeeper: keeper)

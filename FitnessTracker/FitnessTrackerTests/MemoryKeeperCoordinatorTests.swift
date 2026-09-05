@@ -49,7 +49,7 @@ import LLMKit
         """
         let provider = StubLLMProvider(responses: [.success(finalTurn)])
         let coordinator = MemoryKeeperCoordinator(
-            catalog: catalog(), context: ctx, provider: provider, activeProfile: nil, memories: []
+            catalog: catalog(), context: ctx, provider: provider, activeProfile: nil
         )
 
         await coordinator.run(session: session(note: "Shoulder hurt on overhead press today."))
@@ -71,7 +71,7 @@ import LLMKit
         """
         let provider = StubLLMProvider(responses: [.success(finalTurn)])
         let coordinator = MemoryKeeperCoordinator(
-            catalog: catalog(), context: ctx, provider: provider, activeProfile: nil, memories: []
+            catalog: catalog(), context: ctx, provider: provider, activeProfile: nil
         )
 
         await coordinator.run(session: session(note: "InBody scan today: 18.2% body fat."))
@@ -93,7 +93,7 @@ import LLMKit
         """
         let provider = StubLLMProvider(responses: [.success(finalTurn)])
         let coordinator = MemoryKeeperCoordinator(
-            catalog: catalog(), context: ctx, provider: provider, activeProfile: nil, memories: []
+            catalog: catalog(), context: ctx, provider: provider, activeProfile: nil
         )
 
         await coordinator.run(session: session(note: "Bad reading."))
@@ -106,7 +106,7 @@ import LLMKit
         let cont = try container()
         let ctx = ModelContext(cont)
         let coordinator = MemoryKeeperCoordinator(
-            catalog: catalog(), context: ctx, provider: nil, activeProfile: nil, memories: []
+            catalog: catalog(), context: ctx, provider: nil, activeProfile: nil
         )
 
         await coordinator.run(session: session(note: "Anything"))
@@ -120,7 +120,7 @@ import LLMKit
         let ctx = ModelContext(cont)
         let provider = StubLLMProvider(responses: [.failure(.emptyResponse)])
         let coordinator = MemoryKeeperCoordinator(
-            catalog: catalog(), context: ctx, provider: provider, activeProfile: nil, memories: []
+            catalog: catalog(), context: ctx, provider: provider, activeProfile: nil
         )
 
         await coordinator.run(session: session(note: "Anything"))
@@ -137,7 +137,7 @@ import LLMKit
         """
         let provider = StubLLMProvider(responses: [.success(finalTurn)])
         let coordinator = MemoryKeeperCoordinator(
-            catalog: catalog(), context: ctx, provider: provider, activeProfile: nil, memories: []
+            catalog: catalog(), context: ctx, provider: provider, activeProfile: nil
         )
 
         await coordinator.run(session: session(note: "Uneventful session."))
@@ -146,5 +146,38 @@ import LLMKit
         let calls = try ctx.fetch(FetchDescriptor<AICallRecord>())
         #expect(calls.count == 1)
         #expect(calls[0].callType == "memoryKeeper")
+    }
+
+    @Test func reinforcesExistingMemoryUsingItsID() async throws {
+        let cont = try container()
+        let ctx = ModelContext(cont)
+
+        let existingModel = CoachMemoryModel(
+            kindRaw: "preference", statement: "Prefers dumbbells over barbells", confidence: 0.3,
+            sourceKind: "agent", createdAt: .now, lastConfirmedAt: .now
+        )
+        ctx.insert(existingModel)
+        try ctx.save()
+
+        let finalTurn = """
+        {"decision":"final","final":{
+          "memoryCandidates":[{"kind":"preference","statement":"Prefers dumbbells over barbells",
+            "action":null,"exerciseID":null,"muscle":null,"equipment":null,
+            "freeTags":[],"relation":"reinforces","relatedMemoryID":"\(existingModel.id.uuidString)"}],
+          "measurementCandidates":[]
+        }}
+        """
+        let provider = StubLLMProvider(responses: [.success(finalTurn)])
+        let coordinator = MemoryKeeperCoordinator(
+            catalog: catalog(), context: ctx, provider: provider, activeProfile: nil
+        )
+
+        await coordinator.run(session: session(note: "Chose dumbbells again over barbells today."))
+
+        let memories = try ctx.fetch(FetchDescriptor<CoachMemoryModel>())
+        #expect(memories.count == 1)
+        #expect(memories[0].id == existingModel.id)
+        #expect(abs(memories[0].confidence - 0.45) < 0.0001)
+        #expect(provider.lastUser.contains(existingModel.id.uuidString))
     }
 }

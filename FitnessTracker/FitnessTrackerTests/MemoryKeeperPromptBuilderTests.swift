@@ -46,4 +46,21 @@ import Metrics
                                                      memoryDigest: "- Prefers dumbbells over barbells")
         #expect(prompt.contains("Prefers dumbbells over barbells"))
     }
+
+    @Test func userPromptIncludesEntryDetails() {
+        let entry = CompletedEntrySnapshot(
+            exerciseID: "bench-press", performedOrder: 0, state: .done, skipped: false,
+            wasSwappedFrom: nil, feel: .brutal, note: "Left shoulder twinged on the last rep.",
+            sets: []
+        )
+        let sessionWithEntry = CompletedSessionSnapshot(
+            id: UUID(), date: Date(), weekday: 2, timeOfDayMinutes: 600,
+            plannedDurationMin: 60, actualDurationMin: 55, energy: .normal,
+            timeAvailableMin: 60, outcome: .complete, partialReason: nil,
+            coachSource: .ai, plannedSessionID: nil, entries: [entry], overallNote: nil
+        )
+        let prompt = MemoryKeeperPromptBuilder.user(session: sessionWithEntry, checkin: nil, memoryDigest: "")
+        #expect(prompt.contains("bench-press"))
+        #expect(prompt.contains("Left shoulder twinged on the last rep."))
+    }
 }

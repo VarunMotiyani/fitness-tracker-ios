@@ -43,7 +43,7 @@ final class ObservationModel {
     /// `false` only for AI-derived rows awaiting your confirmation (design
     /// spec §6) — every manually-entered or deterministically-computed
     /// observation is confirmed by construction.
-    var confirmed: Bool
+    var confirmed: Bool = true
 
     init(kind: String, value: Double, unit: String, timestamp: Date) {
         self.kind = kind

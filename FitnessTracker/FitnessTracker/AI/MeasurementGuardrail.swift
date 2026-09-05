@@ -12,8 +12,28 @@ enum MeasurementGuardrail {
         "muscleMassKg": 10...150
     ]
 
-    nonisolated static func isPlausible(kind: String, value: Double) -> Bool {
+    nonisolated private static let units: [String: String] = [
+        "bodyweight": "kg",
+        "bodyFatPercent": "%",
+        "muscleMassKg": "kg"
+    ]
+
+    /// The full vocabulary of `kind` strings this guardrail accepts, sorted —
+    /// the single source of truth `MemoryKeeperPromptBuilder` builds its
+    /// prompt vocabulary from, so the two can't drift apart.
+    nonisolated static var knownKinds: [String] {
+        bounds.keys.sorted()
+    }
+
+    /// The unit a given `kind` is expected to be reported in, or `nil` for an
+    /// unrecognized `kind`.
+    nonisolated static func expectedUnit(for kind: String) -> String? {
+        units[kind]
+    }
+
+    nonisolated static func isPlausible(kind: String, value: Double, unit: String) -> Bool {
         guard let range = bounds[kind] else { return false }
+        guard unit == expectedUnit(for: kind) else { return false }
         return range.contains(value)
     }
 }
