@@ -6,6 +6,7 @@ public enum AppTab: Int, CaseIterable {
     case start = 2
     case stats = 3
     case exercises = 4
+    case coach = 5
 }
 
 struct CustomTabBar: View {
@@ -35,6 +36,9 @@ struct CustomTabBar: View {
 
             // 5. Exercises
             tabButton(tab: .exercises, title: "Exercises", icon: "dumbbell.fill")
+
+            // 6. Coach
+            tabButton(tab: .coach, title: "Coach", icon: "bubble.left.and.bubble.right.fill")
         }
         .frame(height: 54)
         .padding(.horizontal, 8)

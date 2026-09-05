@@ -3,6 +3,7 @@ import SwiftData
 import FitnessDomain
 import ExerciseCatalog
 import Metrics
+import LLMKit
 
 enum HomeSheetType: Identifiable {
     case logWeight
@@ -45,6 +46,17 @@ struct HomeView: View {
     private var pendingObservations: [ObservationModel] {
         allObservations.filter { !$0.confirmed }
     }
+
+    // Same plain @Query + Swift-side filter as `SessionContainerView`'s
+    // `activeProviderProfile` — a #Predicate boolean filter here is what hung
+    // Settings/Root and Settings/Providers earlier this project.
+    @Query private var allProviderProfiles: [ProviderProfile]
+    private var activeProviderProfile: ProviderProfile? { allProviderProfiles.first { $0.isActive } }
+    private var chatProvider: (any LLMProvider)? {
+        activeProviderProfile.flatMap { try? LLMProviderFactory.make(from: $0) }
+    }
+
+    @State private var showChat = false
 
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
@@ -200,6 +212,9 @@ struct HomeView: View {
                 WorkoutDetailSheet(session: session, catalog: catalog)
             }
         }
+        .sheet(isPresented: $showChat) {
+            ChatView(catalog: catalog, provider: chatProvider, activeProfile: activeProviderProfile, onClose: { showChat = false })
+        }
     }
 
     private func seedInitialDataIfNeeded() {
@@ -239,6 +254,20 @@ struct HomeView: View {
             }
 
             Spacer()
+
+            // Ask Coach Button (1-tap opens the chat sheet)
+            Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
+                showChat = true
+            } label: {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Color(white: 0.70))
+                    .frame(width: 38, height: 38)
+                    .background(GymTheme.surface, in: Circle())
+            }
+            .buttonStyle(.plain)
 
             // Settings Button (1-tap opens Settings)
             Button {

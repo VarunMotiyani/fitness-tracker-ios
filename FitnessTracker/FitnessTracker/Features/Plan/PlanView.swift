@@ -1,8 +1,10 @@
 import SwiftUI
+import SwiftData
 import FitnessDomain
 import ExerciseCatalog
 import Metrics
 import RuleEngine
+import LLMKit
 
 private enum ActivePlanSheet: Identifiable {
     case dayAssign(weekdayIndex: Int)
@@ -29,6 +31,16 @@ struct PlanView: View {
     @State private var routines: [RoutineDraft] = []
     @State private var weekSchedule: [Int: UUID] = [:] // 0=Mon .. 6=Sun
     @State private var activeSheet: ActivePlanSheet? = nil
+    @State private var showChat = false
+
+    // Same plain @Query + Swift-side filter as `SessionContainerView`'s
+    // `activeProviderProfile` — a #Predicate boolean filter here is what hung
+    // Settings/Root and Settings/Providers earlier this project.
+    @Query private var allProviderProfiles: [ProviderProfile]
+    private var activeProviderProfile: ProviderProfile? { allProviderProfiles.first { $0.isActive } }
+    private var chatProvider: (any LLMProvider)? {
+        activeProviderProfile.flatMap { try? LLMProviderFactory.make(from: $0) }
+    }
 
     private let dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
@@ -102,6 +114,9 @@ struct PlanView: View {
                 )
             }
         }
+        .sheet(isPresented: $showChat) {
+            ChatView(catalog: catalog, provider: chatProvider, activeProfile: activeProviderProfile, onClose: { showChat = false })
+        }
         .onAppear {
             loadRoutines()
             loadSchedule()
@@ -124,6 +139,19 @@ struct PlanView: View {
             }
 
             Spacer()
+
+            Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
+                showChat = true
+            } label: {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Color(white: 0.70))
+                    .frame(width: 38, height: 38)
+                    .background(GymTheme.surface, in: Circle())
+            }
+            .buttonStyle(.plain)
 
             Button {
                 let generator = UIImpactFeedbackGenerator(style: .light)

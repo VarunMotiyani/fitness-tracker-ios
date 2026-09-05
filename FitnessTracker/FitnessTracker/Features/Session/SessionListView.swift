@@ -3,6 +3,7 @@ import SwiftData
 import FitnessDomain
 import ExerciseCatalog
 import Metrics
+import LLMKit
 
 private struct SwapTarget: Identifiable {
     let index: Int
@@ -22,6 +23,16 @@ struct SessionListView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showPartialConfirm = false
     @State private var swapTarget: SwapTarget?
+    @State private var showChat = false
+
+    // Same plain @Query + Swift-side filter as `SessionContainerView`'s
+    // `activeProviderProfile` — a #Predicate boolean filter here is what hung
+    // Settings/Root and Settings/Providers earlier this project.
+    @Query private var allProviderProfiles: [ProviderProfile]
+    private var activeProviderProfile: ProviderProfile? { allProviderProfiles.first { $0.isActive } }
+    private var chatProvider: (any LLMProvider)? {
+        activeProviderProfile.flatMap { try? LLMProviderFactory.make(from: $0) }
+    }
 
     private var entries: [CompletedEntryModel] { runner.entriesInOrder }
 
@@ -52,10 +63,20 @@ struct SessionListView: View {
             .navigationTitle("Session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showChat = true
+                    } label: {
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) { EditButton() }
             }
             .safeAreaInset(edge: .bottom) {
                 finishButton
+            }
+            .sheet(isPresented: $showChat) {
+                ChatView(catalog: catalog, provider: chatProvider, activeProfile: activeProviderProfile, onClose: { showChat = false })
             }
             .confirmationDialog(
                 "\(doneCount) of \(entries.count) done",

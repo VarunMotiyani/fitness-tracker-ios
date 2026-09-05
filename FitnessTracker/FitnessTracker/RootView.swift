@@ -10,6 +10,7 @@ import SwiftData
 import FitnessDomain
 import ExerciseCatalog
 import Metrics
+import LLMKit
 
 struct RootView: View {
     @Environment(\.modelContext) private var context
@@ -33,6 +34,14 @@ struct RootView: View {
     private var summary: CostSummary {
         CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp, costUSD: $0.costUSD) },
                          now: .now)
+    }
+
+    /// Resolved the same way `SessionContainerView`/`generateAndStore` do —
+    /// `try? LLMProviderFactory.make(from:)` off the active `ProviderProfile`
+    /// — kept in one place here rather than duplicated a third time.
+    private var resolvedProvider: (any LLMProvider)? {
+        guard let activeProfile = activeProfiles.first else { return nil }
+        return try? LLMProviderFactory.make(from: activeProfile)
     }
 
     var body: some View {
@@ -165,6 +174,8 @@ struct RootView: View {
                     LibraryView(
                         catalog: catalog
                     )
+                case .coach:
+                    ChatView(catalog: catalog, provider: resolvedProvider, activeProfile: activeProfiles.first)
                 }
             }
         } else if profiles.isEmpty {
