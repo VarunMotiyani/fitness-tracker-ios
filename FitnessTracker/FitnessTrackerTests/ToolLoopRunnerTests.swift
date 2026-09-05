@@ -18,13 +18,15 @@ private struct DummyFinal: Codable, Sendable, Equatable { let value: Int }
         let registry = ToolRegistry(tools: [EchoTool()])
         let runner = ToolLoopRunner()
 
-        let result: DummyFinal = try await runner.run(
+        let result: ToolLoopResult<DummyFinal> = try await runner.run(
             system: "test", initialUser: "test",
             finalSchema: JSONSchema(json: "{\"value\":\"number\"}"),
             tools: registry, provider: provider)
 
-        #expect(result.value == 42)
+        #expect(result.value.value == 42)
         #expect(provider.callCount == 2)
+        #expect(result.calls.count == 2)
+        #expect(result.calls.allSatisfy { $0.inputTokens == 10 && $0.outputTokens == 20 && $0.succeeded })
     }
 
     @Test func feedsToolResultBackIntoTheNextPrompt() async throws {
@@ -38,7 +40,7 @@ private struct DummyFinal: Codable, Sendable, Equatable { let value: Int }
         let registry = ToolRegistry(tools: [EchoTool()])
         let runner = ToolLoopRunner()
 
-        let _: DummyFinal = try await runner.run(
+        let _: ToolLoopResult<DummyFinal> = try await runner.run(
             system: "test", initialUser: "start",
             finalSchema: JSONSchema(json: "{\"value\":\"number\"}"),
             tools: registry, provider: provider)
@@ -54,11 +56,14 @@ private struct DummyFinal: Codable, Sendable, Equatable { let value: Int }
         let registry = ToolRegistry(tools: [EchoTool()])
         let runner = ToolLoopRunner()
 
-        await #expect(throws: ToolLoopError.self) {
-            let _: DummyFinal = try await runner.run(
+        do {
+            let _: ToolLoopResult<DummyFinal> = try await runner.run(
                 system: "test", initialUser: "test",
                 finalSchema: JSONSchema(json: "{\"value\":\"number\"}"),
                 tools: registry, provider: provider, maxIterations: 3)
+            Issue.record("expected exceededMaxIterations to throw")
+        } catch ToolLoopError.exceededMaxIterations(let calls) {
+            #expect(calls.count == 3) // billed even though the loop never converged
         }
         #expect(provider.callCount == 3)
     }
@@ -71,12 +76,12 @@ private struct DummyFinal: Codable, Sendable, Equatable { let value: Int }
         let registry = ToolRegistry(tools: [])
         let runner = ToolLoopRunner()
 
-        let result: DummyFinal = try await runner.run(
+        let result: ToolLoopResult<DummyFinal> = try await runner.run(
             system: "test", initialUser: "test",
             finalSchema: JSONSchema(json: "{\"value\":\"number\"}"),
             tools: registry, provider: provider)
 
-        #expect(result.value == 7)
+        #expect(result.value.value == 7)
         #expect(provider.callCount == 1)
     }
 }
