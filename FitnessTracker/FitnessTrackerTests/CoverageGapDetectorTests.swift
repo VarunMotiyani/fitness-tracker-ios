@@ -110,4 +110,38 @@ import ExerciseCatalog
         #expect(stalePending.resolvedAt != nil)
         #expect(stalePending.accepted == false)
     }
+
+    @Test func skipsAnAlreadyStartedSessionWhenTargetingAMissedMuscle() throws {
+        let ctx = ModelContext(try container())
+        let startedSessionID = UUID()
+        let upcomingSessionID = UUID()
+        let plan = WeeklyPlan(weekStartDate: Date(), source: .ruleEngine, rationale: "test",
+                              sessions: [
+                                  PlannedSession(id: startedSessionID, order: 0, focusMuscles: [.shoulders], items: [
+                                      PlannedItem(exerciseID: "bench", targetSets: 3, targetReps: RepRange(min: 6, max: 8),
+                                                  targetLoadKg: 60, restSeconds: 90, coachNote: "")
+                                  ]),
+                                  PlannedSession(id: upcomingSessionID, order: 1, focusMuscles: [.chest], items: [
+                                      PlannedItem(exerciseID: "bench", targetSets: 3, targetReps: RepRange(min: 6, max: 8),
+                                                  targetLoadKg: 60, restSeconds: 90, coachNote: "")
+                                  ])
+                              ], weeklyVolumeTargets: [])
+        let stored = try StoredPlan(plan: plan, hadValidationIssues: false)
+        ctx.insert(stored)
+
+        // The first session (order 0, the one CoverageGapDetector used to target
+        // unconditionally) has already been completed.
+        let completed = CompletedSessionModel(startedAt: Date(), weekdayRaw: 2, timeOfDayMinutes: 600,
+                                              plannedDurationMin: 60, energyRaw: "normal", timeAvailableMin: 60,
+                                              plannedSessionID: startedSessionID)
+        ctx.insert(completed)
+        try ctx.save()
+
+        CoverageGapDetector.detect(context: ctx, catalog: catalog(), storedPlan: stored)
+
+        let pending = try ctx.fetch(FetchDescriptor<PendingCoachSuggestion>())
+        #expect(!pending.isEmpty)
+        #expect(pending.allSatisfy { $0.plannedSessionID != startedSessionID })
+        #expect(pending.contains { $0.plannedSessionID == upcomingSessionID })
+    }
 }
