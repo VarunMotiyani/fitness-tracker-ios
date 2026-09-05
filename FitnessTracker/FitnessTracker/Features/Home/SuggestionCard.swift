@@ -32,6 +32,14 @@ struct SuggestionCard: View {
             }
             let setsSuffix = suggestion.targetSets.map { ", \($0) sets" } ?? ""
             return "Add \(exerciseName)\(setsSuffix)\(repsSuffix)"
+        case "setChange":
+            var parts: [String] = []
+            if let sets = suggestion.targetSets { parts.append("\(sets) sets") }
+            if suggestion.targetRepsMin != nil || suggestion.targetRepsMax != nil {
+                parts.append("\(suggestion.targetRepsMin ?? 0)-\(suggestion.targetRepsMax ?? 0) reps")
+            }
+            if let load = suggestion.targetLoadKg { parts.append("\(Int(load))kg") }
+            return "Adjust \(exerciseName): " + parts.joined(separator: ", ")
         default:
             return "Adjust \(exerciseName)"
         }

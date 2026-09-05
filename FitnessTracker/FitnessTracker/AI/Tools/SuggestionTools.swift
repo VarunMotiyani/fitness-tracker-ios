@@ -81,6 +81,7 @@ struct ProposeSetChangeTool: CoachTool {
               let sessionID = UUID(uuidString: args.plannedSessionID)
         else { return "{\"error\": \"bad args\"}" }
         if let sets = args.targetSets, !(1...10).contains(sets) { return "{\"error\": \"implausible sets\"}" }
+        if let reps = args.targetRepsMin, !(1...30).contains(reps) { return "{\"error\": \"implausible reps\"}" }
         if let reps = args.targetRepsMax, !(1...30).contains(reps) { return "{\"error\": \"implausible reps\"}" }
         if let load = args.targetLoadKg, !(0...500).contains(load) { return "{\"error\": \"implausible load\"}" }
 
@@ -116,6 +117,7 @@ struct GetUpcomingSessionsTool: CoachTool {
         let payload = plan.sessions.map { session -> [String: Any] in
             [
                 "plannedSessionID": session.id.uuidString,
+                "order": session.order,
                 "focusMuscles": session.focusMuscles.map(\.rawValue),
                 "exercises": session.items.map { catalog.exercise(id: $0.exerciseID)?.name ?? $0.exerciseID }
             ]

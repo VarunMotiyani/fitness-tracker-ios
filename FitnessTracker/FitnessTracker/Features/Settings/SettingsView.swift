@@ -744,6 +744,9 @@ struct SettingsView: View {
         if let allProfiles = try? context.fetch(FetchDescriptor<UserProfile>()) {
             for p in allProfiles { context.delete(p) }
         }
+        if let suggestions = try? context.fetch(FetchDescriptor<PendingCoachSuggestion>()) {
+            for s in suggestions { context.delete(s) }
+        }
         try? context.save()
         lastNote = "All data reset"
     }

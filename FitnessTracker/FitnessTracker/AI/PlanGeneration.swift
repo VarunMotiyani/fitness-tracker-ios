@@ -57,6 +57,14 @@ func generateAndStore(context: UserContext,
 
     if let stored = try? StoredPlan(plan: result.plan,
                                     hadValidationIssues: !result.issues.isEmpty) {
+        // Resolve every currently-pending suggestion before inserting the new plan:
+        // it necessarily targeted the plan that's about to be superseded, and after
+        // regeneration `SuggestionApplier` can never find that `plannedSessionID` again.
+        let stalePending = (try? modelContext.fetch(FetchDescriptor<PendingCoachSuggestion>())) ?? []
+        for suggestion in stalePending where suggestion.resolvedAt == nil {
+            suggestion.resolvedAt = .now
+            suggestion.accepted = false
+        }
         modelContext.insert(stored)
         CoverageGapDetector.detect(context: modelContext, catalog: catalog, storedPlan: stored)
     }
