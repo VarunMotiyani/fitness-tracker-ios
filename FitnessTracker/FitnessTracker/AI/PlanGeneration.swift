@@ -58,6 +58,7 @@ func generateAndStore(context: UserContext,
     if let stored = try? StoredPlan(plan: result.plan,
                                     hadValidationIssues: !result.issues.isEmpty) {
         modelContext.insert(stored)
+        CoverageGapDetector.detect(context: modelContext, catalog: catalog, storedPlan: stored)
     }
 
     // One AICallRecord per paid call actually made (call-granular ledger).
