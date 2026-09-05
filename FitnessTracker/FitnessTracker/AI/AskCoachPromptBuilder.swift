@@ -24,6 +24,10 @@ nonisolated enum AskCoachPromptBuilder {
         tell them to use the swap/adjust controls in the session screen \
         instead — your proposals can only reach a session that hasn't started.
 
+        For a permanent program change — not a single session — use \
+        propose_routine_revision instead; it becomes a standing preference \
+        that shapes future plans, not an immediate edit.
+
         If a request is ambiguous, ask a clarifying question rather than \
         guessing what they meant. Keep replies conversational and concise — \
         this is a chat, not a report. Respond only in the required JSON shape.

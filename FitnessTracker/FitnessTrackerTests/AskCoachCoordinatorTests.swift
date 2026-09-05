@@ -84,6 +84,27 @@ import LLMKit
         #expect(pending[0].replacementExerciseID == "incline_bench")
     }
 
+    @Test func sendExecutesProposeRoutineRevisionToolAndPersistsMemory() async throws {
+        let ctx = ModelContext(try container())
+        let toolTurn = """
+        {"decision":"tool_call","toolCall":{"name":"propose_routine_revision","argsJSON":"{\\"statement\\": \\"Wants more shoulder volume on push days\\", \\"action\\": \\"Add a lateral raise variation\\"}"}}
+        """
+        let finalTurn = """
+        {"decision":"final","final":{"reply":"Got it — I'll factor that into your next plan."}}
+        """
+        let provider = StubLLMProvider(responses: [.success(toolTurn), .success(finalTurn)])
+        let coordinator = AskCoachCoordinator(catalog: catalog(), context: ctx, provider: provider, activeProfile: nil)
+
+        let reply = await coordinator.send("I'd like more shoulder volume on my push days going forward.")
+
+        #expect(reply.isError == false)
+        #expect(reply.text == "Got it — I'll factor that into your next plan.")
+        let memories = try ctx.fetch(FetchDescriptor<CoachMemoryModel>())
+        #expect(memories.count == 1)
+        #expect(memories[0].kindRaw == "preference")
+        #expect(memories[0].statement == "Wants more shoulder volume on push days")
+    }
+
     @Test func sendRecordsOneAICallRecordPerMessage() async throws {
         let ctx = ModelContext(try container())
         let finalTurn = """

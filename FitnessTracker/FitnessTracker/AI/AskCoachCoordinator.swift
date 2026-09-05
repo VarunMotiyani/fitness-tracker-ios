@@ -106,7 +106,8 @@ struct AskCoachCoordinator {
             QueryTrainingDataTool(exportJSON: exportJSON),
             ProposeExerciseSwapTool(context: context, catalog: catalog),
             ProposeSetChangeTool(context: context),
-            GetUpcomingSessionsTool(context: context, catalog: catalog)
+            GetUpcomingSessionsTool(context: context, catalog: catalog),
+            ProposeRoutineRevisionTool(context: context)
         ]
     }
 
