@@ -36,7 +36,16 @@ struct HomeView: View {
     
     @Query(sort: \BodyweightEntryModel.date, order: .reverse)
     private var bodyweightEntries: [BodyweightEntryModel]
-    
+
+    // Plain @Query + Swift-side filter, not a boolean #Predicate on `confirmed`
+    // — the same shape of predicate hung Settings/Root and Settings/Providers
+    // by thrashing CoreData's SQL generator (see SessionContainerView.swift's
+    // `activeProviderProfile` and docs/HANDOFF.md).
+    @Query private var allObservations: [ObservationModel]
+    private var pendingObservations: [ObservationModel] {
+        allObservations.filter { !$0.confirmed }
+    }
+
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
 
@@ -136,6 +145,21 @@ struct HomeView: View {
             VStack(spacing: 16) {
                 // Header: openGym + Date + Settings Gear
                 headerSection
+
+                // Pending AI-derived observations awaiting your review
+                ForEach(pendingObservations) { observation in
+                    PendingObservationCard(
+                        observation: observation,
+                        onAccept: {
+                            observation.confirmed = true
+                            try? context.save()
+                        },
+                        onDismiss: {
+                            context.delete(observation)
+                            try? context.save()
+                        }
+                    )
+                }
 
                 // Week Strip Card + Nested Today Routine
                 weekStripCard
