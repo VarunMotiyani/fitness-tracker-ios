@@ -36,7 +36,7 @@ nonisolated struct PlanCoordinator {
         self.validator = PlanValidator(catalog: catalog)
     }
 
-    func makePlan(context: UserContext, weekStartDate: Date) async -> CoordinatorResult {
+    func makePlan(context: UserContext, weekStartDate: Date, memoryDigest: String = "") async -> CoordinatorResult {
         guard let provider else {
             return ruleResult(context: context, weekStartDate: weekStartDate,
                               source: .ruleEngine, calls: [])
@@ -45,7 +45,7 @@ nonisolated struct PlanCoordinator {
         do {
             let result = try await provider.complete(
                 system: prompts.system(),
-                user: prompts.user(context: context),
+                user: prompts.user(context: context, memoryDigest: memoryDigest),
                 schema: WeeklyPlanDTO.planJSONSchema,
                 as: WeeklyPlanDTO.self)
             let plan = result.value.toDomain(weekStartDate: weekStartDate, source: .ai)
@@ -60,7 +60,7 @@ nonisolated struct PlanCoordinator {
                 return CoordinatorResult(plan: plan, source: .ai, issues: [], calls: calls)
             }
             // one retry with the problems (validation + structural) fed back
-            let retryUser = prompts.user(context: context, priorIssues: complaints)
+            let retryUser = prompts.user(context: context, priorIssues: complaints, memoryDigest: memoryDigest)
             do {
                 let retry = try await provider.complete(
                     system: prompts.system(), user: retryUser,

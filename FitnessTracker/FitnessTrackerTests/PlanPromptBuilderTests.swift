@@ -30,6 +30,17 @@ struct PlanPromptBuilderTests {
         #expect(u.contains("session 2 was empty"))
     }
 
+    @Test func userPromptIncludesMemoryDigestWhenNonEmpty() throws {
+        let u = try builder().user(context: ctx(), memoryDigest: "- Prefers dumbbells over barbells")
+        #expect(u.contains("Prefers dumbbells over barbells"))
+        #expect(u.contains("What you know about this athlete"))
+    }
+
+    @Test func userPromptOmitsMemorySectionWhenEmpty() throws {
+        let u = try builder().user(context: ctx(), memoryDigest: "")
+        #expect(!u.contains("What you know about this athlete"))
+    }
+
     @Test func systemMentionsSchemaAndIDConstraint() throws {
         let s = try builder().system()
         #expect(s.localizedCaseInsensitiveContains("only") && s.localizedCaseInsensitiveContains("exercise"))

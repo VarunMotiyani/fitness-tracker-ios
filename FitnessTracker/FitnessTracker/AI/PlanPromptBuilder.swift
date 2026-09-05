@@ -19,7 +19,7 @@ nonisolated struct PlanPromptBuilder {
         """
     }
 
-    func user(context: UserContext, priorIssues: [String] = []) -> String {
+    func user(context: UserContext, priorIssues: [String] = [], memoryDigest: String = "") -> String {
         let inScopeMuscles = MuscleGroup.allCases.filter { !context.excludedMuscles.contains($0) }
 
         let slice = catalog.all
@@ -51,6 +51,9 @@ nonisolated struct PlanPromptBuilder {
         if !priorIssues.isEmpty {
             out += "\n\nYour previous attempt had these problems — fix all of them:\n"
             out += priorIssues.map { "- \($0)" }.joined(separator: "\n")
+        }
+        if !memoryDigest.isEmpty {
+            out += "\n\nWhat you know about this athlete:\n\(memoryDigest)"
         }
         return out
     }

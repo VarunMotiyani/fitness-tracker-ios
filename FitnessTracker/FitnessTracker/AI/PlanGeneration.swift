@@ -3,6 +3,7 @@ import SwiftData
 import FitnessDomain
 import ExerciseCatalog
 import LLMKit
+import CoachMemory
 
 /// Outcome of a plan-generation attempt. Carries a user-facing `note` so the UI
 /// can tell "AI succeeded" / "validated then fell back" / "provider misconfigured"
@@ -52,8 +53,11 @@ func generateAndStore(context: UserContext,
         }
     }
 
+    let existingMemories = ((try? modelContext.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []).map { $0.toDomain() }
+    let recalled = MemoryRecall.select(from: existingMemories, context: RecallContext(), now: .now)
+
     let result = await PlanCoordinator(provider: provider, catalog: catalog)
-        .makePlan(context: context, weekStartDate: .now)
+        .makePlan(context: context, weekStartDate: .now, memoryDigest: recalled.digest)
 
     if let stored = try? StoredPlan(plan: result.plan,
                                     hadValidationIssues: !result.issues.isEmpty) {
