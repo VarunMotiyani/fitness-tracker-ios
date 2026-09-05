@@ -25,7 +25,7 @@ import CoachMemory
         #expect(memories[0].statement == "Wants more shoulder volume on push days")
     }
 
-    @Test func reinforcesAnExistingSimilarPreferenceGivenAnID() throws {
+    @Test func createsASeparateMemoryRatherThanReinforcingSinceTheToolOnlyEverProposesNew() throws {
         let ctx = ModelContext(try container())
         let existing = CoachMemoryModel(kindRaw: "preference", statement: "Wants more shoulder volume",
                                         confidence: 0.3, sourceKind: "agent", createdAt: .now, lastConfirmedAt: .now)
@@ -51,9 +51,10 @@ import CoachMemory
         // 11 fresh, high-confidence preferences (recency weight ~1, score ~0.9)
         // plus 1 stale one (same confidence, but confirmed 90 days ago, so its
         // recency-decayed eviction score drops to ~0.9 * 0.125 = 0.1125) — well
-        // below the new candidate's default 0.3 `newConfidence` score, so the
-        // stale one is deterministically the lowest-ranked and the sole victim
-        // once the 12-per-kind cap is exceeded by this tool's 13th write.
+        // below the new candidate's `newConfidence` score of 0.6 (score ~0.6,
+        // since it's freshly written with recency weight ~1), so the stale one
+        // is deterministically the lowest-ranked and the sole victim once the
+        // 12-per-kind cap is exceeded by this tool's 13th write.
         let staleDate = Date.now.addingTimeInterval(-90 * 86_400)
         var staleID: UUID?
         for i in 0..<12 {
@@ -80,6 +81,27 @@ import CoachMemory
         let retired = memories.filter { $0.retiredByCap }
         #expect(retired.count == 1)
         #expect(retired.first?.id == staleID)
+    }
+
+    /// The seam-level regression test for Critical #1: writes a preference through
+    /// the tool, then replicates exactly what `PlanGeneration.generateAndStore` does
+    /// before every plan-generation call — re-fetch `CoachMemoryModel`, map to domain,
+    /// `MemoryRecall.select(from:context:now:)` — and asserts the statement actually
+    /// surfaces in `recalled.digest`. Before the fix (tool wrote at confidence 0.3),
+    /// this would fail: `digest` drops anything under 0.6, so `recalled.digest` would
+    /// come back empty and this statement would never appear in it.
+    @Test func writtenPreferenceReachesTheNextPlanGenerationDigest() throws {
+        let ctx = ModelContext(try container())
+        let tool = ProposeRoutineRevisionTool(context: ctx)
+
+        let args = "{\"statement\": \"Wants more shoulder volume on push days\", \"action\": \"Add a lateral raise variation\"}"
+        let result = tool.run(argsJSON: args)
+        #expect(!result.contains("error"))
+
+        let existingMemories = ((try? ctx.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []).map { $0.toDomain() }
+        let recalled = MemoryRecall.select(from: existingMemories, context: RecallContext(), now: .now)
+
+        #expect(recalled.digest.contains("Wants more shoulder volume on push days"))
     }
 
     @Test func rejectsBadArgs() throws {

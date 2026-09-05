@@ -20,7 +20,7 @@ struct ProposeRoutineRevisionTool: CoachTool {
         ToolDescriptor(
             name: "propose_routine_revision",
             description: "Record a permanent program preference (not a one-session change) — it will influence future plan generation, not the current week's plan.",
-            argsSchemaJSON: "{\"statement\": \"string\", \"action\": \"string|null\"}"
+            argsSchemaJSON: "{\"statement\": \"string — a durable preference in the athlete's own terms, e.g. 'Wants more shoulder volume on push days', not a one-off note about today's session\", \"action\": \"string|null\"}"
         )
     }
 
@@ -31,7 +31,12 @@ struct ProposeRoutineRevisionTool: CoachTool {
         let existingMemories = ((try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []).map { $0.toDomain() }
         let candidate = MemoryCandidate(kind: .preference, statement: args.statement,
                                         action: args.action, tags: MemoryTags(), relation: .new)
-        let result = MemoryConsolidation.reconcile(existing: existingMemories, candidates: [candidate], now: .now)
+        // Athlete-stated preferences start at a higher confidence than the 0.3
+        // default (which is calibrated for the memory-keeper LLM's own inferences
+        // from a session log) — this is a durable preference the athlete stated
+        // directly in chat, and it must clear `MemoryRecall.digest`'s 0.6
+        // confidence floor on first write so the very next plan generation reads it.
+        let result = MemoryConsolidation.reconcile(existing: existingMemories, candidates: [candidate], now: .now, newConfidence: 0.6)
 
         for memory in result.writes {
             context.insert(coachMemoryModel(from: memory))
