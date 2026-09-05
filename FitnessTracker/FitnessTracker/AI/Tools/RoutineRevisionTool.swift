@@ -36,6 +36,15 @@ struct ProposeRoutineRevisionTool: CoachTool {
         for memory in result.writes {
             context.insert(coachMemoryModel(from: memory))
         }
+        let existingModels = (try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []
+        for memory in result.updated + result.retired {
+            guard let model = existingModels.first(where: { $0.id == memory.id }) else { continue }
+            model.confidence = memory.confidence
+            model.lastConfirmedAt = memory.lastConfirmedAt
+            model.action = memory.action
+            model.supersededBy = memory.supersededBy
+            model.retiredByCap = memory.retiredByCap
+        }
         try? context.save()
         return "{\"status\": \"noted\"}"
     }

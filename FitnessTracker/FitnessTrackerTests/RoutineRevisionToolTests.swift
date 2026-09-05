@@ -45,6 +45,43 @@ import CoachMemory
         #expect(memories.count == 2)
     }
 
+    @Test func retiresTheLowestScoringExistingPreferenceOnceCapIsExceeded() throws {
+        let ctx = ModelContext(try container())
+
+        // 11 fresh, high-confidence preferences (recency weight ~1, score ~0.9)
+        // plus 1 stale one (same confidence, but confirmed 90 days ago, so its
+        // recency-decayed eviction score drops to ~0.9 * 0.125 = 0.1125) — well
+        // below the new candidate's default 0.3 `newConfidence` score, so the
+        // stale one is deterministically the lowest-ranked and the sole victim
+        // once the 12-per-kind cap is exceeded by this tool's 13th write.
+        let staleDate = Date.now.addingTimeInterval(-90 * 86_400)
+        var staleID: UUID?
+        for i in 0..<12 {
+            let isStale = i == 0
+            let model = CoachMemoryModel(kindRaw: "preference", statement: "Existing preference \(i)",
+                                         confidence: 0.9, sourceKind: "agent", createdAt: .now,
+                                         lastConfirmedAt: isStale ? staleDate : .now)
+            if isStale { staleID = model.id }
+            ctx.insert(model)
+        }
+        try ctx.save()
+
+        let tool = ProposeRoutineRevisionTool(context: ctx)
+        let args = "{\"statement\": \"Wants more shoulder volume on push days\", \"action\": null}"
+        let result = tool.run(argsJSON: args)
+        #expect(!result.contains("error"))
+
+        let memories = try ctx.fetch(FetchDescriptor<CoachMemoryModel>())
+        #expect(memories.count == 13)
+
+        let livePreferences = memories.filter { $0.kindRaw == "preference" && !$0.retiredByCap }
+        #expect(livePreferences.count == 12)
+
+        let retired = memories.filter { $0.retiredByCap }
+        #expect(retired.count == 1)
+        #expect(retired.first?.id == staleID)
+    }
+
     @Test func rejectsBadArgs() throws {
         let ctx = ModelContext(try container())
         let tool = ProposeRoutineRevisionTool(context: ctx)
