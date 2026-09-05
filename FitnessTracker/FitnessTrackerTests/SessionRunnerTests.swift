@@ -332,6 +332,7 @@ import Metrics
             func run(session: CompletedSessionSnapshot) async {
                 calledWithNote = session.overallNote
             }
+            func run(chatExchange userMessage: String, assistantReply: String) async {}
         }
         let cont = try container()
         let ctx = ModelContext(cont)
