@@ -47,8 +47,12 @@ struct ChatSummarizer {
                 finalSchema: ChatSummaryPromptBuilder.finalSchema,
                 tools: ToolRegistry(tools: []), provider: provider
             )
-        } catch ToolLoopError.exceededMaxIterations {
-            return // never converged on a final answer — nothing to fold, nothing to bill.
+        } catch ToolLoopError.exceededMaxIterations(let partialCalls) {
+            // Still ran real, billable calls even though it never converged —
+            // nothing to fold, but bill what actually happened.
+            recordCalls(partialCalls)
+            try? context.save()
+            return
         } catch {
             return // provider/decode failure — silent no-op, the transcript just stays a bit longer.
         }
@@ -59,7 +63,12 @@ struct ChatSummarizer {
         if existing == nil { context.insert(existingSummary) }
         for message in toFold { context.delete(message) }
 
-        for call in loopResult.calls {
+        recordCalls(loopResult.calls)
+        try? context.save()
+    }
+
+    private func recordCalls(_ calls: [CallOutcome]) {
+        for call in calls {
             let costUSD: Double
             if let activeProfile {
                 costUSD = AICallRecord.cost(inputTokens: call.inputTokens, outputTokens: call.outputTokens,
@@ -77,6 +86,5 @@ struct ChatSummarizer {
                                         cachedTokens: call.cachedTokens, costUSD: costUSD,
                                         success: call.succeeded, usedFallback: false))
         }
-        try? context.save()
     }
 }
