@@ -103,7 +103,10 @@ struct AskCoachCoordinator {
         return [
             GetRecoveryStatusTool(statuses: recoveryStatuses),
             GetMuscleBalanceTool(load: load),
-            QueryTrainingDataTool(exportJSON: exportJSON)
+            QueryTrainingDataTool(exportJSON: exportJSON),
+            ProposeExerciseSwapTool(context: context, catalog: catalog),
+            ProposeSetChangeTool(context: context),
+            GetUpcomingSessionsTool(context: context, catalog: catalog)
         ]
     }
 
