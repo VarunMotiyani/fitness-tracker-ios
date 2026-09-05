@@ -23,9 +23,14 @@ struct ChatSummarizer {
 
     private static let threshold = 30
     private static let keepRecent = 10
+    private static var isRunning = false
 
     func summarizeIfNeeded() async {
         guard let provider else { return }
+        guard !Self.isRunning else { return }
+        Self.isRunning = true
+        defer { Self.isRunning = false }
+
         let all = ((try? context.fetch(FetchDescriptor<ChatMessageModel>(sortBy: [SortDescriptor(\.timestamp)]))) ?? [])
         guard all.count > Self.threshold else { return }
 

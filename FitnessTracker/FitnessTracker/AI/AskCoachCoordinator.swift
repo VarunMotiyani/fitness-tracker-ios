@@ -6,6 +6,15 @@ import Metrics
 import CoachMemory
 import LLMKit
 
+/// The result of an Ask Coach turn: `text` is always user-facing (shown in
+/// the transcript or an error banner), and `isError` lets the caller
+/// distinguish a real assistant reply from a failure without fragile
+/// string-matching.
+struct AskCoachReply: Sendable {
+    let text: String
+    let isError: Bool
+}
+
 /// Ask Coach's orchestrator (design spec §3): read-only tools plus
 /// memory-logging, no proposals yet. Unlike finalize/memory-keeper, a
 /// failure here is never silent — the caller is looking at the screen, so
@@ -17,9 +26,9 @@ struct AskCoachCoordinator {
     let provider: (any LLMProvider)?
     let activeProfile: ProviderProfile?
 
-    func send(_ text: String) async -> String {
+    func send(_ text: String) async -> AskCoachReply {
         guard let provider else {
-            return "Set up an AI provider in Settings to talk to your coach."
+            return AskCoachReply(text: "Set up an AI provider in Settings to talk to your coach.", isError: true)
         }
 
         let userMessage = ChatMessageModel(role: "user", text: text)
@@ -30,7 +39,7 @@ struct AskCoachCoordinator {
         let recalled = MemoryRecall.select(from: existingMemories, context: RecallContext(), now: .now)
 
         let recentMessages = ((try? context.fetch(FetchDescriptor<ChatMessageModel>(sortBy: [SortDescriptor(\.timestamp, order: .reverse)]))) ?? [])
-            .prefix(10).reversed()
+            .prefix(11).reversed()
             .filter { $0.id != userMessage.id }
             .map { (role: $0.role, text: $0.text) }
         let summary = (try? context.fetch(FetchDescriptor<ChatSummaryModel>()))?.first?.text ?? ""
@@ -38,7 +47,7 @@ struct AskCoachCoordinator {
         let system = AskCoachPromptBuilder.system()
         let user = AskCoachPromptBuilder.user(
             recentMessages: Array(recentMessages), summary: summary,
-            memoryDigest: recalled.digest, newMessage: text
+            memoryDigest: memoryDigestWithIDs(from: recalled.selected), newMessage: text
         )
 
         let tools = ToolRegistry(tools: buildTools())
@@ -56,9 +65,9 @@ struct AskCoachCoordinator {
         } catch ToolLoopError.exceededMaxIterations(let partialCalls) {
             // Still ran real, billable calls even though it never converged.
             recordCalls(partialCalls)
-            return "Coach couldn't respond — try again."
+            return AskCoachReply(text: "Coach couldn't respond — try again.", isError: true)
         } catch {
-            return "Coach couldn't respond — try again."
+            return AskCoachReply(text: "Coach couldn't respond — try again.", isError: true)
         }
 
         recordCalls(calls)
@@ -72,7 +81,7 @@ struct AskCoachCoordinator {
             await ChatSummarizer(context: context, provider: provider, activeProfile: activeProfile).summarizeIfNeeded()
         }
 
-        return dto.reply
+        return AskCoachReply(text: dto.reply, isError: false)
     }
 
     private func buildTools() -> [any CoachTool] {

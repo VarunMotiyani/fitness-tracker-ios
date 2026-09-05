@@ -18,6 +18,7 @@ struct ChatView: View {
     @Query(sort: \ChatMessageModel.timestamp) private var messages: [ChatMessageModel]
     @State private var draft: String = ""
     @State private var isSending = false
+    @State private var errorText: String?
 
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
@@ -50,6 +51,16 @@ struct ChatView: View {
                                 Text("Coach is thinking…")
                                     .font(.footnote)
                                     .foregroundStyle(GymTheme.label3)
+                            }
+                            if let errorText {
+                                Text(errorText)
+                                    .font(.footnote)
+                                    .foregroundStyle(GymTheme.red)
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                                    .background(GymTheme.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
                             }
                         }
                         .padding()
@@ -152,6 +163,7 @@ struct ChatView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .padding(.bottom, onClose == nil ? 90 : 0)
         .background(GymTheme.bgElevated)
     }
 
@@ -160,9 +172,11 @@ struct ChatView: View {
         guard !text.isEmpty, !isSending, let provider else { return }
         draft = ""
         isSending = true
+        errorText = nil
         Task {
             let coordinator = AskCoachCoordinator(catalog: catalog, context: context, provider: provider, activeProfile: activeProfile)
-            _ = await coordinator.send(text)
+            let result = await coordinator.send(text)
+            if result.isError { errorText = result.text }
             isSending = false
         }
     }

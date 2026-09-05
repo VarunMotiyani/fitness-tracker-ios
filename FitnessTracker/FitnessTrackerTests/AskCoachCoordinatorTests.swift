@@ -35,7 +35,8 @@ import LLMKit
 
         let reply = await coordinator.send("How's my chest recovery?")
 
-        #expect(reply == "Your chest recovery looks solid today.")
+        #expect(reply.text == "Your chest recovery looks solid today.")
+        #expect(reply.isError == false)
         let messages = try ctx.fetch(FetchDescriptor<ChatMessageModel>(sortBy: [SortDescriptor(\.timestamp)]))
         #expect(messages.count == 2)
         #expect(messages[0].role == "user")
@@ -65,7 +66,8 @@ import LLMKit
 
         let reply = await coordinator.send("test")
 
-        #expect(!reply.isEmpty)
+        #expect(!reply.text.isEmpty)
+        #expect(reply.isError == true)
         #expect(try ctx.fetch(FetchDescriptor<ChatMessageModel>()).isEmpty)
     }
 
@@ -76,7 +78,8 @@ import LLMKit
 
         let reply = await coordinator.send("test message")
 
-        #expect(!reply.isEmpty)
+        #expect(!reply.text.isEmpty)
+        #expect(reply.isError == true)
         let messages = try ctx.fetch(FetchDescriptor<ChatMessageModel>())
         #expect(messages.count == 1) // the user's message is never lost, per design spec §3
         #expect(messages[0].role == "user")

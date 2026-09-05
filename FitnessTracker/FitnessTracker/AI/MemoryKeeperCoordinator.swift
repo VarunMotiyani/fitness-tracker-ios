@@ -41,7 +41,7 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
         )
 
         let system = MemoryKeeperPromptBuilder.system()
-        let user = MemoryKeeperPromptBuilder.user(session: session, checkin: checkin, memoryDigest: memoryDigest(from: recalled.selected))
+        let user = MemoryKeeperPromptBuilder.user(session: session, checkin: checkin, memoryDigest: memoryDigestWithIDs(from: recalled.selected))
         await runToolLoopAndApply(system: system, user: user, existingMemories: existingMemories, sessionID: session.id)
     }
 
@@ -57,7 +57,7 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
         let existingMemories = ((try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []).map { $0.toDomain() }
         let recalled = MemoryRecall.select(from: existingMemories, context: RecallContext(), now: .now)
         let system = ChatMemoryPromptBuilder.system()
-        let user = ChatMemoryPromptBuilder.user(userMessage: userMessage, assistantReply: assistantReply, memoryDigest: memoryDigest(from: recalled.selected))
+        let user = ChatMemoryPromptBuilder.user(userMessage: userMessage, assistantReply: assistantReply, memoryDigest: memoryDigestWithIDs(from: recalled.selected))
         await runToolLoopAndApply(system: system, user: user, existingMemories: existingMemories, sessionID: nil)
     }
 
@@ -89,21 +89,6 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
         applyMemoryCandidates(dto.memoryCandidates, existing: existingMemories)
         applyMeasurementCandidates(dto.measurementCandidates, sessionID: sessionID)
         try? context.save()
-    }
-
-    /// Renders `selected` as `"- [{uuid}] {statement} → {action}"` lines so the
-    /// model can echo an ID back as `relatedMemoryID` (Critical Finding #1) —
-    /// `MemoryRecall.digest` alone carries no IDs.
-    private func memoryDigest(from selected: [CoachMemory]) -> String {
-        selected
-            .map { memory in
-                var line = "- [\(memory.id.uuidString)] \(memory.statement)"
-                if let action = memory.action, !action.isEmpty {
-                    line += " → " + action
-                }
-                return line
-            }
-            .joined(separator: "\n")
     }
 
     private func applyMemoryCandidates(_ dtos: [MemoryCandidateDTO], existing: [CoachMemory]) {
@@ -164,4 +149,21 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
 protocol MemoryKeeperRunning {
     func run(session: CompletedSessionSnapshot) async
     func run(chatExchange userMessage: String, assistantReply: String) async
+}
+
+/// Renders memories as "- [{uuid}] {statement} → {action}" lines so any
+/// caller that echoes an ID back as `relatedMemoryID` gets one to echo —
+/// shared between `MemoryKeeperCoordinator` and `AskCoachCoordinator` so a
+/// single chat turn's reply and memory-extraction calls see the athlete's
+/// memory the same way (design spec §3).
+func memoryDigestWithIDs(from selected: [CoachMemory]) -> String {
+    selected
+        .map { memory in
+            var line = "- [\(memory.id.uuidString)] \(memory.statement)"
+            if let action = memory.action, !action.isEmpty {
+                line += " → " + action
+            }
+            return line
+        }
+        .joined(separator: "\n")
 }
