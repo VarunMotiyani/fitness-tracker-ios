@@ -101,4 +101,22 @@ import ExerciseCatalog
             #expect(json?["bodyweight"] != nil)
         }
     }
+
+    @Test func excludesUnconfirmedObservationsFromExport() throws {
+        let cont = try container()
+        let ctx = ModelContext(cont)
+        let confirmed = ObservationModel(kind: "bodyweight", value: 80, unit: "kg", timestamp: Date())
+        let unconfirmed = ObservationModel(kind: "bodyFatPercent", value: 18, unit: "%", timestamp: Date())
+        unconfirmed.confirmed = false
+        ctx.insert(confirmed)
+        ctx.insert(unconfirmed)
+        try ctx.save()
+
+        let data = HistoryExportManager.exportFullJSONData(context: ctx, catalog: catalog())!
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let observationsList = json["observations"] as! [[String: Any]]
+
+        #expect(observationsList.count == 1)
+        #expect(observationsList[0]["kind"] as? String == "bodyweight")
+    }
 }

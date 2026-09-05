@@ -99,6 +99,7 @@ struct SwiftDataMetricsRepository: MetricsRepository {
 
     func observations(kind: String, since: Date?) -> [ObservationSnapshot] {
         ((try? context.fetch(FetchDescriptor<ObservationModel>())) ?? [])
+            .filter { $0.confirmed }
             .map { $0.toSnapshot() }
             .filter { o in o.kind == kind && (since.map { o.timestamp >= $0 } ?? true) }
     }

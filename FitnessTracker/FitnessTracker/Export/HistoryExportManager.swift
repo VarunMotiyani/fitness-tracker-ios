@@ -123,7 +123,7 @@ public enum HistoryExportManager {
         // where InBody-style body-composition metrics land once the AI
         // coach layer's `measurementCandidates` starts writing to it.
         var observationsList: [[String: Any]] = []
-        for o in observations {
+        for o in observations where o.confirmed {
             observationsList.append([
                 "kind": o.kind,
                 "value": o.value,

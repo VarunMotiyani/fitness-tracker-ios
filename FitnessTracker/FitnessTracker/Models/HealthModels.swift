@@ -40,6 +40,10 @@ final class ObservationModel {
     var contextJSON: String
     var sessionID: UUID?
     var entryExerciseID: String?
+    /// `false` only for AI-derived rows awaiting your confirmation (design
+    /// spec §6) — every manually-entered or deterministically-computed
+    /// observation is confirmed by construction.
+    var confirmed: Bool
 
     init(kind: String, value: Double, unit: String, timestamp: Date) {
         self.kind = kind
@@ -49,5 +53,6 @@ final class ObservationModel {
         self.contextJSON = "{}"
         self.sessionID = nil
         self.entryExerciseID = nil
+        self.confirmed = true
     }
 }
