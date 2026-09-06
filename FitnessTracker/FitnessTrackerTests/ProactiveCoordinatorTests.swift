@@ -174,4 +174,50 @@ import Metrics
 
         #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).filter { $0.kindRaw == "pattern" }.isEmpty)
     }
+
+    @Test func checkinReactionFiresAboveSorenessThreshold() async throws {
+        let ctx = ModelContext(try container())
+        let checkin = DailyCheckinModel(date: Date())
+        checkin.soreness = 8
+        checkin.note = "quads destroyed"
+        ctx.insert(checkin); try ctx.save()
+        let final = #"{"decision":"final","final":{"message":"Skip legs today, walk instead."}}"#
+        let provider = StubLLMProvider(responses: [.success(final)])
+        let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: provider,
+                                         activeProfile: nil, settings: settings())
+
+        await coord.reactToCheckin(checkin)
+
+        #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).contains { $0.kindRaw == "checkin" })
+    }
+
+    @Test func checkinReactionSkippedBelowThreshold() async throws {
+        let ctx = ModelContext(try container())
+        let checkin = DailyCheckinModel(date: Date())
+        checkin.soreness = 3
+        checkin.sleepQuality = 8
+        ctx.insert(checkin); try ctx.save()
+        let provider = StubLLMProvider(responses: [])
+        let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: provider,
+                                         activeProfile: nil, settings: settings())
+
+        await coord.reactToCheckin(checkin)
+
+        #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).filter { $0.kindRaw == "checkin" }.isEmpty)
+    }
+
+    @Test func checkinReactionSkippedWhenToggledOff() async throws {
+        let ctx = ModelContext(try container())
+        let checkin = DailyCheckinModel(date: Date())
+        checkin.soreness = 9
+        ctx.insert(checkin); try ctx.save()
+        let provider = StubLLMProvider(responses: [])
+        var s = settings(); s.checkinOn = false
+        let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: provider,
+                                         activeProfile: nil, settings: s)
+
+        await coord.reactToCheckin(checkin)
+
+        #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).filter { $0.kindRaw == "checkin" }.isEmpty)
+    }
 }

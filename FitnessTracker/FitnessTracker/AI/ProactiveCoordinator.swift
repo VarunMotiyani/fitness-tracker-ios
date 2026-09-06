@@ -1,6 +1,9 @@
 import Foundation
 import SwiftData
 import UserNotifications
+#if canImport(UIKit)
+import UIKit
+#endif
 import FitnessDomain
 import ExerciseCatalog
 import Metrics
@@ -250,7 +253,45 @@ struct ProactiveCoordinator {
 
     // MARK: - Check-in reaction (#9) — Task 6 fills this
 
-    func reactToCheckin(_ checkin: DailyCheckinModel) async {}
+    func reactToCheckin(_ checkin: DailyCheckinModel) async {
+        guard settings.checkinOn, let provider else { return }
+        let sorenessHigh = (checkin.soreness ?? 0) >= 7
+        let sleepLow = checkin.sleepQuality.map { $0 <= 3 } ?? false
+        guard sorenessHigh || sleepLow else { return }
+
+        let system = ProactivePromptBuilder.system()
+        let user = ProactivePromptBuilder.userCheckinReaction(
+            soreness: checkin.soreness, sleepQuality: checkin.sleepQuality, note: checkin.note,
+            recentSessionsDigest: recentSessionsDigest(limit: 3), memoryDigest: memoryDigest())
+
+        do {
+            let result: ToolLoopResult<CheckinReactionDTO> = try await ToolLoopRunner().run(
+                system: system, initialUser: user, finalSchema: ProactivePromptBuilder.checkinReactionSchema,
+                tools: ToolRegistry(tools: []), provider: provider)
+            recordCalls(result.calls, callType: "checkinReaction")
+            let text = result.value.message
+            context.insert(CoachNoteModel(kindRaw: "checkin", text: text))
+            try? context.save()
+
+            // Ping only if the app isn't foreground when the reaction lands.
+            var appIsActive = false
+            #if canImport(UIKit)
+            appIsActive = UIApplication.shared.applicationState == .active
+            #endif
+            if !appIsActive {
+                let content = UNMutableNotificationContent()
+                content.title = "From your coach"
+                content.body = text
+                content.sound = .default
+                let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 2 * 3600, repeats: false)
+                notificationCenter.removePendingNotificationRequests(withIdentifiers: ["proactive_checkin"])
+                notificationCenter.add(UNNotificationRequest(identifier: "proactive_checkin", content: content, trigger: trigger),
+                                       withCompletionHandler: nil)
+            }
+        } catch ToolLoopError.exceededMaxIterations(let calls) {
+            recordCalls(calls, callType: "checkinReaction")
+        } catch { return }
+    }
 
     // MARK: - Shared helpers
 
