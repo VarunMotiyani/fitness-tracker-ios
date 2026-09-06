@@ -203,7 +203,50 @@ struct ProactiveCoordinator {
 
     // MARK: - Pattern nudge (#10) — Task 5 fills this
 
-    private func runPatternNudges() async {}
+    private func runPatternNudges() async {
+        guard let provider else { return }
+        let candidates = ((try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? [])
+            .filter { $0.kindRaw == "responsePattern" && $0.confidence >= 0.6 && $0.supersededBy == nil && !$0.retiredByCap }
+            .filter { mem in
+                let key = "proactive.patternNudge.\(mem.id.uuidString)"
+                guard let s = UserDefaults.standard.string(forKey: key),
+                      let last = ISO8601DateFormatter().date(from: s) else { return true }
+                return Date().timeIntervalSince(last) > 14 * 24 * 3600
+            }
+            .sorted { $0.confidence > $1.confidence }
+
+        guard let target = candidates.first else { return }
+
+        let recentDigest = recentSessionsDigest(limit: 5)
+        let system = ProactivePromptBuilder.system()
+        let user = ProactivePromptBuilder.userPatternNudge(
+            patternStatement: target.statement, recentSessionsDigest: recentDigest, memoryDigest: memoryDigest())
+
+        do {
+            let result: ToolLoopResult<PatternNudgeDTO> = try await ToolLoopRunner().run(
+                system: system, initialUser: user, finalSchema: ProactivePromptBuilder.patternNudgeSchema,
+                tools: ToolRegistry(tools: []), provider: provider)
+            recordCalls(result.calls, callType: "patternNudge")
+            context.insert(CoachNoteModel(kindRaw: "pattern", text: result.value.nudge))
+            try? context.save()
+            UserDefaults.standard.set(ISO8601DateFormatter().string(from: .now),
+                                      forKey: "proactive.patternNudge.\(target.id.uuidString)")
+        } catch ToolLoopError.exceededMaxIterations(let calls) {
+            recordCalls(calls, callType: "patternNudge")
+        } catch { return }
+    }
+
+    private func recentSessionsDigest(limit: Int) -> String {
+        ((try? context.fetch(FetchDescriptor<CompletedSessionModel>(sortBy: [SortDescriptor(\.startedAt, order: .reverse)]))) ?? [])
+            .prefix(limit)
+            .map { s in
+                let day = Self.dayFormatter.string(from: s.startedAt)
+                let names = s.entries.sorted { $0.performedOrder < $1.performedOrder }
+                    .compactMap { catalog.exercise(id: $0.exerciseID)?.name }.prefix(3)
+                return "\(day): \(names.joined(separator: ", "))"
+            }
+            .joined(separator: "\n")
+    }
 
     // MARK: - Check-in reaction (#9) — Task 6 fills this
 

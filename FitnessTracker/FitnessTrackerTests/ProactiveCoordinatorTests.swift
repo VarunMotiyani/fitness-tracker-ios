@@ -131,4 +131,47 @@ import Metrics
 
         #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).filter { $0.kindRaw == "daily" }.isEmpty)
     }
+
+    @Test func patternNudgeWritesANoteForAHighConfidenceResponsePattern() async throws {
+        let ctx = ModelContext(try container())
+        UserDefaults.standard.set(Self.todayString(), forKey: "proactive.daily.lastGeneratedDay")
+        let weekIso = ISO8601DateFormatter().string(from: Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)!.start)
+        UserDefaults.standard.set(weekIso, forKey: "proactive.weekly.lastWeekStart")
+        let mem = CoachMemoryModel(kindRaw: "responsePattern", statement: "Skips pull day when the week is busy",
+                                   confidence: 0.8, sourceKind: "agent", createdAt: .now, lastConfirmedAt: .now)
+        ctx.insert(mem)
+        try ctx.save()
+        UserDefaults.standard.removeObject(forKey: "proactive.patternNudge.\(mem.id.uuidString)")
+        let final = #"{"decision":"final","final":{"nudge":"You've skipped pull day 3 weeks running — do it first this week."}}"#
+        let provider = StubLLMProvider(responses: [.success(final)])
+        var s = settings(); s.dailyOn = false; s.weeklyOn = false
+        let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: provider,
+                                         activeProfile: nil, settings: s)
+
+        await coord.runDueChecks()
+
+        #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).contains { $0.kindRaw == "pattern" })
+    }
+
+    @Test func patternNudgeSkipsLowConfidenceAndRecentlyNudged() async throws {
+        let ctx = ModelContext(try container())
+        UserDefaults.standard.set(Self.todayString(), forKey: "proactive.daily.lastGeneratedDay")
+        UserDefaults.standard.set(ISO8601DateFormatter().string(from: Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)!.start),
+                                  forKey: "proactive.weekly.lastWeekStart")
+        let lowConf = CoachMemoryModel(kindRaw: "responsePattern", statement: "Weak", confidence: 0.4,
+                                       sourceKind: "agent", createdAt: .now, lastConfirmedAt: .now)
+        let nudged = CoachMemoryModel(kindRaw: "responsePattern", statement: "Recently nudged", confidence: 0.9,
+                                      sourceKind: "agent", createdAt: .now, lastConfirmedAt: .now)
+        ctx.insert(lowConf); ctx.insert(nudged); try ctx.save()
+        UserDefaults.standard.set(ISO8601DateFormatter().string(from: .now),
+                                  forKey: "proactive.patternNudge.\(nudged.id.uuidString)")
+        let provider = StubLLMProvider(responses: [])
+        var s = settings(); s.dailyOn = false; s.weeklyOn = false
+        let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: provider,
+                                         activeProfile: nil, settings: s)
+
+        await coord.runDueChecks()
+
+        #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).filter { $0.kindRaw == "pattern" }.isEmpty)
+    }
 }
