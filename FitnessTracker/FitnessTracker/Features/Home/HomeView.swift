@@ -10,6 +10,7 @@ enum HomeSheetType: Identifiable {
     case targetWeight
     case calendar
     case dailyCheckin
+    case weeklySummary
     case dayOverride(Date)
     case workoutDetail(CompletedSessionModel)
 
@@ -19,6 +20,7 @@ enum HomeSheetType: Identifiable {
         case .targetWeight: return "targetWeight"
         case .calendar: return "calendar"
         case .dailyCheckin: return "dailyCheckin"
+        case .weeklySummary: return "weeklySummary"
         case .dayOverride(let d): return "dayOverride_\(d.timeIntervalSince1970)"
         case .workoutDetail(let s): return "workoutDetail_\(s.id)"
         }
@@ -58,6 +60,11 @@ struct HomeView: View {
     }
 
     @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
+
+    // Most-recent generated weekly recap (Task 4 writes one row per ISO week).
+    // Drives the "This week" card, which only appears once a recap exists.
+    @Query(sort: \WeeklySummaryModel.weekStartDate, order: .reverse)
+    private var weeklySummaries: [WeeklySummaryModel]
 
     // Same plain @Query + Swift-side filter as `SessionContainerView`'s
     // `activeProviderProfile` — a #Predicate boolean filter here is what hung
@@ -240,6 +247,11 @@ struct HomeView: View {
                 // Week Strip Card + Nested Today Routine
                 weekStripCard
 
+                // This-week recap card (only once a WeeklySummaryModel exists)
+                if weeklySummaries.first != nil {
+                    thisWeekCard
+                }
+
                 // Body Weight Card + 30-Day Curve Chart
                 bodyWeightCard
 
@@ -272,6 +284,8 @@ struct HomeView: View {
                 CheckinEntryView { checkin in
                     Task { await proactiveCoordinator.reactToCheckin(checkin) }
                 }
+            case .weeklySummary:
+                WeeklySummaryView()
             case .dayOverride(let date):
                 DayOverrideSheet(date: date, plan: plan) { _ in
                     // Override selected
@@ -518,6 +532,47 @@ struct HomeView: View {
         }
         .padding(16)
         .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    // MARK: - This Week Card
+
+    @ViewBuilder
+    private var thisWeekCard: some View {
+        if let latest = weeklySummaries.first {
+            Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
+                activeSheet = .weeklySummary
+            } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: "calendar.badge.clock")
+                        .font(.system(size: 22))
+                        .foregroundStyle(.black)
+                        .frame(width: 44, height: 44)
+                        .background(activeAccent, in: RoundedRectangle(cornerRadius: 10))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("THIS WEEK")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Color(white: 0.50))
+                        Text(latest.headline)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(GymTheme.label)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(white: 0.45))
+                }
+                .padding(14)
+                .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: - Body Weight Card

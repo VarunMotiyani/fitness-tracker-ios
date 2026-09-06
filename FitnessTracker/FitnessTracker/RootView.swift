@@ -11,6 +11,39 @@ import FitnessDomain
 import ExerciseCatalog
 import Metrics
 import LLMKit
+import UserNotifications
+import Combine
+
+/// Bridges a tapped `proactive_weekly` notification into SwiftUI state.
+/// `ProactiveCoordinator.scheduleWeekly` stamps the notification's
+/// `userInfo["proactive"] == "weekly"`; tapping it flips `showWeeklySummary`,
+/// which `RootView` observes to present `WeeklySummaryView` as a sheet.
+@MainActor
+final class NotificationResponder: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
+    @Published var showWeeklySummary = false
+
+    /// Show the banner even with the app foregrounded, so the tap path is
+    /// reachable while the user is in-app (and testable on the simulator).
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let isWeekly = response.notification.request.content.userInfo["proactive"] as? String == "weekly"
+        completionHandler()
+        if isWeekly {
+            Task { @MainActor in self.showWeeklySummary = true }
+        }
+    }
+}
 
 struct RootView: View {
     @Environment(\.modelContext) private var context
@@ -30,6 +63,9 @@ struct RootView: View {
     @State private var selectedTab: AppTab = .home
     @State private var activePlannedSession: PlannedSession?
     @State private var showSettings = false
+
+    // Presents WeeklySummaryView when a `proactive_weekly` notification is tapped.
+    @StateObject private var notificationResponder = NotificationResponder()
 
     private var summary: CostSummary {
         CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp, costUSD: $0.costUSD) },
@@ -70,6 +106,9 @@ struct RootView: View {
                 }
             }
         }
+        .sheet(isPresented: $notificationResponder.showWeeklySummary) {
+            WeeklySummaryView()
+        }
         .onChange(of: selectedTab) { _, _ in
             if showSettings {
                 showSettings = false
@@ -101,6 +140,7 @@ struct RootView: View {
             lastNote = nil
         }
         .task {
+            UNUserNotificationCenter.current().delegate = notificationResponder
             SessionRunner.resolveAbandoned(in: context, now: .now)
             if catalog == nil {
                 do { catalog = try BundledCatalog.load() }
