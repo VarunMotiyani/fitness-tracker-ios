@@ -118,8 +118,88 @@ struct ProactiveCoordinator {
 
     // MARK: - Weekly (#7) — Task 4 fills this
 
-    func isWeeklyDue() -> Bool { false }
-    private func generateWeeklySummary() async {}
+    func isWeeklyDue() -> Bool {
+        guard let weekStart = Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)?.start else { return false }
+        let iso = ISO8601DateFormatter().string(from: weekStart)
+        return UserDefaults.standard.string(forKey: "proactive.weekly.lastWeekStart") != iso
+    }
+
+    private func generateWeeklySummary() async {
+        guard let provider,
+              let weekStart = Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)?.start else { return }
+        let priorWeek = Calendar.isoUTC.date(byAdding: .weekOfYear, value: -1, to: weekStart)!
+        let priorInterval = DateInterval(start: priorWeek, end: weekStart)
+
+        let allSessions = (try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? []
+        let weekSessions = allSessions.filter { $0.finishedAt.map(priorInterval.contains) ?? false }
+        let snapshots = allSessions.map { $0.toSnapshot() }
+        let plannedPerWeek = (try? context.fetch(FetchDescriptor<UserProfile>()))?.first?.sessionsPerWeek ?? 3
+        let streak = StreakCalculator.computeSummary(from: snapshots, plannedPerWeek: plannedPerWeek).currentStreakWeeks
+        let prCount = ((try? context.fetch(FetchDescriptor<PersonalRecordModel>())) ?? [])
+            .filter { priorInterval.contains($0.date) }.count
+
+        // Muscle coverage over the prior week — mirror the EffectiveSetItem loop
+        // the other coordinators build.
+        var items: [MuscleBalanceModel.EffectiveSetItem] = []
+        for s in weekSessions {
+            for e in s.entries where !e.skipped {
+                guard let ex = catalog.exercise(id: e.exerciseID) else { continue }
+                let doneSets = e.sets.filter { !$0.isWarmup }.count
+                if doneSets > 0 { items.append(.init(exercise: ex, sets: doneSets)) }
+            }
+        }
+        let (_, missed) = MuscleBalanceModel.rankOf(load: MuscleBalanceModel.loadOf(items: items))
+        let coverageDigest = missed.isEmpty
+            ? "all major muscles trained"
+            : "undertrained: \(missed.map { MuscleBalanceModel.displayName(for: $0) }.joined(separator: ", "))"
+
+        let system = ProactivePromptBuilder.system()
+        let user = ProactivePromptBuilder.userWeeklySummary(
+            sessionsCompleted: weekSessions.count, plannedPerWeek: plannedPerWeek, streakWeeks: streak,
+            muscleCoverageDigest: coverageDigest, prCount: prCount, memoryDigest: memoryDigest())
+
+        do {
+            let result: ToolLoopResult<WeeklySummaryDTO> = try await ToolLoopRunner().run(
+                system: system, initialUser: user,
+                finalSchema: ProactivePromptBuilder.weeklySummarySchema,
+                tools: ToolRegistry(tools: []), provider: provider)
+            recordCalls(result.calls, callType: "weeklySummary")
+            let dto = result.value
+
+            // One row per week — overwrite an existing row for the same weekStart.
+            let existing = ((try? context.fetch(FetchDescriptor<WeeklySummaryModel>())) ?? [])
+                .first { Calendar.isoUTC.isDate($0.weekStartDate, inSameDayAs: weekStart) }
+            if let existing {
+                existing.headline = dto.headline
+                existing.summaryBody = dto.body
+                existing.nextWeekFocus = dto.nextWeekFocus
+                existing.generatedAt = .now
+            } else {
+                context.insert(WeeklySummaryModel(weekStartDate: weekStart, headline: dto.headline,
+                    summaryBody: dto.body, nextWeekFocus: dto.nextWeekFocus))
+            }
+            context.insert(CoachNoteModel(kindRaw: "weekly", text: dto.headline))
+            try? context.save()
+            scheduleWeekly(body: dto.headline)
+            UserDefaults.standard.set(ISO8601DateFormatter().string(from: weekStart),
+                                     forKey: "proactive.weekly.lastWeekStart")
+        } catch ToolLoopError.exceededMaxIterations(let calls) {
+            recordCalls(calls, callType: "weeklySummary")
+        } catch { return }
+    }
+
+    private func scheduleWeekly(body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "Your week in review"
+        content.body = body
+        content.sound = .default
+        content.userInfo = ["proactive": "weekly"]
+        // ~1 minute out — the summary is already generated and persisted; the
+        // notification is just the ping to go read it.
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 60, repeats: false)
+        notificationCenter.removePendingNotificationRequests(withIdentifiers: ["proactive_weekly"])
+        notificationCenter.add(UNNotificationRequest(identifier: "proactive_weekly", content: content, trigger: trigger))
+    }
 
     // MARK: - Pattern nudge (#10) — Task 5 fills this
 
