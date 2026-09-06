@@ -69,7 +69,9 @@ struct RootView: View {
     @State private var showSettings = false
 
     // Presents WeeklySummaryView when a `proactive_weekly` notification is tapped.
-    @StateObject private var notificationResponder = NotificationResponder()
+    // The instance is owned by `AppDelegate` (which installs it as the
+    // `UNUserNotificationCenter` delegate during launch) and injected via the environment.
+    @EnvironmentObject private var notificationResponder: NotificationResponder
 
     // Per-type proactive-notification toggles (Settings owns the UI; default on).
     @AppStorage("proactive.settings.daily") private var proactiveDailyOn: Bool = true
@@ -157,7 +159,6 @@ struct RootView: View {
             lastNote = nil
         }
         .task {
-            UNUserNotificationCenter.current().delegate = notificationResponder
             SessionRunner.resolveAbandoned(in: context, now: .now)
             if catalog == nil {
                 do { catalog = try BundledCatalog.load() }

@@ -10,8 +10,11 @@ import SwiftData
 
 @main
 struct FitnessTrackerApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     var body: some Scene {
         WindowGroup { RootView() }
+            .environmentObject(appDelegate.notificationResponder)
             .modelContainer(for: [
                 UserProfile.self, StoredPlan.self, ProviderProfile.self, AICallRecord.self,
                 CompletedSessionModel.self, CompletedEntryModel.self, LoggedSetModel.self,
