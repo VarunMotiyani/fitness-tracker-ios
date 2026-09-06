@@ -66,6 +66,10 @@ struct AskCoachCoordinator {
             // Still ran real, billable calls even though it never converged.
             recordCalls(partialCalls)
             return AskCoachReply(text: "Coach couldn't respond — try again.", isError: true)
+        } catch ToolLoopError.providerFailed(let partialCalls) {
+            // Provider threw mid-loop — bill the sub-calls that already ran.
+            recordCalls(partialCalls)
+            return AskCoachReply(text: "Coach couldn't respond — try again.", isError: true)
         } catch {
             return AskCoachReply(text: "Coach couldn't respond — try again.", isError: true)
         }

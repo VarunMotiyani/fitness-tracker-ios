@@ -92,6 +92,8 @@ struct ProactiveCoordinator {
             UserDefaults.standard.set(Self.dayFormatter.string(from: .now), forKey: "proactive.daily.lastGeneratedDay")
         } catch ToolLoopError.exceededMaxIterations(let calls) {
             recordCalls(calls, callType: "dailyNarration")
+        } catch ToolLoopError.providerFailed(let calls) {
+            recordCalls(calls, callType: "dailyNarration")
         } catch { return }
     }
 
@@ -228,6 +230,8 @@ struct ProactiveCoordinator {
                                      forKey: "proactive.weekly.lastWeekStart")
         } catch ToolLoopError.exceededMaxIterations(let calls) {
             recordCalls(calls, callType: "weeklySummary")
+        } catch ToolLoopError.providerFailed(let calls) {
+            recordCalls(calls, callType: "weeklySummary")
         } catch { return }
     }
 
@@ -275,6 +279,8 @@ struct ProactiveCoordinator {
             UserDefaults.standard.set(ISO8601DateFormatter().string(from: .now),
                                       forKey: "proactive.patternNudge.\(target.id.uuidString)")
         } catch ToolLoopError.exceededMaxIterations(let calls) {
+            recordCalls(calls, callType: "patternNudge")
+        } catch ToolLoopError.providerFailed(let calls) {
             recordCalls(calls, callType: "patternNudge")
         } catch { return }
     }
@@ -338,6 +344,8 @@ struct ProactiveCoordinator {
                                        withCompletionHandler: nil)
             }
         } catch ToolLoopError.exceededMaxIterations(let calls) {
+            recordCalls(calls, callType: "checkinReaction")
+        } catch ToolLoopError.providerFailed(let calls) {
             recordCalls(calls, callType: "checkinReaction")
         } catch { return }
     }

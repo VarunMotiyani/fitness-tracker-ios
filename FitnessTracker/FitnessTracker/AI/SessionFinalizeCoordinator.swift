@@ -93,6 +93,11 @@ struct SessionFinalizeCoordinator: SessionFinalizing {
             } catch ToolLoopError.exceededMaxIterations(let calls) {
                 allCalls += calls
                 break
+            } catch ToolLoopError.providerFailed(let calls) {
+                // Provider threw mid-loop — carry its outcomes to the post-loop
+                // recordCalls so the failed sub-call is billed too.
+                allCalls += calls
+                break
             } catch {
                 break // provider/tool-loop failure — fall straight through to the rule engine.
             }

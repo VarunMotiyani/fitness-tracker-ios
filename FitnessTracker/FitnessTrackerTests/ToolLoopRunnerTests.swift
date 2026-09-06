@@ -68,6 +68,30 @@ private struct DummyFinal: Codable, Sendable, Equatable { let value: Int }
         #expect(provider.callCount == 3)
     }
 
+    @Test func providerFailureCarriesPriorCallsForBilling() async throws {
+        let toolTurn = """
+        {"decision":"tool_call","toolCall":{"name":"convert_test","argsJSON":"{}"}}
+        """
+        // One valid tool-call turn (billed), then the provider throws.
+        let provider = StubLLMProvider(responses: [.success(toolTurn), .failure(.emptyResponse)])
+        let registry = ToolRegistry(tools: [EchoTool()])
+        let runner = ToolLoopRunner()
+
+        do {
+            let _: ToolLoopResult<DummyFinal> = try await runner.run(
+                system: "test", initialUser: "test",
+                finalSchema: JSONSchema(json: "{\"value\":\"number\"}"),
+                tools: registry, provider: provider, maxIterations: 4)
+            Issue.record("expected providerFailed to throw")
+        } catch let ToolLoopError.providerFailed(calls) {
+            #expect(calls.count == 2)
+            #expect(calls[0].succeeded == true)
+            #expect(calls[1].succeeded == false)
+            #expect(calls[1].inputTokens == 0 && calls[1].outputTokens == 0 && calls[1].cachedTokens == 0)
+        }
+        #expect(provider.callCount == 2)
+    }
+
     @Test func returnsFinalImmediatelyWithNoToolCalls() async throws {
         let finalTurn = """
         {"decision":"final","final":{"value":7}}

@@ -115,7 +115,7 @@ import LLMKit
         #expect(try ctx.fetch(FetchDescriptor<AICallRecord>()).isEmpty)
     }
 
-    @Test func providerFailureIsASilentNoOp() async throws {
+    @Test func providerFailureWritesNoMemoryButBillsTheFailedCall() async throws {
         let cont = try container()
         let ctx = ModelContext(cont)
         let provider = StubLLMProvider(responses: [.failure(.emptyResponse)])
@@ -125,8 +125,14 @@ import LLMKit
 
         await coordinator.run(session: session(note: "Anything"))
 
+        // Nothing is applied to memory, but the failed provider call is now
+        // carried out of the tool loop via ToolLoopError.providerFailed and
+        // billed as a success: false row (I4) rather than silently dropped.
         #expect(try ctx.fetch(FetchDescriptor<CoachMemoryModel>()).isEmpty)
-        #expect(try ctx.fetch(FetchDescriptor<AICallRecord>()).isEmpty)
+        let calls = try ctx.fetch(FetchDescriptor<AICallRecord>())
+        #expect(calls.count == 1)
+        #expect(calls[0].callType == "memoryKeeper")
+        #expect(calls[0].success == false)
     }
 
     @Test func emptyOutputWritesNothingButStillRecordsTheCall() async throws {

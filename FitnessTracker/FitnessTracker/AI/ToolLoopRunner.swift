@@ -5,6 +5,11 @@ enum ToolLoopError: Error, Sendable, Equatable {
     /// Carries the calls made before the cap was hit so the caller can still
     /// bill them — a run that never converges still cost real tokens.
     case exceededMaxIterations(calls: [CallOutcome])
+    /// A `provider.complete` call threw mid-loop. Carries every `CallOutcome`
+    /// accumulated so far — the earlier successful, billed sub-calls plus a
+    /// final failed one — so the caller still bills what actually happened
+    /// instead of discarding it with a bare `catch`.
+    case providerFailed(calls: [CallOutcome])
 }
 
 /// `ToolLoopRunner.run`'s result: the model's final answer plus one
@@ -38,8 +43,14 @@ struct ToolLoopRunner {
         var calls: [CallOutcome] = []
 
         for _ in 0..<maxIterations {
-            let result = try await provider.complete(
-                system: system, user: user, schema: schema, as: ToolLoopTurn<Final>.self)
+            let result: LLMResult<ToolLoopTurn<Final>>
+            do {
+                result = try await provider.complete(
+                    system: system, user: user, schema: schema, as: ToolLoopTurn<Final>.self)
+            } catch {
+                calls.append(CallOutcome(inputTokens: 0, outputTokens: 0, cachedTokens: 0, succeeded: false))
+                throw ToolLoopError.providerFailed(calls: calls)
+            }
             calls.append(CallOutcome(inputTokens: result.inputTokens, outputTokens: result.outputTokens,
                                      cachedTokens: result.cachedTokens, succeeded: true))
 

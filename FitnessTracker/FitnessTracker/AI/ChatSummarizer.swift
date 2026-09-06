@@ -58,6 +58,11 @@ struct ChatSummarizer {
             recordCalls(partialCalls)
             try? context.save()
             return
+        } catch ToolLoopError.providerFailed(let partialCalls) {
+            // Provider threw mid-loop — bill the sub-calls that already ran.
+            recordCalls(partialCalls)
+            try? context.save()
+            return
         } catch {
             return // provider/decode failure — silent no-op, the transcript just stays a bit longer.
         }
