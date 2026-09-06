@@ -32,6 +32,11 @@ struct SettingsView: View {
     @AppStorage("gym_reminder_on") private var reminderOn: Bool = false
     @AppStorage("gym_reminder_hour") private var reminderHour: Int = 18
     @AppStorage("gym_reminder_minute") private var reminderMinute: Int = 0
+    @AppStorage("proactive.settings.daily") private var proactiveDailyOn: Bool = true
+    @AppStorage("proactive.settings.weekly") private var proactiveWeeklyOn: Bool = true
+    @AppStorage("proactive.settings.inbody") private var proactiveInBodyOn: Bool = true
+    @AppStorage("proactive.settings.checkin") private var proactiveCheckinOn: Bool = true
+    @AppStorage("proactive.settings.pattern") private var proactivePatternOn: Bool = true
 
     @State private var catalog: CatalogStore?
     @State private var lastNote: String?
@@ -345,7 +350,8 @@ struct SettingsView: View {
                     if newValue {
                         requestNotificationPermissionAndSchedule()
                     } else {
-                        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+                        UNUserNotificationCenter.current()
+                            .removePendingNotificationRequests(withIdentifiers: ["gym_daily_reminder"])
                     }
                 }
 
@@ -373,6 +379,19 @@ struct SettingsView: View {
                     )
                     .labelsHidden()
                 }
+            }
+
+            if reminderOn {
+                Toggle("Daily coach heads-up", isOn: $proactiveDailyOn)
+                    .tint(activeAccent)
+                Toggle("Weekly recap", isOn: $proactiveWeeklyOn)
+                    .tint(activeAccent)
+                Toggle("InBody scan reminder", isOn: $proactiveInBodyOn)
+                    .tint(activeAccent)
+                Toggle("Soreness / sleep check-in reactions", isOn: $proactiveCheckinOn)
+                    .tint(activeAccent)
+                Toggle("Training pattern nudges", isOn: $proactivePatternOn)
+                    .tint(activeAccent)
             }
         } header: {
             Text("Notifications")
@@ -767,7 +786,8 @@ struct SettingsView: View {
     }
 
     private func scheduleWorkoutReminder() {
-        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: ["gym_daily_reminder"])
         guard reminderOn else { return }
 
         let content = UNMutableNotificationContent()
