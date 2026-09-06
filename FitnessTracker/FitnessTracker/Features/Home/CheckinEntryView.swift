@@ -76,6 +76,17 @@ struct CheckinEntryView: View {
         .background(GymTheme.bgElevated.ignoresSafeArea())
         .presentationDetents([.height(430)])
         .presentationDragIndicator(.visible)
+        .onAppear(perform: prefillFromToday)
+    }
+
+    /// Seed the sliders + note from today's existing check-in so reopening the
+    /// sheet and hitting Save doesn't clobber real values with the 7/3 defaults.
+    private func prefillFromToday() {
+        guard let today = allCheckins.first(where: { Calendar.isoUTC.isDate($0.date, inSameDayAs: .now) })
+        else { return }
+        if let s = today.sleepQuality { sleepQuality = Double(s) }
+        if let so = today.soreness { soreness = Double(so) }
+        note = today.note ?? ""
     }
 
     @ViewBuilder
@@ -88,7 +99,7 @@ struct CheckinEntryView: View {
 
                 Spacer()
 
-                Text("\(Int(value.wrappedValue))")
+                Text("\(Int(value.wrappedValue.rounded()))")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(activeAccent)
             }
@@ -109,8 +120,8 @@ struct CheckinEntryView: View {
                 return fresh
             }()
 
-        checkin.sleepQuality = Int(sleepQuality)
-        checkin.soreness = Int(soreness)
+        checkin.sleepQuality = Int(sleepQuality.rounded())
+        checkin.soreness = Int(soreness.rounded())
         let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
         checkin.note = trimmed.isEmpty ? nil : trimmed
 
