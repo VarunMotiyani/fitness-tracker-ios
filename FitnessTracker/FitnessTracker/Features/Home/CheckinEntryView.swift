@@ -1,0 +1,121 @@
+import SwiftUI
+import SwiftData
+import Metrics
+
+/// A small form sheet for logging today's subjective check-in: sleep quality and
+/// soreness on 1–10 scales plus an optional note. On Save it upserts today's
+/// `DailyCheckinModel`, persists, and hands the row to `onSaved` (which the Home
+/// entry point uses to fire `ProactiveCoordinator.reactToCheckin`).
+struct CheckinEntryView: View {
+    @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
+
+    @Query private var allCheckins: [DailyCheckinModel]
+
+    @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
+    private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
+
+    @State private var sleepQuality: Double = 7
+    @State private var soreness: Double = 3
+    @State private var note: String = ""
+
+    /// Called with the persisted row after Save, before dismiss.
+    var onSaved: (DailyCheckinModel) -> Void
+
+    init(onSaved: @escaping (DailyCheckinModel) -> Void) {
+        self.onSaved = onSaved
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            // Title
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Daily check-in")
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(GymTheme.label)
+
+                Text("Today, \(Date().formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color(white: 0.60))
+            }
+            .padding(.top, 28)
+
+            ratingRow(title: "Sleep quality", value: $sleepQuality)
+            ratingRow(title: "Soreness", value: $soreness)
+
+            // Note field
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Note")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(white: 0.50))
+
+                TextField("Anything worth telling your coach", text: $note, axis: .vertical)
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(GymTheme.label)
+                    .lineLimit(1...3)
+                    .padding(12)
+                    .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 12))
+            }
+
+            // Save Button
+            Button {
+                save()
+            } label: {
+                Text("Save")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(activeAccent, in: RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .background(GymTheme.bgElevated.ignoresSafeArea())
+        .presentationDetents([.height(430)])
+        .presentationDragIndicator(.visible)
+    }
+
+    @ViewBuilder
+    private func ratingRow(title: String, value: Binding<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(white: 0.50))
+
+                Spacer()
+
+                Text("\(Int(value.wrappedValue))")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(activeAccent)
+            }
+
+            Slider(value: value, in: 1...10, step: 1)
+                .tint(activeAccent)
+        }
+    }
+
+    private func save() {
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+
+        let checkin = allCheckins.first { Calendar.isoUTC.isDate($0.date, inSameDayAs: .now) }
+            ?? {
+                let fresh = DailyCheckinModel(date: .now)
+                context.insert(fresh)
+                return fresh
+            }()
+
+        checkin.sleepQuality = Int(sleepQuality)
+        checkin.soreness = Int(soreness)
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        checkin.note = trimmed.isEmpty ? nil : trimmed
+
+        try? context.save()
+        onSaved(checkin)
+        dismiss()
+    }
+}

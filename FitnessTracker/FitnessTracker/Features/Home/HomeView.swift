@@ -9,6 +9,7 @@ enum HomeSheetType: Identifiable {
     case logWeight
     case targetWeight
     case calendar
+    case dailyCheckin
     case dayOverride(Date)
     case workoutDetail(CompletedSessionModel)
 
@@ -17,6 +18,7 @@ enum HomeSheetType: Identifiable {
         case .logWeight: return "logWeight"
         case .targetWeight: return "targetWeight"
         case .calendar: return "calendar"
+        case .dailyCheckin: return "dailyCheckin"
         case .dayOverride(let d): return "dayOverride_\(d.timeIntervalSince1970)"
         case .workoutDetail(let s): return "workoutDetail_\(s.id)"
         }
@@ -64,6 +66,32 @@ struct HomeView: View {
     private var activeProviderProfile: ProviderProfile? { allProviderProfiles.first { $0.isActive } }
     private var chatProvider: (any LLMProvider)? {
         activeProviderProfile.flatMap { try? LLMProviderFactory.make(from: $0) }
+    }
+
+    // Proactive-notification toggles (design spec §7). Same `proactive.settings.*`
+    // keys Settings writes and RootView reads; all default on.
+    @AppStorage("proactive.settings.daily") private var proactiveDailyOn: Bool = true
+    @AppStorage("proactive.settings.weekly") private var proactiveWeeklyOn: Bool = true
+    @AppStorage("proactive.settings.inbody") private var proactiveInBodyOn: Bool = true
+    @AppStorage("proactive.settings.checkin") private var proactiveCheckinOn: Bool = true
+    @AppStorage("proactive.settings.pattern") private var proactivePatternOn: Bool = true
+    @AppStorage("gym_reminder_hour") private var reminderHour: Int = 18
+    @AppStorage("gym_reminder_minute") private var reminderMinute: Int = 0
+
+    private var proactiveSettings: ProactiveSettings {
+        ProactiveSettings(
+            dailyOn: proactiveDailyOn, weeklyOn: proactiveWeeklyOn, inbodyOn: proactiveInBodyOn,
+            checkinOn: proactiveCheckinOn, patternOn: proactivePatternOn,
+            reminderHour: reminderHour, reminderMinute: reminderMinute)
+    }
+
+    /// Built the same way `SessionContainerView` builds its coordinators —
+    /// active `ProviderProfile` via plain `@Query` + `.first { $0.isActive }`,
+    /// provider via `try? LLMProviderFactory.make(from:)`.
+    private var proactiveCoordinator: ProactiveCoordinator {
+        ProactiveCoordinator(
+            context: context, catalog: catalog, provider: chatProvider,
+            activeProfile: activeProviderProfile, settings: proactiveSettings)
     }
 
     @State private var showChat = false
@@ -240,6 +268,10 @@ struct HomeView: View {
                 )
             case .calendar:
                 CalendarSheet(plan: plan, catalog: catalog)
+            case .dailyCheckin:
+                CheckinEntryView { checkin in
+                    Task { await proactiveCoordinator.reactToCheckin(checkin) }
+                }
             case .dayOverride(let date):
                 DayOverrideSheet(date: date, plan: plan) { _ in
                     // Override selected
@@ -290,6 +322,20 @@ struct HomeView: View {
             }
 
             Spacer()
+
+            // Daily Check-in Button (1-tap opens the check-in entry sheet)
+            Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
+                activeSheet = .dailyCheckin
+            } label: {
+                Image(systemName: "checklist")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Color(white: 0.70))
+                    .frame(width: 38, height: 38)
+                    .background(GymTheme.surface, in: Circle())
+            }
+            .buttonStyle(.plain)
 
             // Ask Coach Button (1-tap opens the chat sheet)
             Button {
