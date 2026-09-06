@@ -30,13 +30,20 @@ struct ProposeRoutineRevisionTool: CoachTool {
         }
         let existingMemories = ((try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []).map { $0.toDomain() }
         let candidate = MemoryCandidate(kind: .preference, statement: args.statement,
-                                        action: args.action, tags: MemoryTags(), relation: .new)
+                                        action: args.action, tags: MemoryTags(), relation: .new,
+                                        source: .user)
         // Athlete-stated preferences start at a higher confidence than the 0.3
         // default (which is calibrated for the memory-keeper LLM's own inferences
         // from a session log) — this is a durable preference the athlete stated
         // directly in chat, and it must clear `MemoryRecall.digest`'s 0.6
         // confidence floor on first write so the very next plan generation reads it.
-        let result = MemoryConsolidation.reconcile(existing: existingMemories, candidates: [candidate], now: .now, newConfidence: 0.6)
+        // `dedupeNewAgainstExisting`: the tool can only ever propose `.new` (it has
+        // no way to know an existing memory's ID from chat context), so a repeated
+        // athlete-stated preference would otherwise pile up near-duplicate rows.
+        // With dedupe on, an exact normalized-statement match on a live preference
+        // reinforces that row instead.
+        let result = MemoryConsolidation.reconcile(existing: existingMemories, candidates: [candidate], now: .now,
+                                                   newConfidence: 0.6, dedupeNewAgainstExisting: true)
 
         for memory in result.writes {
             context.insert(coachMemoryModel(from: memory))

@@ -25,24 +25,26 @@ import CoachMemory
         #expect(memories[0].statement == "Wants more shoulder volume on push days")
     }
 
-    @Test func createsASeparateMemoryRatherThanReinforcingSinceTheToolOnlyEverProposesNew() throws {
+    @Test func repeatingTheSameStatementReinforcesTheExistingRowInsteadOfPilingUpDuplicates() throws {
         let ctx = ModelContext(try container())
-        let existing = CoachMemoryModel(kindRaw: "preference", statement: "Wants more shoulder volume",
-                                        confidence: 0.3, sourceKind: "agent", createdAt: .now, lastConfirmedAt: .now)
-        ctx.insert(existing)
-        try ctx.save()
-
-        // The tool itself only ever proposes `.new` (it has no way to know an
-        // existing memory's ID from chat context) — this test documents that
-        // current, intentional scope: a second, similar statement creates a
-        // second memory rather than reinforcing, same as any other `.new`-only
-        // producer. Confirms no crash / unexpected merge behavior.
         let tool = ProposeRoutineRevisionTool(context: ctx)
-        let args = "{\"statement\": \"Wants more shoulder volume\", \"action\": null}"
+
+        // The tool only ever proposes `.new` (it has no way to know an existing
+        // memory's ID from chat context), so it calls `reconcile` with
+        // `dedupeNewAgainstExisting: true`: saying the same preference twice in
+        // two separate chats reinforces the one row rather than creating a
+        // near-duplicate.
+        let args = "{\"statement\": \"Wants more shoulder volume on push days\", \"action\": null}"
         _ = tool.run(argsJSON: args)
+        // Second call, same statement modulo whitespace/case/trailing period.
+        _ = tool.run(argsJSON: "{\"statement\": \"  wants more shoulder volume on push days.  \", \"action\": null}")
 
         let memories = try ctx.fetch(FetchDescriptor<CoachMemoryModel>())
-        #expect(memories.count == 2)
+        let preferences = memories.filter { $0.kindRaw == "preference" }
+        #expect(preferences.count == 1)
+        #expect(preferences[0].confidence > 0.6)
+        // Athlete stated it directly -> persisted as `.user`, round-trips via ModelSnapshotMapping.
+        #expect(preferences[0].toDomain().source == .user)
     }
 
     @Test func retiresTheLowestScoringExistingPreferenceOnceCapIsExceeded() throws {

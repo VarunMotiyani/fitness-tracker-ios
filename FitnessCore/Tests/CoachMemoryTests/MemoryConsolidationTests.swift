@@ -314,4 +314,31 @@ struct MemoryConsolidationTests {
             #expect(arr == sorted)
         }
     }
+
+    @Test("new candidate reinforces an existing identical statement when dedupe on")
+    func newCandidateReinforcesAnExistingIdenticalStatementWhenDedupeOn() {
+        let existing = CoachMemory(id: UUID(), kind: .preference,
+            statement: "Wants more shoulder volume on push days", action: nil,
+            confidence: 0.6, source: .user, createdAt: .now, lastConfirmedAt: .now,
+            supersededBy: nil, tags: MemoryTags(), outcomeScore: nil, retiredByCap: false)
+        let cand = MemoryCandidate(kind: .preference,
+            statement: "  wants more shoulder volume on push days.  ", action: nil,
+            tags: MemoryTags(), relation: .new, source: .user)
+        let r = MemoryConsolidation.reconcile(existing: [existing], candidates: [cand],
+            now: .now, dedupeNewAgainstExisting: true)
+        #expect(r.writes.isEmpty)
+        #expect(r.updated.count == 1)
+        #expect(r.updated[0].id == existing.id)
+        #expect(r.updated[0].confidence > 0.6)
+    }
+
+    @Test("new candidate still writes when dedupe off or no match, threading source through")
+    func newCandidateStillWritesWhenDedupeOffOrNoMatch() {
+        // dedupe off => unchanged legacy behaviour (one write, no update)
+        let cand = MemoryCandidate(kind: .preference, statement: "Prefers morning sessions",
+            action: nil, tags: MemoryTags(), relation: .new, source: .user)
+        let r = MemoryConsolidation.reconcile(existing: [], candidates: [cand], now: .now)
+        #expect(r.writes.count == 1)
+        #expect(r.writes[0].source == .user)   // source threaded through
+    }
 }

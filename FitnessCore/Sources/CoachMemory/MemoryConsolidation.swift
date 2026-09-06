@@ -8,19 +8,25 @@ public struct MemoryCandidate: Sendable, Equatable {
     public let action: String?
     public let tags: MemoryTags
     public let relation: CandidateRelation
+    /// Who this preference came from. Defaults to the memory-keeper LLM call so
+    /// existing call sites (its coordinator, its tests) compile unchanged; the
+    /// Ask Coach `propose_routine_revision` tool passes `.user`.
+    public let source: MemorySource
 
     public init(
         kind: MemoryKind,
         statement: String,
         action: String?,
         tags: MemoryTags,
-        relation: CandidateRelation
+        relation: CandidateRelation,
+        source: MemorySource = .agent("memoryKeeper")
     ) {
         self.kind = kind
         self.statement = statement
         self.action = action
         self.tags = tags
         self.relation = relation
+        self.source = source
     }
 }
 
@@ -55,7 +61,8 @@ public enum MemoryConsolidation {
         now: Date,
         perKindCap: Int = 12,
         reinforceStep: Double = 0.15,
-        newConfidence: Double = 0.3
+        newConfidence: Double = 0.3,
+        dedupeNewAgainstExisting: Bool = false
     ) -> ConsolidationResult {
         var writes: [CoachMemory] = []
         var updated: [CoachMemory] = []
@@ -72,7 +79,7 @@ public enum MemoryConsolidation {
                 statement: candidate.statement,
                 action: candidate.action,
                 confidence: newConfidence,
-                source: .agent("memoryKeeper"),
+                source: candidate.source,
                 createdAt: now,
                 lastConfirmedAt: now,
                 supersededBy: nil,
@@ -82,9 +89,33 @@ public enum MemoryConsolidation {
             )
         }
 
+        // Bump an existing memory's confidence/recency in place (the shared body
+        // for `.reinforces` and, when enabled, a dedupe-matched `.new`).
+        func reinforce(_ match: CoachMemory, with candidate: MemoryCandidate) {
+            var copy = match
+            copy.confidence = min(1, copy.confidence + reinforceStep)
+            copy.lastConfirmedAt = now
+            if let action = candidate.action, !action.isEmpty, copy.action == nil {
+                copy.action = action
+            }
+            consumedExistingIDs.insert(match.id)
+            updated.append(copy)
+        }
+
         for candidate in candidates {
             switch candidate.relation {
             case .new:
+                if dedupeNewAgainstExisting,
+                   let match = existing.first(where: {
+                       $0.kind == candidate.kind
+                           && !$0.isRetired
+                           && !$0.retiredByCap
+                           && $0.supersededBy == nil
+                           && normalized($0.statement) == normalized(candidate.statement)
+                   }) {
+                    reinforce(match, with: candidate)
+                    continue
+                }
                 writes.append(freshMemory(from: candidate))
 
             case .reinforces(let id):
@@ -93,14 +124,7 @@ public enum MemoryConsolidation {
                     writes.append(freshMemory(from: candidate))
                     continue
                 }
-                var copy = match
-                copy.confidence = min(1, copy.confidence + reinforceStep)
-                copy.lastConfirmedAt = now
-                if let action = candidate.action, !action.isEmpty, copy.action == nil {
-                    copy.action = action
-                }
-                consumedExistingIDs.insert(id)
-                updated.append(copy)
+                reinforce(match, with: candidate)
 
             case .contradicts(let id):
                 let fresh = freshMemory(from: candidate)
@@ -171,6 +195,20 @@ public enum MemoryConsolidation {
             updated: sortedForOutput(updated),
             retired: sortedForOutput(retired)
         )
+    }
+
+    /// Conservative statement key for new-vs-existing dedup: lowercased, internal
+    /// whitespace runs collapsed to one space, leading/trailing whitespace and a
+    /// single trailing "." trimmed. EXACT normalized equality only — no fuzzy or
+    /// token-overlap scoring (that risks merging genuinely different preferences).
+    private static func normalized(_ s: String) -> String {
+        let collapsed = s.lowercased()
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        if collapsed.hasSuffix(".") {
+            return String(collapsed.dropLast())
+        }
+        return collapsed
     }
 
     private static func sortedForOutput(_ memories: [CoachMemory]) -> [CoachMemory] {
