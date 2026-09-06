@@ -24,6 +24,10 @@ nonisolated enum AskCoachPromptBuilder {
         tell them to use the swap/adjust controls in the session screen \
         instead — your proposals can only reach a session that hasn't started.
 
+        When a propose_* call is driven by something you remember about this \
+        athlete — a `[uuid]` line in the memory list — pass that uuid as \
+        `sourceMemoryId` so the coach can learn whether that suggestion landed.
+
         For a permanent program change — not a single session — use \
         propose_routine_revision instead; it becomes a standing preference \
         that shapes future plans, not an immediate edit.

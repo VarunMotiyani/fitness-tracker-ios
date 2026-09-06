@@ -73,6 +73,20 @@ import ExerciseCatalog
         #expect(pending[0].targetSets == 4)
     }
 
+    @Test func proposeSetChangeStoresSourceMemoryIdWhenGiven() throws {
+        let ctx = ModelContext(try container())
+        let sessionID = try seedPlan(in: ctx)
+        let tool = ProposeSetChangeTool(context: ctx)
+        let memID = UUID()
+
+        let args = "{\"plannedSessionID\": \"\(sessionID.uuidString)\", \"exerciseID\": \"bench\", \"targetSets\": 4, \"rationale\": \"add volume\", \"sourceMemoryId\": \"\(memID.uuidString)\"}"
+        let result = tool.run(argsJSON: args)
+
+        #expect(!result.contains("error"))
+        let pending = try ctx.fetch(FetchDescriptor<PendingCoachSuggestion>())
+        #expect(pending[0].sourceMemoryID == memID)
+    }
+
     @Test func proposeSetChangeRejectsImplausibleSets() throws {
         let ctx = ModelContext(try container())
         let sessionID = try seedPlan(in: ctx)

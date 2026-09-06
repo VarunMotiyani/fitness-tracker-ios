@@ -17,6 +17,7 @@ struct ProposeExerciseSwapArgs: Decodable {
     let exerciseID: String
     let replacementExerciseID: String
     let rationale: String
+    let sourceMemoryId: String?
 }
 
 /// Writes a `PendingCoachSuggestion`, never mutates the plan directly — only
@@ -30,7 +31,7 @@ struct ProposeExerciseSwapTool: CoachTool {
         ToolDescriptor(
             name: "propose_exercise_swap",
             description: "Propose swapping one exercise for another in an upcoming (not yet started) session. Use get_upcoming_sessions first to find the right plannedSessionID.",
-            argsSchemaJSON: "{\"plannedSessionID\": \"string\", \"exerciseID\": \"string\", \"replacementExerciseID\": \"string\", \"rationale\": \"string\"}"
+            argsSchemaJSON: "{\"plannedSessionID\": \"string\", \"exerciseID\": \"string\", \"replacementExerciseID\": \"string\", \"rationale\": \"string\", \"sourceMemoryId\": \"string? — the [uuid] of the memory that drove this proposal, if any\"}"
         )
     }
 
@@ -48,6 +49,7 @@ struct ProposeExerciseSwapTool: CoachTool {
         let suggestion = PendingCoachSuggestion(plannedSessionID: sessionID, kind: "exerciseSwap",
                                                 exerciseID: args.exerciseID, rationale: args.rationale, source: "askCoach")
         suggestion.replacementExerciseID = args.replacementExerciseID
+        suggestion.sourceMemoryID = args.sourceMemoryId.flatMap { UUID(uuidString: $0) }
         context.insert(suggestion)
         try? context.save()
         return "{\"status\": \"proposed\"}"
@@ -62,6 +64,7 @@ struct ProposeSetChangeArgs: Decodable {
     let targetRepsMax: Int?
     let targetLoadKg: Double?
     let rationale: String
+    let sourceMemoryId: String?
 }
 
 @MainActor
@@ -72,7 +75,7 @@ struct ProposeSetChangeTool: CoachTool {
         ToolDescriptor(
             name: "propose_set_change",
             description: "Propose changing sets/reps/load for one exercise in an upcoming session. Omit any field you're not changing.",
-            argsSchemaJSON: "{\"plannedSessionID\": \"string\", \"exerciseID\": \"string\", \"targetSets\": \"number?\", \"targetRepsMin\": \"number?\", \"targetRepsMax\": \"number?\", \"targetLoadKg\": \"number?\", \"rationale\": \"string\"}"
+            argsSchemaJSON: "{\"plannedSessionID\": \"string\", \"exerciseID\": \"string\", \"targetSets\": \"number?\", \"targetRepsMin\": \"number?\", \"targetRepsMax\": \"number?\", \"targetLoadKg\": \"number?\", \"rationale\": \"string\", \"sourceMemoryId\": \"string? — the [uuid] of the memory that drove this proposal, if any\"}"
         )
     }
 
@@ -91,6 +94,7 @@ struct ProposeSetChangeTool: CoachTool {
         suggestion.targetRepsMin = args.targetRepsMin
         suggestion.targetRepsMax = args.targetRepsMax
         suggestion.targetLoadKg = args.targetLoadKg
+        suggestion.sourceMemoryID = args.sourceMemoryId.flatMap { UUID(uuidString: $0) }
         context.insert(suggestion)
         try? context.save()
         return "{\"status\": \"proposed\"}"

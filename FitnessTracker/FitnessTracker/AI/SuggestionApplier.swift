@@ -1,5 +1,7 @@
 import Foundation
+import SwiftData
 import FitnessDomain
+import CoachMemory
 
 enum SuggestionApplierError: Error {
     case sessionNotFound
@@ -12,7 +14,7 @@ enum SuggestionApplierError: Error {
 /// accepted suggestions (design spec §3).
 @MainActor
 enum SuggestionApplier {
-    static func apply(_ suggestion: PendingCoachSuggestion, storedPlan: StoredPlan) throws {
+    static func apply(_ suggestion: PendingCoachSuggestion, storedPlan: StoredPlan, context: ModelContext) throws {
         let plan = try storedPlan.decodedPlan()
         guard let sessionIndex = plan.sessions.firstIndex(where: { $0.id == suggestion.plannedSessionID }) else {
             throw SuggestionApplierError.sessionNotFound
@@ -62,10 +64,29 @@ enum SuggestionApplier {
 
         suggestion.resolvedAt = .now
         suggestion.accepted = true
+
+        writeBackOutcome(for: suggestion, accepted: true, context: context)
     }
 
-    static func skip(_ suggestion: PendingCoachSuggestion) {
+    static func skip(_ suggestion: PendingCoachSuggestion, context: ModelContext) {
         suggestion.resolvedAt = .now
         suggestion.accepted = false
+
+        writeBackOutcome(for: suggestion, accepted: false, context: context)
+    }
+
+    /// Feeds the accept/skip signal back to the source `CoachMemory`'s
+    /// `outcomeScore` via `MemoryOutcome.applyResult` (design spec §5.2). Accept
+    /// is an `.improved` signal, skip a `.worse` one. If the suggestion has no
+    /// source memory, or that row is gone (superseded/evicted), this is a no-op.
+    /// The caller is responsible for `context.save()`.
+    private static func writeBackOutcome(for suggestion: PendingCoachSuggestion,
+                                         accepted: Bool, context: ModelContext) {
+        guard let memID = suggestion.sourceMemoryID,
+              let model = (try? context.fetch(FetchDescriptor<CoachMemoryModel>()))?
+                  .first(where: { $0.id == memID })
+        else { return }
+        let signal: OutcomeSignal = accepted ? .improved : .worse
+        model.outcomeScore = MemoryOutcome.applyResult(to: model.toDomain(), signal: signal).outcomeScore
     }
 }

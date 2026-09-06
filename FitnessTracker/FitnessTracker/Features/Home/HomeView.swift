@@ -239,7 +239,7 @@ struct HomeView: View {
                         onAccept: {
                             guard let stored = plans.first else { return }
                             do {
-                                try SuggestionApplier.apply(suggestion, storedPlan: stored)
+                                try SuggestionApplier.apply(suggestion, storedPlan: stored, context: context)
                                 try context.save()
                             } catch {
                                 // apply() throws before mutating `suggestion` on failure
@@ -250,7 +250,7 @@ struct HomeView: View {
                             }
                         },
                         onSkip: {
-                            SuggestionApplier.skip(suggestion)
+                            SuggestionApplier.skip(suggestion, context: context)
                             try? context.save()
                         }
                     )

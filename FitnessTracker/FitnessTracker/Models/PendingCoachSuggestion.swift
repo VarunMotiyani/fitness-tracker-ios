@@ -21,6 +21,11 @@ final class PendingCoachSuggestion {
     var createdAt: Date
     var resolvedAt: Date?
     var accepted: Bool?
+    /// The `CoachMemory` that drove this proposal, if any — set by the Ask Coach
+    /// propose tools from a `[uuid]` line in the memory digest. When set,
+    /// `SuggestionApplier` feeds the accept/skip outcome back to that memory's
+    /// `outcomeScore` (design spec §5.2).
+    var sourceMemoryID: UUID?
 
     init(plannedSessionID: UUID, kind: String, exerciseID: String, rationale: String, source: String) {
         self.id = UUID()
@@ -37,5 +42,6 @@ final class PendingCoachSuggestion {
         self.createdAt = .now
         self.resolvedAt = nil
         self.accepted = nil
+        self.sourceMemoryID = nil
     }
 }
