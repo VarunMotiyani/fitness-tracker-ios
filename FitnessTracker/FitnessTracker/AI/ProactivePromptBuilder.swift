@@ -29,7 +29,7 @@ nonisolated enum ProactivePromptBuilder {
     static func userWeeklySummary(sessionsCompleted: Int, plannedPerWeek: Int, streakWeeks: Int,
                                   muscleCoverageDigest: String, prCount: Int, memoryDigest: String) -> String {
         [
-            "This week: \(sessionsCompleted)/\(plannedPerWeek) sessions completed, \(streakWeeks)-week streak, \(prCount) new PRs.",
+            "Last week: \(sessionsCompleted)/\(plannedPerWeek) sessions completed, \(streakWeeks)-week streak, \(prCount) new PRs.",
             muscleCoverageDigest.isEmpty ? "" : "Muscle coverage:\n\(muscleCoverageDigest)",
             memoryDigest.isEmpty ? "" : "What you know about this athlete:\n\(memoryDigest)",
             "Write the week's recap: a short headline, a 2-4 sentence body, and one sentence on what to prioritize next week."

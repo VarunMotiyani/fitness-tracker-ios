@@ -7,7 +7,20 @@ import Metrics
 @testable import FitnessTracker
 
 @MainActor
-@Suite struct ProactiveCoordinatorTests {
+@Suite(.serialized) struct ProactiveCoordinatorTests {
+    /// Every `proactive.*` key any test in this suite writes. Called at the
+    /// start of each test and via `defer` at the end so a stray key from one
+    /// test can't leak into the next (the suite is `.serialized`).
+    private func clearProactiveDefaults() {
+        let d = UserDefaults.standard
+        d.removeObject(forKey: "proactive.daily.lastGeneratedDay")
+        d.removeObject(forKey: "proactive.weekly.lastWeekStart")
+        d.removeObject(forKey: "proactive.checkin.lastReactedDay")
+        for key in d.dictionaryRepresentation().keys where key.hasPrefix("proactive.patternNudge.") {
+            d.removeObject(forKey: key)
+        }
+    }
+
     private func container() throws -> ModelContainer {
         try ModelContainer(
             for: UserProfile.self, StoredPlan.self, ProviderProfile.self, AICallRecord.self,
@@ -28,7 +41,11 @@ import Metrics
                           reminderHour: 8, reminderMinute: 0)
     }
     static func todayString() -> String {
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.calendar = .isoUTC
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.calendar = .isoUTC
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.locale = Locale(identifier: "en_US_POSIX")
         return f.string(from: .now)
     }
     private func seedPlan(in ctx: ModelContext) throws {
@@ -44,6 +61,8 @@ import Metrics
     }
 
     @Test func dailyNarrationWritesACoachNoteWhenDue() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         try seedPlan(in: ctx)
         UserDefaults.standard.removeObject(forKey: "proactive.daily.lastGeneratedDay")
@@ -59,6 +78,8 @@ import Metrics
     }
 
     @Test func dailyNarrationSkippedWhenAlreadyGeneratedToday() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         try seedPlan(in: ctx)
         let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
@@ -73,6 +94,8 @@ import Metrics
     }
 
     @Test func noProviderSkipsLLMItems() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         try seedPlan(in: ctx)
         UserDefaults.standard.removeObject(forKey: "proactive.daily.lastGeneratedDay")
@@ -86,6 +109,8 @@ import Metrics
     }
 
     @Test func weeklySummaryWritesModelAndNoteWhenDue() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         try seedPlan(in: ctx)
         UserDefaults.standard.removeObject(forKey: "proactive.weekly.lastWeekStart")
@@ -103,6 +128,8 @@ import Metrics
     }
 
     @Test func weeklySummarySkippedWhenAlreadyDoneThisWeek() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         try seedPlan(in: ctx)
         let weekStart = Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)!.start
@@ -119,6 +146,8 @@ import Metrics
     }
 
     @Test func dailyToggleOffSkipsIt() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         try seedPlan(in: ctx)
         UserDefaults.standard.removeObject(forKey: "proactive.daily.lastGeneratedDay")
@@ -133,6 +162,8 @@ import Metrics
     }
 
     @Test func patternNudgeWritesANoteForAHighConfidenceResponsePattern() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         UserDefaults.standard.set(Self.todayString(), forKey: "proactive.daily.lastGeneratedDay")
         let weekIso = ISO8601DateFormatter().string(from: Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)!.start)
@@ -154,6 +185,8 @@ import Metrics
     }
 
     @Test func patternNudgeSkipsLowConfidenceAndRecentlyNudged() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         UserDefaults.standard.set(Self.todayString(), forKey: "proactive.daily.lastGeneratedDay")
         UserDefaults.standard.set(ISO8601DateFormatter().string(from: Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)!.start),
@@ -176,6 +209,8 @@ import Metrics
     }
 
     @Test func checkinReactionFiresAboveSorenessThreshold() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         let checkin = DailyCheckinModel(date: Date())
         checkin.soreness = 8
@@ -192,6 +227,8 @@ import Metrics
     }
 
     @Test func checkinReactionSkippedBelowThreshold() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         let checkin = DailyCheckinModel(date: Date())
         checkin.soreness = 3
@@ -207,6 +244,8 @@ import Metrics
     }
 
     @Test func checkinReactionSkippedWhenToggledOff() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         let checkin = DailyCheckinModel(date: Date())
         checkin.soreness = 9
@@ -219,5 +258,111 @@ import Metrics
         await coord.reactToCheckin(checkin)
 
         #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).filter { $0.kindRaw == "checkin" }.isEmpty)
+    }
+
+    // MARK: - I7: positive billing
+
+    @Test func dailyNarrationInsertsOneBilledAICallRecord() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
+        let ctx = ModelContext(try container())
+        try seedPlan(in: ctx)
+        ctx.insert(UserProfile(
+            goalRaw: "buildMuscle", experienceRaw: "intermediate", heightCm: 178, weightKg: 75,
+            birthYear: 2000, sexRaw: "male", sessionsPerWeek: 4, sessionLengthMinutes: 60,
+            availableEquipmentRaws: ["barbell"], excludedMuscleRaws: [], excludedExerciseIDs: []))
+        try ctx.save()
+
+        let profile = ProviderProfile(
+            displayName: "TestCo", adapterKind: .openAICompatible, baseURL: "https://x",
+            modelID: "test-model", apiKeyRef: nil, supportsVision: false,
+            pricePerMTokIn: 3.0, pricePerMTokOut: 15.0, pricePerMTokCached: 0.3)
+
+        let final = #"{"decision":"final","final":{"narration":"Push day — lead with dips, chest is fresh."}}"#
+        let provider = StubLLMProvider(responses: [.success(final)])
+        var s = settings(); s.weeklyOn = false; s.patternOn = false; s.inbodyOn = false
+        let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: provider,
+                                         activeProfile: profile, settings: s)
+
+        await coord.runDueChecks()
+
+        let records = try ctx.fetch(FetchDescriptor<AICallRecord>())
+        #expect(records.count == 1)
+        let record = try #require(records.first)
+        #expect(record.callType == "dailyNarration")
+        #expect(record.success == true)
+        #expect(record.costUSD > 0)
+    }
+
+    // MARK: - C1 regression: daily narration survives a completed training cycle
+
+    @Test func todaysOrNextSessionFallsBackWhenEverySessionCompletedInAPriorWeek() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
+        let ctx = ModelContext(try container())
+        let s1 = UUID(), s2 = UUID()
+        let plan = WeeklyPlan(weekStartDate: Date(), source: .ruleEngine, rationale: "t", sessions: [
+            PlannedSession(id: s1, order: 0, focusMuscles: [.chest], items: [
+                PlannedItem(exerciseID: "bench", targetSets: 3, targetReps: RepRange(min: 6, max: 8),
+                            targetLoadKg: 60, restSeconds: 90, coachNote: "")]),
+            PlannedSession(id: s2, order: 1, focusMuscles: [.back], items: [
+                PlannedItem(exerciseID: "dips", targetSets: 3, targetReps: RepRange(min: 8, max: 12),
+                            targetLoadKg: nil, restSeconds: 90, coachNote: "")])
+        ], weeklyVolumeTargets: [])
+        ctx.insert(try StoredPlan(plan: plan, hadValidationIssues: false))
+        let tenDaysAgo = Calendar.isoUTC.date(byAdding: .day, value: -10, to: .now)!
+        for sid in [s1, s2] {
+            let done = CompletedSessionModel(startedAt: tenDaysAgo, weekdayRaw: 0, timeOfDayMinutes: 480,
+                                             plannedDurationMin: 60, energyRaw: "ok", timeAvailableMin: 60,
+                                             plannedSessionID: sid)
+            done.finishedAt = tenDaysAgo.addingTimeInterval(3600)
+            ctx.insert(done)
+        }
+        try ctx.save()
+
+        let final = #"{"decision":"final","final":{"narration":"Back to it — start with bench."}}"#
+        let provider = StubLLMProvider(responses: [.success(final)])
+        var st = settings(); st.weeklyOn = false; st.patternOn = false; st.inbodyOn = false
+        let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: provider,
+                                         activeProfile: nil, settings: st)
+
+        await coord.runDueChecks()
+
+        #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).contains { $0.kindRaw == "daily" })
+    }
+
+    @Test func todaysOrNextSessionSkipsASessionCompletedThisWeek() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
+        let ctx = ModelContext(try container())
+        let s1 = UUID(), s2 = UUID()
+        let plan = WeeklyPlan(weekStartDate: Date(), source: .ruleEngine, rationale: "t", sessions: [
+            PlannedSession(id: s1, order: 0, focusMuscles: [.chest], items: [
+                PlannedItem(exerciseID: "bench", targetSets: 3, targetReps: RepRange(min: 6, max: 8),
+                            targetLoadKg: 60, restSeconds: 90, coachNote: "")]),
+            PlannedSession(id: s2, order: 1, focusMuscles: [.back], items: [
+                PlannedItem(exerciseID: "dips", targetSets: 3, targetReps: RepRange(min: 8, max: 12),
+                            targetLoadKg: nil, restSeconds: 90, coachNote: "")])
+        ], weeklyVolumeTargets: [])
+        ctx.insert(try StoredPlan(plan: plan, hadValidationIssues: false))
+        let done = CompletedSessionModel(startedAt: .now, weekdayRaw: 0, timeOfDayMinutes: 480,
+                                         plannedDurationMin: 60, energyRaw: "ok", timeAvailableMin: 60,
+                                         plannedSessionID: s1)
+        done.finishedAt = .now
+        ctx.insert(done)
+        try ctx.save()
+
+        let final = #"{"decision":"final","final":{"narration":"Back day — go."}}"#
+        let provider = StubLLMProvider(responses: [.success(final)])
+        var st = settings(); st.weeklyOn = false; st.patternOn = false; st.inbodyOn = false
+        let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: provider,
+                                         activeProfile: nil, settings: st)
+
+        await coord.runDueChecks()
+
+        // The narration prompt names the chosen session's focus muscles; the
+        // one completed this week (chest, order 0) must be skipped for back.
+        #expect(provider.lastUser.contains("Back"))
+        #expect(!provider.lastUser.contains("Chest Day"))
     }
 }

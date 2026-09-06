@@ -38,6 +38,7 @@ struct SettingsView: View {
     @AppStorage("proactive.settings.checkin") private var proactiveCheckinOn: Bool = true
     @AppStorage("proactive.settings.pattern") private var proactivePatternOn: Bool = true
 
+    @State private var notifAuthorized = false
     @State private var catalog: CatalogStore?
     @State private var lastNote: String?
     @State private var isGenerating = false
@@ -114,6 +115,8 @@ struct SettingsView: View {
             if catalog == nil {
                 catalog = try? BundledCatalog.load()
             }
+            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+            notifAuthorized = (status == .authorized || status == .provisional || status == .ephemeral)
         }
         .sheet(isPresented: $showEffortHelp) {
             effortHelpSheet
@@ -381,17 +384,23 @@ struct SettingsView: View {
                 }
             }
 
-            if reminderOn {
-                Toggle("Daily coach heads-up", isOn: $proactiveDailyOn)
-                    .tint(activeAccent)
-                Toggle("Weekly recap", isOn: $proactiveWeeklyOn)
-                    .tint(activeAccent)
-                Toggle("InBody scan reminder", isOn: $proactiveInBodyOn)
-                    .tint(activeAccent)
-                Toggle("Soreness / sleep check-in reactions", isOn: $proactiveCheckinOn)
-                    .tint(activeAccent)
-                Toggle("Training pattern nudges", isOn: $proactivePatternOn)
-                    .tint(activeAccent)
+            // Proactive coach notifications are independent of the workout-day
+            // reminder — always visible, never gated on `reminderOn`.
+            Toggle("Daily coach heads-up", isOn: $proactiveDailyOn)
+                .tint(activeAccent)
+            Toggle("Weekly recap", isOn: $proactiveWeeklyOn)
+                .tint(activeAccent)
+            Toggle("InBody scan reminder", isOn: $proactiveInBodyOn)
+                .tint(activeAccent)
+            Toggle("Soreness / sleep check-in reactions", isOn: $proactiveCheckinOn)
+                .tint(activeAccent)
+            Toggle("Training pattern nudges", isOn: $proactivePatternOn)
+                .tint(activeAccent)
+
+            if !notifAuthorized {
+                Text("Turn on notifications for PulseAI in iOS Settings to receive these.")
+                    .font(.footnote)
+                    .foregroundStyle(GymTheme.label3)
             }
         } header: {
             Text("Notifications")

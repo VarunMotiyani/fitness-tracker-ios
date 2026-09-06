@@ -32,11 +32,21 @@ struct ProactiveCoordinator {
     let settings: ProactiveSettings
 
     private let notificationCenter = UNUserNotificationCenter.current()
+    private static var isRunning = false
     private static let dayFormatter: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.calendar = .isoUTC; return f
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.calendar = .isoUTC
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
     }()
 
     func runDueChecks() async {
+        guard !Self.isRunning else { return }
+        Self.isRunning = true
+        defer { Self.isRunning = false }
+
         if settings.inbodyOn { scheduleInBodyReminderIfNeeded() }
         else { notificationCenter.removePendingNotificationRequests(withIdentifiers: ["proactive_inbody"]) }
 
@@ -90,33 +100,58 @@ struct ProactiveCoordinator {
         content.title = "From your coach"
         content.body = body
         content.sound = .default
+        content.userInfo = ["proactive": "daily"]
         var dc = DateComponents(); dc.hour = settings.reminderHour; dc.minute = settings.reminderMinute
         let trigger = UNCalendarNotificationTrigger(dateMatching: dc, repeats: false)
         notificationCenter.removePendingNotificationRequests(withIdentifiers: ["proactive_daily"])
+
+        // If today's reminder time has already passed, a non-repeating calendar
+        // trigger would fire tomorrow — skip it. The Home CoachNoteModel already
+        // covers the user for today.
+        let cal = Calendar.isoUTC
+        let now = Date()
+        if let fireToday = cal.date(bySettingHour: settings.reminderHour, minute: settings.reminderMinute,
+                                    second: 0, of: now),
+           fireToday <= now {
+            return
+        }
         notificationCenter.add(UNNotificationRequest(identifier: "proactive_daily", content: content, trigger: trigger))
     }
 
     // MARK: - InBody reminder (#8) — no LLM
 
+    /// (Re)build the InBody request unconditionally — removes any stale copy
+    /// first, then adds a fresh 5-week repeating trigger. Callers decide
+    /// whether a rebuild is wanted; this does not itself check for a pending
+    /// request.
+    private func installInBodyReminder() {
+        let content = UNMutableNotificationContent()
+        content.title = "InBody scan due"
+        content.body = "It's been about 5 weeks — take a scan and tell your coach the numbers in chat."
+        content.sound = .default
+        let fiveWeeks: TimeInterval = 5 * 7 * 24 * 3600
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: fiveWeeks, repeats: true)
+        notificationCenter.removePendingNotificationRequests(withIdentifiers: ["proactive_inbody"])
+        notificationCenter.add(
+            UNNotificationRequest(identifier: "proactive_inbody", content: content, trigger: trigger))
+    }
+
+    /// The `runDueChecks` path: only (re)install when nothing is pending, so a
+    /// normal foreground launch doesn't reset the 5-week clock every time.
     private func scheduleInBodyReminderIfNeeded() {
-        notificationCenter.getPendingNotificationRequests { requests in
-            guard !requests.contains(where: { $0.identifier == "proactive_inbody" }) else { return }
-            let content = UNMutableNotificationContent()
-            content.title = "InBody scan due"
-            content.body = "It's been about 5 weeks — take a scan and tell your coach the numbers in chat."
-            content.sound = .default
-            let fiveWeeks: TimeInterval = 5 * 7 * 24 * 3600
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: fiveWeeks, repeats: true)
-            UNUserNotificationCenter.current().add(
-                UNNotificationRequest(identifier: "proactive_inbody", content: content, trigger: trigger))
+        Task { @MainActor in
+            let pending = await notificationCenter.pendingNotificationRequests()
+            guard !pending.contains(where: { $0.identifier == "proactive_inbody" }) else { return }
+            installInBodyReminder()
         }
     }
 
     /// Call when a body-composition observation is confirmed so the 5-week
-    /// clock restarts. (Wired in a later task / by ObservationModel confirm UI.)
+    /// clock restarts. A reset *must* replace the request, so install
+    /// directly and unconditionally — no pending-check.
     func resetInBodyReminder() {
         notificationCenter.removePendingNotificationRequests(withIdentifiers: ["proactive_inbody"])
-        if settings.inbodyOn { scheduleInBodyReminderIfNeeded() }
+        if settings.inbodyOn { installInBodyReminder() }
     }
 
     // MARK: - Weekly (#7) — Task 4 fills this
@@ -135,7 +170,7 @@ struct ProactiveCoordinator {
 
         let allSessions = (try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? []
         let weekSessions = allSessions.filter { $0.finishedAt.map(priorInterval.contains) ?? false }
-        let snapshots = allSessions.map { $0.toSnapshot() }
+        let snapshots = allSessions.filter { $0.finishedAt != nil }.map { $0.toSnapshot() }
         let plannedPerWeek = (try? context.fetch(FetchDescriptor<UserProfile>()))?.first?.sessionsPerWeek ?? 3
         let streak = StreakCalculator.computeSummary(from: snapshots, plannedPerWeek: plannedPerWeek).currentStreakWeeks
         let prCount = ((try? context.fetch(FetchDescriptor<PersonalRecordModel>())) ?? [])
@@ -169,16 +204,19 @@ struct ProactiveCoordinator {
             recordCalls(result.calls, callType: "weeklySummary")
             let dto = result.value
 
-            // One row per week — overwrite an existing row for the same weekStart.
+            // One row per week — the recap describes the prior week, so stamp
+            // and dedup on `priorWeek`. (The `proactive.weekly.lastWeekStart`
+            // UserDefaults flag below stays keyed on `weekStart` — it answers
+            // "have I generated this week's recap yet".)
             let existing = ((try? context.fetch(FetchDescriptor<WeeklySummaryModel>())) ?? [])
-                .first { Calendar.isoUTC.isDate($0.weekStartDate, inSameDayAs: weekStart) }
+                .first { Calendar.isoUTC.isDate($0.weekStartDate, inSameDayAs: priorWeek) }
             if let existing {
                 existing.headline = dto.headline
                 existing.summaryBody = dto.body
                 existing.nextWeekFocus = dto.nextWeekFocus
                 existing.generatedAt = .now
             } else {
-                context.insert(WeeklySummaryModel(weekStartDate: weekStart, headline: dto.headline,
+                context.insert(WeeklySummaryModel(weekStartDate: priorWeek, headline: dto.headline,
                     summaryBody: dto.body, nextWeekFocus: dto.nextWeekFocus))
             }
             context.insert(CoachNoteModel(kindRaw: "weekly", text: dto.headline))
@@ -259,6 +297,13 @@ struct ProactiveCoordinator {
         let sleepLow = checkin.sleepQuality.map { $0 <= 3 } ?? false
         guard sorenessHigh || sleepLow else { return }
 
+        // Per-day dedup — `CheckinEntryView.save()` re-upserts today's row on
+        // every Save and calls this unconditionally; without this each re-save
+        // burns an LLM call.
+        let todayKey = Self.dayFormatter.string(from: .now)
+        let lastReacted = UserDefaults.standard.string(forKey: "proactive.checkin.lastReactedDay")
+        guard lastReacted != todayKey else { return }
+
         let system = ProactivePromptBuilder.system()
         let user = ProactivePromptBuilder.userCheckinReaction(
             soreness: checkin.soreness, sleepQuality: checkin.sleepQuality, note: checkin.note,
@@ -272,6 +317,7 @@ struct ProactiveCoordinator {
             let text = result.value.message
             context.insert(CoachNoteModel(kindRaw: "checkin", text: text))
             try? context.save()
+            UserDefaults.standard.set(todayKey, forKey: "proactive.checkin.lastReactedDay")
 
             // Ping only if the app isn't foreground when the reaction lands.
             var appIsActive = false
@@ -283,6 +329,7 @@ struct ProactiveCoordinator {
                 content.title = "From your coach"
                 content.body = text
                 content.sound = .default
+                content.userInfo = ["proactive": "checkin"]
                 let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 2 * 3600, repeats: false)
                 notificationCenter.removePendingNotificationRequests(withIdentifiers: ["proactive_checkin"])
                 notificationCenter.add(UNNotificationRequest(identifier: "proactive_checkin", content: content, trigger: trigger),
@@ -303,9 +350,13 @@ struct ProactiveCoordinator {
     /// Today's planned session if it hasn't been completed yet, else the next
     /// not-yet-completed one in `order`.
     private func todaysOrNextSession(in plan: WeeklyPlan) -> PlannedSession? {
-        let started = Set(((try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? [])
+        let ordered = plan.sessions.sorted { $0.order < $1.order }
+        guard let weekStart = Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)?.start
+        else { return ordered.first }
+        let startedThisWeek = Set(((try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? [])
+            .filter { $0.startedAt >= weekStart }
             .compactMap(\.plannedSessionID))
-        return plan.sessions.sorted { $0.order < $1.order }.first { !started.contains($0.id) }
+        return ordered.first { !startedThisWeek.contains($0.id) } ?? ordered.first
     }
 
     private func recoveryDigest() -> String {

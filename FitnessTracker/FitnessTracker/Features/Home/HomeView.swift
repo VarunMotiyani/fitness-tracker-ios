@@ -219,6 +219,9 @@ struct HomeView: View {
                         onAccept: {
                             observation.confirmed = true
                             try? context.save()
+                            if observation.kind == "bodyFatPercent" || observation.kind == "muscleMassKg" {
+                                proactiveCoordinator.resetInBodyReminder()
+                            }
                         },
                         onDismiss: {
                             context.delete(observation)
@@ -569,7 +572,7 @@ struct HomeView: View {
                         .background(activeAccent, in: RoundedRectangle(cornerRadius: 10))
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("THIS WEEK")
+                        Text("LAST WEEK")
                             .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(Color(white: 0.50))
                         Text(latest.headline)

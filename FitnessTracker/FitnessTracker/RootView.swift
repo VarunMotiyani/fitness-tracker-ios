@@ -212,7 +212,14 @@ struct RootView: View {
             activeProfile: activeProfiles.first,
             settings: settings
         )
-        Task { await coordinator.runDueChecks() }
+        Task {
+            let center = UNUserNotificationCenter.current()
+            let status = await center.notificationSettings().authorizationStatus
+            if status == .notDetermined {
+                _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+            }
+            await coordinator.runDueChecks()
+        }
     }
 
     @ViewBuilder

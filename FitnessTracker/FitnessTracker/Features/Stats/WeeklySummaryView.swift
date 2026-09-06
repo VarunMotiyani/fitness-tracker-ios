@@ -25,11 +25,20 @@ struct WeeklySummaryView: View {
 
     // MARK: - Deterministic rows (computed inline from logged data)
 
-    /// Monday 00:00 UTC of the current ISO week — the same bucketing
-    /// `StreakCalculator` / `HomeView`'s week strip use.
+    /// The week the recap actually describes: the latest summary's own
+    /// `weekStartDate` (the prior ISO week, per `generateWeeklySummary`). Falls
+    /// back to the current ISO week Monday only when there is no summary (the
+    /// empty-state branch renders `emptyState` anyway, so it's moot).
     private var weekStart: Date {
+        if let stamped = summaries.first?.weekStartDate { return stamped }
         let cal = Calendar.isoUTC
         return cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())) ?? Date()
+    }
+
+    /// `[weekStart, weekEnd)` — the deterministic rows describe the same single
+    /// week as the prose, not an open-ended "since Monday".
+    private var weekEnd: Date {
+        Calendar.isoUTC.date(byAdding: .weekOfYear, value: 1, to: weekStart) ?? weekStart
     }
 
     private var finishedSessions: [CompletedSessionModel] {
@@ -37,11 +46,11 @@ struct WeeklySummaryView: View {
     }
 
     private var sessionsThisWeek: Int {
-        finishedSessions.filter { $0.startedAt >= weekStart }.count
+        finishedSessions.filter { $0.startedAt >= weekStart && $0.startedAt < weekEnd }.count
     }
 
     private var prsThisWeek: Int {
-        prRecords.filter { $0.date >= weekStart }.count
+        prRecords.filter { $0.date >= weekStart && $0.date < weekEnd }.count
     }
 
     private var currentStreakWeeks: Int {
@@ -87,7 +96,7 @@ struct WeeklySummaryView: View {
     @ViewBuilder
     private func headerView(for summary: WeeklySummaryModel) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("This week")
+            Text("Last week")
                 .font(.system(size: 32, weight: .bold))
                 .foregroundStyle(GymTheme.label)
             Text("Week of \(summary.weekStartDate.formatted(.dateTime.weekday(.wide).day().month(.wide)))")
