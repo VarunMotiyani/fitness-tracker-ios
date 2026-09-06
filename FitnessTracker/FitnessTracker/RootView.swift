@@ -22,14 +22,17 @@ import Combine
 final class NotificationResponder: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
     @Published var showWeeklySummary = false
 
-    /// Show the banner even with the app foregrounded, so the tap path is
-    /// reachable while the user is in-app (and testable on the simulator).
+    /// Show the banner even with the app foregrounded for proactive
+    /// notifications only, so the tap path is reachable while the user is
+    /// in-app (and testable on the simulator). Other notifications keep iOS's
+    /// default foreground behaviour (suppressed).
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound])
+        let isProactive = notification.request.content.userInfo["proactive"] != nil
+        completionHandler(isProactive ? [.banner, .sound] : [])
     }
 
     nonisolated func userNotificationCenter(
@@ -47,6 +50,7 @@ final class NotificationResponder: NSObject, ObservableObject, UNUserNotificatio
 
 struct RootView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.scenePhase) private var scenePhase
     @Query private var profiles: [UserProfile]
     @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
     @Query private var allProviderProfiles: [ProviderProfile]
@@ -66,6 +70,15 @@ struct RootView: View {
 
     // Presents WeeklySummaryView when a `proactive_weekly` notification is tapped.
     @StateObject private var notificationResponder = NotificationResponder()
+
+    // Per-type proactive-notification toggles (Settings owns the UI; default on).
+    @AppStorage("proactive.settings.daily") private var proactiveDailyOn: Bool = true
+    @AppStorage("proactive.settings.weekly") private var proactiveWeeklyOn: Bool = true
+    @AppStorage("proactive.settings.inbody") private var proactiveInBodyOn: Bool = true
+    @AppStorage("proactive.settings.checkin") private var proactiveCheckinOn: Bool = true
+    @AppStorage("proactive.settings.pattern") private var proactivePatternOn: Bool = true
+    @AppStorage("gym_reminder_hour") private var reminderHour: Int = 18
+    @AppStorage("gym_reminder_minute") private var reminderMinute: Int = 0
 
     private var summary: CostSummary {
         CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp, costUSD: $0.costUSD) },
@@ -113,6 +126,10 @@ struct RootView: View {
             if showSettings {
                 showSettings = false
             }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, let catalog else { return }
+            runProactive(catalog: catalog)
         }
         .overlay(alignment: .top) {
             if let lastNote {
@@ -168,7 +185,34 @@ struct RootView: View {
                                            catalog: catalog,
                                            modelContext: context)
             }
+            if let catalog {
+                runProactive(catalog: catalog)
+            }
         }
+    }
+
+    /// Builds a `ProactiveCoordinator` from the current Settings toggles and
+    /// resolved provider, then fires its due-checks pass without blocking.
+    /// Safe to call repeatedly — the coordinator's `UserDefaults` day/week
+    /// keys make every LLM-backed item idempotent per period.
+    private func runProactive(catalog: CatalogStore) {
+        let settings = ProactiveSettings(
+            dailyOn: proactiveDailyOn,
+            weeklyOn: proactiveWeeklyOn,
+            inbodyOn: proactiveInBodyOn,
+            checkinOn: proactiveCheckinOn,
+            patternOn: proactivePatternOn,
+            reminderHour: reminderHour,
+            reminderMinute: reminderMinute
+        )
+        let coordinator = ProactiveCoordinator(
+            context: context,
+            catalog: catalog,
+            provider: resolvedProvider,
+            activeProfile: activeProfiles.first,
+            settings: settings
+        )
+        Task { await coordinator.runDueChecks() }
     }
 
     @ViewBuilder
