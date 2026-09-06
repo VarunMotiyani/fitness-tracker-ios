@@ -19,6 +19,7 @@ struct FitnessTrackerApp: App {
                 PersonalRecordModel.self, CoachMemoryModel.self,
                 ChatMessageModel.self, ChatSummaryModel.self,
                 PendingCoachSuggestion.self,
+                CoachNoteModel.self, WeeklySummaryModel.self,
             ])
     }
 }
