@@ -71,6 +71,15 @@ struct HomeView: View {
     // Settings/Root and Settings/Providers earlier this project.
     @Query private var allProviderProfiles: [ProviderProfile]
     private var activeProviderProfile: ProviderProfile? { allProviderProfiles.first { $0.isActive } }
+
+    // Plain @Query + Swift-side filter for unread coach notes — avoids boolean
+    // #Predicate on `readAt == nil` which would hang the app (same shape that
+    // hung Settings/Root and Settings/Providers earlier this project).
+    @Query(sort: \CoachNoteModel.createdAt, order: .reverse)
+    private var allCoachNotes: [CoachNoteModel]
+    private var unreadCoachNotes: [CoachNoteModel] {
+        allCoachNotes.filter { $0.readAt == nil }
+    }
     private var chatProvider: (any LLMProvider)? {
         activeProviderProfile.flatMap { try? LLMProviderFactory.make(from: $0) }
     }
@@ -242,6 +251,14 @@ struct HomeView: View {
                             try? context.save()
                         }
                     )
+                }
+
+                // Unread proactive coach messages
+                ForEach(unreadCoachNotes) { note in
+                    CoachNoteCard(note: note, onDismiss: {
+                        note.readAt = .now
+                        try? context.save()
+                    })
                 }
 
                 // Week Strip Card + Nested Today Routine
