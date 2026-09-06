@@ -23,14 +23,26 @@ struct WeeklySummaryView: View {
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
 
+    // MARK: - Displayed summary
+
+    /// The recap to show: the most recent one whose week has actually ended.
+    /// After an upgrade a pre-existing `WeeklySummaryModel` may be stamped on the
+    /// *current* ISO week; that row would otherwise render under the "Last week"
+    /// header for a week, so skip anything not strictly before this week's start.
+    private var displayed: WeeklySummaryModel? {
+        guard let currentWeekStart = Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)?.start
+        else { return summaries.first }
+        return summaries.first { $0.weekStartDate < currentWeekStart }
+    }
+
     // MARK: - Deterministic rows (computed inline from logged data)
 
-    /// The week the recap actually describes: the latest summary's own
+    /// The week the recap actually describes: the displayed summary's own
     /// `weekStartDate` (the prior ISO week, per `generateWeeklySummary`). Falls
     /// back to the current ISO week Monday only when there is no summary (the
     /// empty-state branch renders `emptyState` anyway, so it's moot).
     private var weekStart: Date {
-        if let stamped = summaries.first?.weekStartDate { return stamped }
+        if let stamped = displayed?.weekStartDate { return stamped }
         let cal = Calendar.isoUTC
         return cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())) ?? Date()
     }
@@ -55,10 +67,12 @@ struct WeeklySummaryView: View {
 
     private var currentStreakWeeks: Int {
         // `plannedPerWeek` only feeds adherence fields, not `currentStreakWeeks`.
+        // Evaluate the streak as of the end of the displayed week so all three
+        // stat rows describe the same week, not "as of today".
         StreakCalculator.computeSummary(
             from: finishedSessions.map { $0.toSnapshot() },
             plannedPerWeek: 3,
-            now: .now
+            now: displayed.map { Calendar.isoUTC.date(byAdding: .day, value: 6, to: $0.weekStartDate) ?? .now } ?? .now
         ).currentStreakWeeks
     }
 
@@ -68,7 +82,7 @@ struct WeeklySummaryView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    if let latest = summaries.first {
+                    if let latest = displayed {
                         headerView(for: latest)
                         recapCard(for: latest)
                         deterministicRowsCard

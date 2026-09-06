@@ -9,6 +9,7 @@ import Metrics
 struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     var onClose: (() -> Void)? = nil
     
     @Query private var profiles: [UserProfile]
@@ -115,8 +116,11 @@ struct SettingsView: View {
             if catalog == nil {
                 catalog = try? BundledCatalog.load()
             }
-            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-            notifAuthorized = (status == .authorized || status == .provisional || status == .ephemeral)
+            await refreshNotifAuthorized()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await refreshNotifAuthorized() }
         }
         .sheet(isPresented: $showEffortHelp) {
             effortHelpSheet
@@ -777,6 +781,11 @@ struct SettingsView: View {
         }
         try? context.save()
         lastNote = "All data reset"
+    }
+
+    private func refreshNotifAuthorized() async {
+        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        notifAuthorized = (status == .authorized || status == .provisional || status == .ephemeral)
     }
 
     private func requestNotificationPermissionAndSchedule() {

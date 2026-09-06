@@ -47,8 +47,12 @@ struct ProactiveCoordinator {
         Self.isRunning = true
         defer { Self.isRunning = false }
 
-        if settings.inbodyOn { scheduleInBodyReminderIfNeeded() }
+        if settings.inbodyOn { await scheduleInBodyReminderIfNeeded() }
         else { notificationCenter.removePendingNotificationRequests(withIdentifiers: ["proactive_inbody"]) }
+
+        // Sweep stale patternNudge keys before the provider guard — orphan
+        // cleanup must run even when there's no LLM configured.
+        if settings.patternOn { pruneOrphanPatternNudgeKeys() }
 
         guard provider != nil else { return }
 
@@ -142,12 +146,10 @@ struct ProactiveCoordinator {
 
     /// The `runDueChecks` path: only (re)install when nothing is pending, so a
     /// normal foreground launch doesn't reset the 5-week clock every time.
-    private func scheduleInBodyReminderIfNeeded() {
-        Task { @MainActor in
-            let pending = await notificationCenter.pendingNotificationRequests()
-            guard !pending.contains(where: { $0.identifier == "proactive_inbody" }) else { return }
-            installInBodyReminder()
-        }
+    private func scheduleInBodyReminderIfNeeded() async {
+        let pending = await notificationCenter.pendingNotificationRequests()
+        guard !pending.contains(where: { $0.identifier == "proactive_inbody" }) else { return }
+        installInBodyReminder()
     }
 
     /// Call when a body-composition observation is confirmed so the 5-week
@@ -223,7 +225,9 @@ struct ProactiveCoordinator {
                 context.insert(WeeklySummaryModel(weekStartDate: priorWeek, headline: dto.headline,
                     summaryBody: dto.body, nextWeekFocus: dto.nextWeekFocus))
             }
-            context.insert(CoachNoteModel(kindRaw: "weekly", text: dto.headline))
+            // The Home `thisWeekCard` already surfaces `headline` persistently;
+            // the CoachNote carries the complementary next-week focus instead.
+            context.insert(CoachNoteModel(kindRaw: "weekly", text: "Next week: \(dto.nextWeekFocus)"))
             try? context.save()
             scheduleWeekly(body: dto.headline)
             UserDefaults.standard.set(ISO8601DateFormatter().string(from: weekStart),
@@ -249,6 +253,21 @@ struct ProactiveCoordinator {
     }
 
     // MARK: - Pattern nudge (#10) — Task 5 fills this
+
+    /// Drop `proactive.patternNudge.<uuid>` UserDefaults keys whose memory no
+    /// longer exists. Keys for still-live `responsePattern` memories stay, even
+    /// if their confidence has since dropped below the 0.6 nudge threshold.
+    private func pruneOrphanPatternNudgeKeys() {
+        let liveIDs = Set(((try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? [])
+            .filter { $0.kindRaw == "responsePattern" }
+            .map { $0.id.uuidString })
+        let prefix = "proactive.patternNudge."
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+            if !liveIDs.contains(String(key.dropFirst(prefix.count))) {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+    }
 
     private func runPatternNudges() async {
         guard let provider else { return }

@@ -210,6 +210,32 @@ import Metrics
         #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).filter { $0.kindRaw == "pattern" }.isEmpty)
     }
 
+    @Test func runDueChecksSweepsOrphanPatternNudgeKeys() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
+        let ctx = ModelContext(try container())
+        let mem = CoachMemoryModel(kindRaw: "responsePattern", statement: "Skips pull day when busy",
+                                   confidence: 0.8, sourceKind: "agent", createdAt: .now, lastConfirmedAt: .now)
+        ctx.insert(mem)
+        try ctx.save()
+
+        let liveKey = "proactive.patternNudge.\(mem.id.uuidString)"
+        let orphanKey = "proactive.patternNudge.\(UUID().uuidString)"
+        let stamp = ISO8601DateFormatter().string(from: .now)
+        UserDefaults.standard.set(stamp, forKey: liveKey)
+        UserDefaults.standard.set(stamp, forKey: orphanKey)
+
+        // provider nil: runDueChecks returns after the sweep, before any LLM item.
+        var s = settings(); s.dailyOn = false; s.weeklyOn = false; s.inbodyOn = false
+        let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: nil,
+                                         activeProfile: nil, settings: s)
+
+        await coord.runDueChecks()
+
+        #expect(UserDefaults.standard.string(forKey: liveKey) != nil)
+        #expect(UserDefaults.standard.string(forKey: orphanKey) == nil)
+    }
+
     @Test func checkinReactionFiresAboveSorenessThreshold() async throws {
         clearProactiveDefaults()
         defer { clearProactiveDefaults() }
