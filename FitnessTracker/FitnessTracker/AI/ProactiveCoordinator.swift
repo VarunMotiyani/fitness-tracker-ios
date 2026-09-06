@@ -107,8 +107,10 @@ struct ProactiveCoordinator {
 
         // If today's reminder time has already passed, a non-repeating calendar
         // trigger would fire tomorrow — skip it. The Home CoachNoteModel already
-        // covers the user for today.
-        let cal = Calendar.isoUTC
+        // covers the user for today. `reminderHour/Minute` are local wall-clock
+        // values and the trigger resolves in the local calendar, so compare in
+        // `Calendar.current` — NOT the UTC calendar used for day/week bucketing.
+        let cal = Calendar.current
         let now = Date()
         if let fireToday = cal.date(bySettingHour: settings.reminderHour, minute: settings.reminderMinute,
                                     second: 0, of: now),

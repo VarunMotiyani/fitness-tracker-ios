@@ -82,11 +82,13 @@ import Metrics
         defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         try seedPlan(in: ctx)
-        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
-        UserDefaults.standard.set(df.string(from: Date()), forKey: "proactive.daily.lastGeneratedDay")
-        let provider = StubLLMProvider(responses: [])
+        UserDefaults.standard.set(Self.todayString(), forKey: "proactive.daily.lastGeneratedDay")
+        // Stub has a valid narration ready — the only reason no note appears is the dedup key.
+        let final = #"{"decision":"final","final":{"narration":"Push day — chest is fresh."}}"#
+        let provider = StubLLMProvider(responses: [.success(final)])
+        var s = settings(); s.weeklyOn = false; s.patternOn = false; s.inbodyOn = false
         let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: provider,
-                                         activeProfile: nil, settings: settings())
+                                         activeProfile: nil, settings: s)
 
         await coord.runDueChecks()
 
