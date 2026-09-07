@@ -35,6 +35,48 @@ struct OpenAICompatibleProviderTests {
         #expect(req?.httpMethod == "POST")
     }
 
+    @Test func usesJSONModeForPromptSchemas() async throws {
+        let captured = Locked<URLRequest?>(nil)
+        let session = StubURLProtocol.session { req in
+            captured.set(req)
+            let body = #"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (resp, Data(body.utf8))
+        }
+
+        let p = OpenAICompatibleProvider(baseURL: URL(string: "https://api.groq.com/openai/v1")!,
+                                         apiKey: "sk-test", modelID: "qwen/qwen3.8-27b",
+                                         session: session)
+        let _: LLMResult<Dummy> = try await p.complete(
+            system: "Return only JSON.", user: "hi",
+            schema: JSONSchema(json: #"{"reply":"string"}"#), as: Dummy.self)
+
+        let requestBody = try #require(captured.get()?.capturedBody)
+        let object = try #require(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+        let format = try #require(object["response_format"] as? [String: Any])
+        #expect(format["type"] as? String == "json_object")
+    }
+
+    @Test func usesJSONModeWhenPromptSchemaIsDescriptiveJSON() async throws {
+        let captured = Locked<URLRequest?>(nil)
+        let session = StubURLProtocol.session { req in
+            captured.set(req)
+            let body = #"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (resp, Data(body.utf8))
+        }
+        let p = OpenAICompatibleProvider(baseURL: URL(string: "https://api.groq.com/openai/v1")!,
+                                         apiKey: "sk-test", modelID: "qwen/qwen3.8-27b",
+                                         session: session)
+        let _: LLMResult<Dummy> = try await p.complete(
+            system: "Return only JSON.", user: "hi",
+            schema: JSONSchema(json: ##"{"decision":"tool_call | final", "_tools": {"x": {"arg":"string"} // note}}"##), as: Dummy.self)
+        let requestBody = try #require(captured.get()?.capturedBody)
+        let object = try #require(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+        let format = try #require(object["response_format"] as? [String: Any])
+        #expect(format["type"] as? String == "json_object")
+    }
+
     @Test func httpErrorBecomesTransportError() async {
         let session = StubURLProtocol.session { req in
             (HTTPURLResponse(url: req.url!, statusCode: 429, httpVersion: nil, headerFields: nil)!,

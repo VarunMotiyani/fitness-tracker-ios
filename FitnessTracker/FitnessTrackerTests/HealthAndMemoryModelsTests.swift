@@ -54,4 +54,9 @@ import Foundation
         #expect(fetched?.retiredByCap == false)
         #expect(fetched?.tagFreeJSON == "[]")
     }
+
+    @Test func observationConfirmedDefaultsTrue() {
+        let obs = ObservationModel(kind: "bodyweight", value: 80, unit: "kg", timestamp: Date())
+        #expect(obs.confirmed)
+    }
 }

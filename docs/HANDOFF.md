@@ -1,317 +1,143 @@
 # HANDOFF — Read This First
 
-_Living document. Last updated: 2026-08-29 (Phase 2b BUILT + whole-branch review + fix wave done on branch `phase-2b-persistence-session-runner`; awaiting Varun's simulator acceptance + merge; then Phase 2c)._
+_Living document. Last updated: 2026-09-07 (Session progress: navigation polish, Apple Foundation Models validation, and Groq/Qwen integration fixes on branch `fitness-engine-v2`)._
 
-**Purpose:** one read = full context. If you're a new agent/session on any
-device, read this top to bottom before doing anything. It captures the project,
-every decision, current state, how to work here, and what's next. Deep detail
-lives in the numbered docs; this is the index + digest.
-
-**Update policy:** refresh this doc at every **major** step — a decision made or
-reversed, a phase started/finished, scope changed, a new doc added,
-provider/model chosen, repo/workflow change — or whenever the user asks. Not for
-minor edits or exploratory work. Bump "Last updated" when you do.
+**Purpose:** One read = full context. If you're a new agent/session on any device, read this top to bottom before doing anything. It captures the project, every decision, current state, how to work here, and what's next. Deep detail lives in the numbered docs; this is the index + digest.
 
 ---
 
 ## 1. What the project is
 
-A **personal iOS app** for one user (Varun, 24) that acts as an adaptive
-strength & physique coach. Varun is an **AI engineer (~3 yrs)**; this is his
-**first iOS app**. He got into the gym Nov 2024 as a first-timer, lost ~8–9 kg
-with ChatGPT-driven structure, then quit — the failure mode was **decision/
-research overload**, not the training. The app removes "what do I do today":
+A **proactive AI strength & physique coaching app (PulseAI)** for iOS (iPhone 17 Pro / iOS 17+) that pairs tactile, high-efficiency gym floor mechanics with an autonomous on-device / BYOK AI coaching layer.
 
-- Equipment-aware **weekly plan** — user declares gym equipment; every exercise
-  and substitution comes only from that pool.
-- Tells him exactly what to do each session (exercise, machine, sets, reps,
-  target weight) with instruction visuals — walk in and follow it.
-- **Rolling adaptation**: a week is a *set of sessions to complete, not calendar
-  days*. Recomputed from real history on every app open. Adapts to skipped
-  sessions, "low energy today", "felt strong", and logged performance.
-- **One-tap machine swap** → equivalent exercise for the same muscle group.
-- **Monthly InBody scan** photo → vision extraction → trend tracking → feeds the
-  planner.
-- Local reminders to show up.
-
-Not a product for distribution. That's why every technical choice favours
-simplicity: no backend, no accounts, on-device storage, bring-your-own API key.
+- **App Name:** **PulseAI** (Proactive AI Fitness Coach)
+- **Working Branch:** `fitness-engine-v2`
+- **Simulator Target:** iPhone 17 Pro (`B29C47DD-D3FE-490C-9A84-3D9A32AFE68A`)
+- **Strict Invariant Rules:**
+  - *No commits, no push ever* without explicit user permission.
+  - Swift 6 Strict Concurrency + Native SwiftUI + SwiftData architecture.
 
 ---
 
-## 2. Current status
+## 1A. Session Progress — 2026-09-07
 
-| | |
-|---|---|
-| **Phase** | **Phase 1 (1a/1b/1c) + Phase 2a MERGED to `main`** (2a = PR #4, `1a0f75a`). **Phase 2b BUILT on branch `phase-2b-persistence-session-runner`** (data layer T1–6 + 5 runner screens T7–11 + wiring T12) — awaiting Varun's simulator acceptance + merge. App on the branch: onboarding → **AI-or-rule** weekly plan → plan view with a **"Start this session"** button → the **session runner** (Start / Focus / SessionList / RestTimer / Summary), set logging, per-exercise done/skip ticks, PR detection, feel capture, rule-engine finalisation; 4h abandon sweep on every app open. 8 new SwiftData `@Model`s (session/entry/set, bodyweight/checkin/observation, PR, coach-memory; container 4→12), `ModelSnapshotMapping` to/from the 2a value types, `SwiftDataMetricsRepository` (thin adapter over the tested in-memory repo). No AI in the session path yet. `FitnessCore` = **7 modules**, untouched in 2b. Tests: app **102** (96 Swift-Testing + 6 XCTest UI/launch), `FitnessCore` **126** — all green. Whole-branch Opus review returned "merge with fixes": 2 Critical + 6 Important all fixed in a 5-commit fix wave (worked-but-not-Done sets now count toward volume/PRs; summary notes flushed on Save; all-skipped → partial; finish()/start() idempotence; list-sheet dismissal; toSnapshot() ordering; orphan-session sweep on re-entry), scoped re-review clean. Parked: R9 (all-skipped skips the partial-confirm dialog — no data impact) + the nested-NavigationStack visual check — both in Varun's acceptance checklist. User-visible pages: **2c** (AI coach wiring), **2d** (history + coach-memory screen + pick-a-split). |
-| **Next action** | **Varun: run the Task 12 acceptance checklist** (in `.superpowers/sdd/2026-08-29-phase-2b-persistence-session-runner/task-12-report.md`), then merge `phase-2b-persistence-session-runner` → `main`. Then **Phase 2c — AI coach agents**: swap the LLM `finalize` path in behind `SessionFinalizer`, add the memory-keeper / analyst calls (`CoachMemoryModel` + its mapping already ship in 2b). Spec `docs/superpowers/specs/2026-08-29-phase-2-session-runner-design.md`. Carry `FitnessCore/README.md` follow-ups + 1c deferrals + the 2b deferrals (persisted rollup caches → 2d; real day-of-week mapping → Phase 3; rest-timer background notification → Phase 4); and the open R2–R5 items in `docs/superpowers/plans/2026-08-29-phase-2a-followups.md` (light-load clamp → fold into 2c, cosmetics). |
-| **Phase 1 split** | **1a** ✅ merged → **1b** ✅ merged → **1c** ✅ merged (PR #3, `99d2600`). Phase 1 done. |
-| **Repo** | `github.com/VarunMotiyani/fitness-tracker-ios` (public) |
-| **Branch** | `phase-2b-persistence-session-runner` (off `main` @ `1a0f75a`) — Phase 2b BUILT (T1–12), reviewed (Opus + fix wave, all green at `9923733`); awaiting Varun's simulator acceptance + merge. `main` still at `1a0f75a` (Phase 2a, PR #4). |
-| **Uncommitted** | Check `git status` — doc edits are often pending; the user controls when they're committed. |
-| **Toolchain** | Xcode 26.6 installed & active; iOS 26.5 simulator. `FitnessCore` no longer pins `swift-testing` (Xcode bundles it). App project = plain committed `.xcodeproj`, Xcode-16 synchronized groups (files auto-join targets by folder). |
-| **Xcode 26 gotchas (see `FitnessTracker/README.md`)** | App module defaults to `@MainActor` isolation → pure-logic helpers marked `nonisolated`. Trim "Designed for iPad" destinations or the local-package platform intersection goes empty (no run destinations). |
+This session focused on stabilizing the app’s navigation and AI-provider path.
 
----
+### Completed
 
-## 3. The docs (what's where)
+- Reworked the persistent bottom navigation to five equal slots: Home, Plan, centered Start, Stats, and Exercises. Coach remains available from Home’s top conversation control.
+- Added shared bottom-tab safe-area clearance to provider settings so the “Set as active” action is visible above the persistent bar.
+- Removed the manual Model ID input for Apple on-device profiles; Apple profiles now persist the OS-selected `"system"` model identifier.
+- Confirmed Apple Foundation Models support is implemented in the codebase. The iPhone simulator cannot run it because its Foundation Model assets are unavailable; validation requires a compatible physical Apple Intelligence device.
+- Diagnosed Groq/Qwen failures from simulator evidence: the endpoint and API key path reached Groq successfully, but the first request failed with HTTP 400 because descriptive app schemas were sent as strict `json_schema`. After switching to JSON Object Mode, Qwen returned a direct JSON object with a `message` field rather than the tool-loop envelope and `reply` field.
+- Updated the OpenAI-compatible adapter to use strict JSON Schema only when the supplied schema is strict-compatible, otherwise using JSON Object Mode with an explicit JSON-only instruction.
+- Updated tool-loop and Coach DTO decoding to accept direct final objects and Qwen’s `message` alias.
+- Preserved safe transport diagnostics in interactive Coach errors.
+- Verified the live Groq/Qwen path in the iPhone 17 Pro simulator: “Can you reply?” returned “Yeah, I’m here. What’s up?” ([live screenshot](/private/tmp/pulseai-qwen-working.png)).
+- Captured visual verification for the provider editor safe-area fix ([screenshot](/private/tmp/pulseai-provider-safe-area-fix.png)) and the final five-tab Home layout ([screenshot](/private/tmp/pulseai-final-verification.png)).
 
-| Doc | Contents |
-|-----|----------|
-| **HANDOFF.md** (this) | Entry point / full digest |
-| [00-overview.md](00-overview.md) | Problem, vision, goals/non-goals, builder & provider context, success criteria |
-| [01-brainstorm-summary.md](01-brainstorm-summary.md) | Every Q&A of the design conversation + reasoning behind each decision |
-| [02-product-design.md](02-product-design.md) | Behaviour: adaptation model, onboarding, InBody, session flow, feedback loop, notifications, **§9 model/cost/offline**, scope |
-| [03-technical-architecture.md](03-technical-architecture.md) | Stack, module boundaries, **full SwiftData data model**, catalog, rule engine, **§6 AI contract + LLMProvider**, **§6.5 token estimate**, validation, **§8 failure handling + §8.1 cost tracking**, testing, **§10 project structure** |
-| [04-roadmap-phases.md](04-roadmap-phases.md) | 4 phases, each independently usable, with "done when" criteria |
-| [05-open-questions.md](05-open-questions.md) | Undecided items (resolved ones struck through) |
-| [06-decisions.md](06-decisions.md) | **Terse decision register** — every settled choice in tables (P/A/C/D/R groups) |
-| [07-exercise-dataset-research.md](07-exercise-dataset-research.md) | Web research: exercise datasets compared, why `free-exercise-db` won |
-| [08-api-cost-analysis.md](08-api-cost-analysis.md) | LLM cost modelling by model class, levers, scenarios |
-| [09-tooling-skills-plugins.md](09-tooling-skills-plugins.md) | Claude Code skills/plugins to use, install, and build custom |
-| [superpowers/plans/](superpowers/plans/) | Implementation plans. **1a** = `2026-08-28-phase-1a-fitnesscore-foundation.md` (14 TDD tasks, no Xcode needed). |
+### Verification
 
----
+- `swift test --package-path FitnessCore --filter ToolLoopSchemaTests` — 6 tests passed.
+- Focused iOS tests for `AskCoachDTOTests`, `OpenAICompatibleProviderTests`, `ToolLoopRunnerTests`, and `ProviderProfileTests` passed.
+- The full repository test suite was not rerun in this session; verification stayed scoped to the changed paths.
 
-## 4. Key decisions (digest — full register in [06](06-decisions.md))
+## 2. Current Implementation State & Task Ledger
 
-### Product
-- **Hybrid coaching engine**: rule skeleton + AI personalization + rule clamps
-  (rejected AI-first as unpredictable, rules-only as losing the "adapts to me"
-  feel).
-- **No program picker.** User never names/manages a split; the engine decides,
-  may show a one-line "why".
-- Week = set of sessions, not calendar days; re-planned from history on every
-  open.
-- Three adaptation points: re-plan on open · pre-session energy/time check ·
-  post-session easy/right/brutal feedback + niggle notes.
-- Guardrails (rule layer): per-session load cap · weekly volume kept inside
-  landmark band · injury flags force-exclude exercises · rest gap between heavy
-  same-muscle sessions.
-- InBody: photo → vision extract → **user confirms numbers** → time series +
-  trend → feeds engine (stalled SMM → recovery/volume + nutrition flag;
-  segmental imbalance → bias unilateral).
-- v1 **excludes**: food/macro tracking, Apple Watch app, HealthKit sync, iCloud
-  sync, social, video content, multi-user.
-
-### Architecture
-- **Native Swift / SwiftUI**, iPhone only. Not React Native (no cross-platform
-  payoff for one user; on-device inference & Apple integrations are Swift-only;
-  keeps a future watchOS app possible with no rewrite).
-- **No backend.** All data on-device via **SwiftData**. AI calls go straight
-  from app to provider with the user's key in **Keychain**.
-- **Min deployment target: iOS 26** (user's iPhone 14 runs iOS 26).
-- **Project structure:** Xcode app target **+ local `FitnessCore` Swift package**
-  (RuleEngine, Validator, Catalog, LLM protocol) with no Apple-UI deps → fast
-  unit tests without a simulator.
-- **AI layer:** provider-agnostic `LLMProvider` protocol (`complete` +
-  `completeWithImage`). **Three adapters shipped**: `openAICompatible`, `gemini`,
-  `appleOnDevice`. Native `anthropic` is deferred — covered today via
-  `openAICompatible` against Anthropic's OpenAI-compatible endpoint (same for
-  Gemini-Vertex / AWS-Bedrock via their compat/proxy endpoints).
-- **User-managed `ProviderProfile`s** — the active model is a runtime-editable
-  profile (name, adapterKind, baseURL, key, modelID, vision flag, per-token
-  prices), NOT a build constant. New vendor/model = add/edit a profile, no app
-  update. `openAICompatible` covers most future vendors.
-- **Concrete provider/model is NOT chosen** — deferred research. Criteria:
-  reasoning quality, latency, cost/call. No seeded profile — the app runs on the
-  rule engine until the user adds a provider profile in Settings. See
-  [08](08-api-cost-analysis.md).
-- Consumer subscriptions (Gemini Pro, ChatGPT Go/Plus) **cannot** be used — no
-  API access. Free paths: Gemini API free tier, or on-device Foundation Models
-  (needs Apple-Intelligence hardware — NOT the iPhone 14; OK on a future 17 Pro).
-- **Validation layer** on every AI response (catalog-id, exclusions, load cap,
-  volume band, rest-gap, JSON decode) → fail → retry once with errors → fall
-  back to rule engine alone. User always gets a workout.
-- **Real-time cost metering**: one `AICallRecord` per call, `costUSD` from the
-  active profile's prices (frozen at write time). Always-visible month-to-date
-  `$` chip + after-generation one-liner (Phase 1); full Usage & Cost screen +
-  breakdown + sparkline (Phase 4).
-- **Budget**: optional `monthlyBudgetUSD`, 80%/100% warnings, `pauseAIWhenOver
-  Budget` toggle (default off) → at 100% switch to rule-engine-only until
-  rollover.
-- **Offline**: active plan + sessions in SwiftData → browse/run/log/manual-swap
-  all work offline; only generation/adjust/AI-swap need network (they queue).
-
-### Content
-- **Exercise catalog base = `yuhonas/free-exercise-db`** — ~873 exercises,
-  **Unlicense (public domain)**, static start/end JPGs. Most comprehensive
-  dataset that's genuinely free to bundle. Bigger animated-GIF sets (ExerciseDB
-  API ~$10–50+/mo, `hasaneyldrm`, MuscleWiki) are commercial/GymVisual media —
-  rejected; parked as a future one-time-licence **media-layer swap** (the
-  `Exercise` schema separates media refs from data for exactly this).
-- v1 catalog = curated **~100–150-exercise subset** remapped to the app's own
-  `Exercise` schema. Exact list TBD from Varun's equipment checklist.
-- `wger` (CC-BY-SA) is an attribution-required gap-filler if needed.
-- **Volume landmarks** seeded from **Renaissance Periodization MEV/MAV/MRV**
-  (weekly working-set counts per muscle × experience), stored as a config table,
-  tuned later from real logs. Purely a clamp on the AI.
-- Split templates encoded explicitly: full body, upper/lower, PPL, Arnold.
-
-### Delivery
-- **4 phases**, each independently usable:
-  1. **Give me a plan** — models, onboarding, catalog, rule-engine
-     templates+landmarks, three LLM adapters + user-managed profiles (no seeded
-     default), generation →
-     validation → fallback, cost metering + `$` chip, read-only plan view,
-     Settings (profile management), offline plan reads.
-  2. **Run my session & remember it** — session runner, set logging, rest timer,
-     pre-session check, feedback, history, real progression rule.
-  3. **Adapt to what happened** — rolling re-plan, week rollover, machine-occupied
-     swap (rule + AI), weekly adaptation / deload.
-  4. **InBody + nudges + polish** — scan ingestion + trend, engine signals from
-     InBody, local notifications, full Usage & Cost screen + budget cap, polish.
-- Don't start a phase until the previous runs on Varun's phone. Phase 4 may start
-  after Phase 2 if Phase 3 slips.
-- **Testing:** heavy unit coverage on RuleEngine + Validator (safety-critical);
-  mocked JSON for AI handling; recorded HTTP fixtures per adapter; cost-ledger
-  tests; mocked vision + real photos for InBody; SwiftData round-trip; manual
-  acceptance = real gym sessions.
+### A. Proactive AI Coaching & Progression Core (`FitnessCore`)
+- **`PlateMath.swift`**: Exact barbell plate calculations for Olympic (20kg/45lb), Women's (15kg/35lb), EZ bar (10kg/25lb), Trap bar (25kg/55lb), and Smith machines.
+- **`RecoveryModel.swift`**: \(1 - \exp(-\text{stimulus}/\text{REF})\) stimulus saturation curve, 36-hour exponential half-life fatigue decay, and `ready` / `recovering` / `fatigued` muscle status classifier.
+- **`ProgressionRule.swift`**: Linear progression (3-miss threshold before deload), double progression (rep ceiling climb then reset), Greyskull LP (AMRAP doubling double-jump), and automatic deload policies.
+- **`StreakCalculator.swift` & `WeekKey.swift`**: ISO-8601 / Sunday week start scanner, 520-week backward scan with grace periods, and weekly adherence rollups (`workoutsThisWeek`, `plannedPerWeek`, `totalWorkouts`). Single source of truth for Home and Stats.
+- **`Estimated1RM.swift`**: Epley, Brzycki, and Lombardi formulas capped at 12 reps, `series`, `best`, and `isRecord` detection.
+- **`EffortAnalyticsEngine.swift`**: 5-rated set minimum floor for summary statistics, weekly drop-below-2 rated sets filter, and hard set histogram (RIR 0..3 vs 4+).
+- **`SupersetFlow.swift` & `SetRowOps.swift`**: Superset unit grouping, step cycling, rest calculation (longest member), drop-sets, and rest-pause clusters.
+- **`SessionEntryBuilder.swift` & `BackfillOps.swift`**: Unified session entry construction for live start and past workout logging with chronological insert and replacement.
+- **`Notes.swift` & `Scheduling.swift`**: 3 distinct note tiers (plan instruction, standing note, pinned note), effective routine resolution, and next training day calculation.
+- **`CSVParser.swift` & `ExternalAppImporter.swift`**: RFC 4180 pure Swift CSV parser and multi-app importer auto-detecting **Hevy**, **Strong**, **FitNotes (iOS/Android)**, and generic CSV formats with unit conversion and session grouping.
+- **`AppleHealthXMLImporter.swift`**: SAX streaming XML parser extracting Apple Health body mass records.
+- **`MuscleBalanceModel.swift`**: 18 canonical muscle model with 40+ alias normalization map, 0.4 secondary volume weighting, body part distribution (`arms`, `deltoids`, `chest`, `back`, `legs`, `core`), load calculation, and workout ranking.
 
 ---
 
-## 5. Still open (non-blocking — see [05](05-open-questions.md))
-
-Curation list (needs equipment checklist) · image size budget · load estimation
-for brand-new lifts · progression cap numbers · deload trigger specifics ·
-**provider/model selection** · history window size · prompt storage (code vs
-bundled file) · `LLMProvider` surface confirmation · InBody sheet-format
-variance & sample photos · confidence threshold for manual entry · **app name**
-(placeholder "Fitness Tracker") · onboarding "won't do" list UX · notification
-defaults.
+### B. Navigation & Theme Engine (`FitnessTracker`)
+- **App Branding:** **PulseAI** header branding with personalized athlete greeting support.
+- **`GymTheme.swift` / `Theme.swift`**: True pitch black (`#000000`), elevated card surfaces (`#1c1c1e`), control surfaces (`#2c2c2e`), and dynamic reactive accent themes (`Lime`, `Cyan/Sky`, `Orange`, `Violet`, `Pink`, `Red`, `Teal`, `Gold`).
+- **`CustomTabBar.swift` & `RootView.swift`**: Persistent 5-tab bar with elevated center action button (`dumbbell.fill` FAB / `Start` / `Resume`), pulsing orange resume ring (`scaleEffect 1.0 -> 1.45`, `opacity 0.7 -> 0.0`, 1.9s ease-out) when a workout is active, `viewfade` tab-switch transition (`.opacity.combined(with: .offset(y: 4))`), and `list.bullet` Exercises icon.
+- **Inline Settings Navigation**: Settings is rendered directly within the `RootView` navigation hierarchy rather than presenting as a covering modal sheet, ensuring the bottom tab bar is permanently accessible and mounted.
 
 ---
 
-## 6. How to work on this project
-
-### Git — IMPORTANT
-- **Never `git commit` or `git push` without the user explicitly asking, every
-  time.** Prior approval does not carry forward. Make/save file edits freely,
-  then stop and report what's ready.
-- **No `Co-Authored-By` trailer** in commit messages (overrides global CLAUDE.md).
-- Repo: `github.com/VarunMotiyani/fitness-tracker-ios`. Machine-specific auth
-  setup (SSH keys, which GitHub account is default) is not documented here on
-  purpose — it varies by device. If a push fails, sort out credentials on that
-  machine; don't assume a particular account.
-
-### Environment
-- iPhone 14 on **iOS 26**, Apple Watch Series 10, iPhone 17 Pro planned.
-- **Xcode 26.6 installed & active** (`xcode-select -p` → `/Applications/Xcode.app/...`); iOS 26.5 simulator runtime present. Swift 6.3.3. Full Xcode bundles `Testing.framework` → the `swift-testing` package dep can be dropped from `FitnessCore` in Phase 1b.
-
-### Skills / plugins (see [09](09-tooling-skills-plugins.md) for the full list)
-- **Use now:** `superpowers:writing-plans` (next), `test-driven-development`,
-  `executing-plans`, `systematic-debugging`, `using-git-worktrees`,
-  `requesting-code-review`, `/security-review`, `claude-api` (for the AI layer).
-- **Install for the build:** XcodeBuildMCP (or Xcode 26.3+ built-in MCP) ·
-  `build-ios-apps` plugin · one SwiftUI skill pack (`dpearson2699/swift-ios-skills`
-  recommended).
-- **Build later (after Phase 1):** custom `fitness-core-conventions`,
-  `catalog-curation`, `phase-workflow` skills.
-- **Ignore:** all web-UI design skills, `python-pytest-ops`, `loop`, `schedule`.
-
-### Process
-Architectural brainstorm is **done**. The only next skill is
-`superpowers:writing-plans` → Phase 1 plan → then `executing-plans` /
-`subagent-driven-development` with review checkpoints. TDD throughout, especially
-RuleEngine + Validator.
+### C. Home Dashboard & Interactive Week Calendar
+- **`HomeView.swift`**:
+  - `PulseAI` headline with wide weekday/date header and outline `gearshape` settings button in circular badge.
+  - **Interactive 7-Day Week Strip**: Paginates weeks (`< This week >`), shows active day indicators, real-time 4-state status dots (Green = completed session, Orange = rescheduled/partial, Gray = planned, Clear = rest), and lets the user tap ANY day to open `DayOverrideSheet` or view completed workout details.
+  - **Dynamic Today Routine Card**: Displays planned focus (`Push Day`, `Pull Day`, `Legs Day`) with dynamic `COMPLETED TODAY` / `TODAY` status and `Redo` / `Start` pill buttons.
+  - **Body Weight Card**: Target goal badge (`🎯 77`), `+ Log` button, $40\text{pt}$ readout (`78.3 kg`), delta indicator, and chronologically sorted 30-day bezier curve chart.
+  - **Streak Card**: Orange flame badge, week streak counter, weekly completion count, and full-month calendar modal trigger.
 
 ---
 
-## 7. How we got here (chronology)
-
-1. Brainstormed the idea end-to-end (classified architectural; full Q&A).
-2. Chose the hybrid engine (Approach A) over AI-first / rules-only.
-3. Settled: no program picker, rolling plan, three adaptation points, guardrails.
-4. Added InBody scan analysis as a feature.
-5. Confirmed builder context (AI engineer, first iOS app) and that consumer
-   LLM subscriptions can't be used.
-6. Wrote docs 00–05.
-7. `git init`, first commit, pushed to the public repo.
-8. Resolved open questions: `free-exercise-db` (web research → doc 07), RP volume
-   landmarks, Xcode app + `FitnessCore` package, iOS 26 target.
-9. Chose native Swift over React Native.
-10. Added decision register (doc 06).
-11. Added API cost analysis (doc 08) after a token-volume estimate.
-12. Expanded the AI layer: user-managed `ProviderProfile`s, four planned adapters
-    (trimmed to three shipped in 1c — native `anthropic` deferred), real-time
-    cost metering, budget toggle, explicit offline guarantee.
-13. Researched skills/plugins (doc 09).
-14. Wrote this handoff doc.
-15. Split Phase 1 into 1a/1b/1c. Wrote the **Phase 1a** plan (`FitnessCore`
-    package, 14 TDD tasks) via `superpowers:writing-plans`.
-16. **Executed Phase 1a** via `superpowers:subagent-driven-development` on branch
-    `phase-1a-fitnesscore` — 14 tasks, fresh implementer + reviewer per task, one
-    fix loop (swift-testing dep), Opus final review. `FitnessCore` package: 5
-    modules, 35/35 tests, zero warnings. **PR #1 merged to `main` (`7f6deb3`).**
-17. Xcode 26.6 installed. **Executed Phase 1b** inline (`superpowers:executing-plans`)
-    on branch `phase-1b-app-shell` — 12 tasks: dropped the swift-testing dep,
-    created the `FitnessTracker` Xcode app, SwiftData models + `UserContext`
-    mapper, stub catalog + loader, plan generation (`PlanCoordinator` /
-    `PlanGeneration` — a `PlanService` scaffold that 1c replaced), the 7-step
-    onboarding flow, read-only plan view, root nav + Settings scaffold. App runs
-    the full flow (onboarding → plan → settings → start over) on the simulator;
-    12 app unit tests pass. **PR #2 merged to `main` (`274a29c`).**
-18. **Executed Phase 1c** on branch `phase-1c-ai-integration` — 17 tasks: added
-    `ProviderProfile` + `KeychainStore` (BYO keys), `AICallRecord` + cost math +
-    `CostSummary`, the `PlanPromptBuilder` / `WeeklyPlanDTO` / `planJSONSchema`,
-    three `LLMProvider` adapters (`OpenAICompatibleProvider` with
-    `response_format: json_schema`, `GeminiProvider` with `responseSchema`,
-    `FoundationModelsProvider` on-device) + `LLMProviderFactory`, the
-    `PlanCoordinator` (AI-generate → validate → retry-once → rule-engine
-    fallback, `WeeklyPlan.source` = `ai` / `ruleEngine` / `fallback`),
-    `generateAndStore` wiring, provider-profile management UI, and the real-time
-    cost UI (`$` chip + Settings → Usage + post-generation note). Deferred and
-    documented: budget cap + `pauseAIWhenOverBudget` toggle, native Anthropic /
-    Gemini-Vertex / AWS-Bedrock adapters, vision (`completeWithImage` throws
-    `.visionUnsupported` in every adapter). Task 17 = acceptance pass: app suite
-    32 Swift-Testing + 6 XCTest UI/launch green, `FitnessCore` 35/35 (untouched),
-    simulator smoke OK; interactive onboarding / add-provider / Regenerate
-    click-through left for Varun to run once. A whole-branch review on Opus then
-    one consolidated fix wave closed 2 Critical + 7 Important (Gemini schema
-    `additionalProperties` rejection, empty-`sessions` plan passing validation,
-    under-counted per-call cost ledger, on-device schema omission, silent
-    provider failures, missing in-flight guard, base-URL validation, `URLSession`
-    timeouts), followed by a scoped re-review. **PR #3 merged to `main`
-    (`99d2600`); merged result verified green; branch deleted.**
-19. **Phase 2a** — `FitnessCore` gains `Metrics` + `CoachMemory` modules,
-    `RuleEngine` extended with `ProgressionRule` + `FinalizeGuardrail`. Pure
-    engine, 126 package tests, no app screens. **PR #4 merged to `main`
-    (`1a0f75a`).**
-20. **2026-08-29 — Built Phase 2b** on branch
-    `phase-2b-persistence-session-runner` (persistence + session runner).
-    T1–6 = the data layer: 8 SwiftData `@Model`s (session/entry/set,
-    bodyweight/checkin/observation, PR, coach-memory) mapping to/from the 2a
-    value types via `ModelSnapshotMapping`, container schema 4→12,
-    `SwiftDataMetricsRepository` (thin adapter over the tested
-    `InMemoryMetricsRepository`), rule-engine `SessionFinalizer`, `@Observable
-    SessionRunner` (start / log-sets / tick-done / finish / PR-detection /
-    summary + a `resolveAbandoned` 4h abandon sweep). T7–11 = the five runner
-    SwiftUI screens (Start / Focus / SessionList / RestTimer / Summary) +
-    `SessionContainerView` router. **T12** = wired into the app: a "Start this
-    session" button on the `order == 0` session in `PlanView` →
-    `.navigationDestination` (driven off `session.id` — `PlannedSession` isn't
-    `Hashable`) → `SessionContainerView`, `onFinished` pops back;
-    `SessionRunner.resolveAbandoned(in: context, now: .now)` called once from
-    `RootView`'s existing catalog `.task`. No AI in the session path (Phase 2c).
-    Tests green: app **96** (90 Swift-Testing + 6 XCTest UI/launch),
-    `FitnessCore` **126** (untouched — regression check). Interactive simulator
-    acceptance = Varun's (checklist in
-    `.superpowers/sdd/2026-08-29-phase-2b-persistence-session-runner/task-12-report.md`).
-    Awaiting acceptance + merge.
+### D. Plan & Routine Manager
+- **`PlanView.swift`**:
+  - Large top title **"Plan"** (34pt bold) + subtitle **"Your weekly routine"** and top-right circular share button.
+  - Sentence-case headers: **"Week schedule"**, **"Routines"**, **"Weekly volume targets"**.
+  - 7-day schedule rendered as individual rounded cards with 8pt vertical spacing.
+  - **"+ New"** routine button styled in green-tinted rounded capsule.
+  - Split Routine Cards with icon, exercise count, and direct Start capsule.
+- **`RoutineModels.swift`**: `RoutineDraft`, `ExerciseConfig`, `StarterRoutines.ppl()`.
+- **`RoutineEditView.swift` & `DayAssignSheet.swift` & `ExerciseConfigSheet.swift` & `IconPickerSheet.swift` & `PlanShareSheet.swift`**: Full suite of routine authoring, exercise parameter customization, schedule assignment, equipment profile filtering on exercise catalog pickers, and JSON export/import.
 
 ---
 
-## 8. Gotchas for a fresh agent
+### E. Tactile Gym-Floor Workout Runner & Active Modifiers
+- **`SessionFocusView.swift`**:
+  - Top Session Header: `✕` close/minimize button, routine name (`Push Day`), live elapsed timer (`mm:ss`), total sets counter (`0/12 sets`), and `✓` finish workout button.
+  - Pinned total-set progress bar beneath header.
+  - Clean Media Stage with **"⤢ Expand"** pill opening `ExerciseMediaZoomSheet.swift`.
+  - Exercise Title (~28pt bold) + `ⓘ` info sheet + note pencil + plate math button.
+  - Meta Chips: `[Chest]` `[Barbell]` `[Best: 85.0 kg]`.
+  - "Last time" recap line: `🕒 Last time (30 Aug): 73.8×8, 73.8×8...`.
+  - "Why" autoregulation progression rationale banner.
+  - **"Make superset with next"** toggle button.
+  - **Exercise Swap**: Seamless swap sheet with muscle group & equipment profile filters and in-place active workout replacement via `SessionRunner.swapExercise`.
+  - **All-Sets Editable Table**: Every set (completed + upcoming planned) is an active row with `[− weight +]` `[− reps +]` `[− RIR +]` steppers and `○` check circle.
+  - Inline Set Actions: `🔥 Add warm-up set`, `− Remove set`, `+ Add set`.
+  - `WorkingWeightSheet.swift`: Post-exercise working-weight confirmation sheet with personal record detection.
+  - `RestTimerView.swift`: Rest countdown with warning tick (`1052`) on $\le 3\text{s}$, completion chime (`1005`) on zero, haptic pulses, and hook to flash overlay.
+  - `TimerFlashOverlay.swift`: Visual expiration $2.4\text{s}$ alternating 4-flash sequence (black/white) and `keepAwake` idle timer lock.
 
-- **Code now exists and ships.** Both the `FitnessTracker` Xcode app and the
-  `FitnessCore` Swift package are real and building — Phase 1a/1b/1c complete
-  (see §2). The numbered docs are the design record, not the whole project.
-- **Provider/model is deliberately unchosen.** Don't hardcode Gemini/OpenAI/
-  Anthropic anywhere; everything routes through `LLMProvider` + `ProviderProfile`.
-- **iPhone 14 is on iOS 26** but does **not** support Apple Intelligence →
-  on-device Foundation Models isn't available until the 17 Pro. Min target is
-  still iOS 26.
-- **Don't commit/push** unless asked in that turn.
-- The catalog's media is **static images**, not GIFs — by necessity (licensing),
-  with a documented paid-upgrade path.
-- `FitnessCore` package must stay **UI-framework-free** so it tests fast.
+---
+
+### F. Data Management, Multi-App Importers & Equipment Profiles
+- **`HevyAPIClient.swift` & `HevyAPISyncSheet.swift`**: Direct REST synchronization with Hevy Developer API (`api.hevyapp.com/v1/`) with real-time sync progress and SwiftData ingestion.
+- **`EquipmentModels.swift` & `EquipmentProfileSheet.swift`**: Equipment profile manager supporting named custom equipment environments (Commercial Gym, Home Dumbbells, Travel Hotel) and library/swap/picker filtering via `EquipmentFilter.isAvailable`.
+- **`HistoryExportManager.swift`**: Generates full RFC 4180 CSV workout logs and openGym-compatible complete JSON backup archives.
+- **`HistoryIngestionService.swift`**: SwiftData service mapping imported external sessions into `CompletedSessionModel`, `CompletedEntryModel`, `LoggedSetModel`, and `BodyweightEntryModel`.
+
+---
+
+### G. Stats, History & Exercises
+- **`ActivityHeatmapView.swift`**: 52-week horizontal grid aligned to week start with 5-level intensity gradient and "Less time / More time" legend.
+- **`InteractiveBodyMapView.swift`**: Interactive front/back anatomical body map powered by `MuscleBalanceModel` with precision volume set credits and status levels.
+- **`HistoryListView.swift`**: Complete history list with "＋ Log past workout" toolbar action wired to `BackfillEntryView.swift`.
+- **`LibraryView.swift` & `ExerciseDetailSheet.swift`**: 1,324 exercise catalog with equipment profile filtering, animated GIF players, and still illustration fallback.
+
+---
+
+## 3. Test Suite Verification
+
+The totals below are the last recorded full-suite baseline. The 2026-09-07 session intentionally used focused verification only.
+
+- **`FitnessCore`**: **201/201 tests passed (27 suites) in 0.007s**.
+- **`FitnessTrackerTests`**: **64/64 tests passed (16 suites) in 1.1s** on iOS Simulator.
+- **`FitnessTrackerUITests`**: **5/5 tests passed in 10.4s** on iOS Simulator.
+- **Total Tests**: **270 Automated Tests Passing 100%**.
+
+---
+
+## 4. What to Do Next
+
+1. **Live Activity & Lock Screen Dynamic Island**: Background rest timer countdown and live workout tracking for Dynamic Island (`ActivityKit`).
+2. **HealthKit Bi-Directional Sync**: Sync bodyweight and completed workouts with Apple Health.
+3. **Audio / Voice Coaching**: Spoken rest countdown and set completion cues.

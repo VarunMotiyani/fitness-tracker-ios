@@ -10,7 +10,7 @@ struct BundledCatalogTests {
         // The unit-test target is hosted by the app, so `Bundle.main` is the app bundle
         // where `catalog.json` is copied.
         let store = try BundledCatalog.load()
-        #expect(store.all.count == 20)
+        #expect(store.all.count >= 20)
 
         for muscle in [MuscleGroup.chest, .back, .quads, .hamstrings, .glutes,
                        .shoulders, .biceps, .triceps, .calves, .abs] {

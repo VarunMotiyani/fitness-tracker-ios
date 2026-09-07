@@ -37,6 +37,26 @@ public enum CoachSource: String, CaseIterable, Sendable, Codable, Equatable {
     case rule
 }
 
+public struct DropSetEntry: Sendable, Codable, Equatable {
+    public let loadKg: Double
+    public let reps: Int
+
+    public init(loadKg: Double, reps: Int) {
+        self.loadKg = loadKg
+        self.reps = reps
+    }
+}
+
+public struct RestPauseCluster: Sendable, Codable, Equatable {
+    public let reps: Int
+    public let restSeconds: Int
+
+    public init(reps: Int, restSeconds: Int = 15) {
+        self.reps = reps
+        self.restSeconds = restSeconds
+    }
+}
+
 public struct LoggedSetSnapshot: Sendable, Codable, Equatable {
     public let targetReps: Int
     public let targetLoadKg: Double?
@@ -50,8 +70,29 @@ public struct LoggedSetSnapshot: Sendable, Codable, Equatable {
     public let isDropSet: Bool
     public let toFailure: Bool
     public let assisted: Bool
+    public let drops: [DropSetEntry]
+    public let clusters: [RestPauseCluster]
+    public let heldSec: Int?
+    public let rir: Double?
 
-    public init(targetReps: Int, targetLoadKg: Double?, actualReps: Int, actualLoadKg: Double, startedAt: Date, completedAt: Date, restBeforeSec: Int, rpe: Double?, isWarmup: Bool, isDropSet: Bool, toFailure: Bool, assisted: Bool) {
+    public init(
+        targetReps: Int,
+        targetLoadKg: Double?,
+        actualReps: Int,
+        actualLoadKg: Double,
+        startedAt: Date,
+        completedAt: Date,
+        restBeforeSec: Int,
+        rpe: Double? = nil,
+        isWarmup: Bool = false,
+        isDropSet: Bool = false,
+        toFailure: Bool = false,
+        assisted: Bool = false,
+        drops: [DropSetEntry] = [],
+        clusters: [RestPauseCluster] = [],
+        heldSec: Int? = nil,
+        rir: Double? = nil
+    ) {
         self.targetReps = targetReps
         self.targetLoadKg = targetLoadKg
         self.actualReps = actualReps
@@ -64,6 +105,17 @@ public struct LoggedSetSnapshot: Sendable, Codable, Equatable {
         self.isDropSet = isDropSet
         self.toFailure = toFailure
         self.assisted = assisted
+        self.drops = drops
+        self.clusters = clusters
+        self.heldSec = heldSec
+        self.rir = rir
+    }
+
+    /// Normalized reps-in-reserve: returns `rir` if set, or converts `rpe` (10 - rpe)
+    public var effortRIR: Double? {
+        if let rir = rir { return rir }
+        if let rpe = rpe { return 10.0 - rpe }
+        return nil
     }
 }
 
@@ -75,9 +127,20 @@ public struct CompletedEntrySnapshot: Sendable, Codable, Equatable {
     public let wasSwappedFrom: String?
     public let feel: Feel?
     public let note: String?
+    public let notePin: Bool
     public let sets: [LoggedSetSnapshot]
 
-    public init(exerciseID: String, performedOrder: Int, state: EntryState, skipped: Bool, wasSwappedFrom: String?, feel: Feel?, note: String?, sets: [LoggedSetSnapshot]) {
+    public init(
+        exerciseID: String,
+        performedOrder: Int,
+        state: EntryState,
+        skipped: Bool,
+        wasSwappedFrom: String?,
+        feel: Feel?,
+        note: String?,
+        notePin: Bool = false,
+        sets: [LoggedSetSnapshot]
+    ) {
         self.exerciseID = exerciseID
         self.performedOrder = performedOrder
         self.state = state
@@ -85,13 +148,36 @@ public struct CompletedEntrySnapshot: Sendable, Codable, Equatable {
         self.wasSwappedFrom = wasSwappedFrom
         self.feel = feel
         self.note = note
+        self.notePin = notePin
         self.sets = sets
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case exerciseID, performedOrder, state, skipped, wasSwappedFrom, feel, note, notePin, sets
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.exerciseID = try container.decode(String.self, forKey: .exerciseID)
+        self.performedOrder = try container.decode(Int.self, forKey: .performedOrder)
+        self.state = try container.decode(EntryState.self, forKey: .state)
+        self.skipped = try container.decode(Bool.self, forKey: .skipped)
+        self.wasSwappedFrom = try container.decodeIfPresent(String.self, forKey: .wasSwappedFrom)
+        self.feel = try container.decodeIfPresent(Feel.self, forKey: .feel)
+        self.note = try container.decodeIfPresent(String.self, forKey: .note)
+        self.notePin = try container.decodeIfPresent(Bool.self, forKey: .notePin) ?? false
+        self.sets = try container.decode([LoggedSetSnapshot].self, forKey: .sets)
     }
 }
 
 public extension LoggedSetSnapshot {
     /// A set that genuinely contributes to metrics: not a warm-up, and actually performed.
     var isWorkingSet: Bool { !isWarmup && actualReps > 0 }
+    
+    /// Total intensity-weighted volume of drops on top of the main set.
+    var extraDropVolumeKg: Double {
+        drops.reduce(0.0) { $0 + ($1.loadKg * Double($1.reps)) }
+    }
 }
 
 public extension CompletedEntrySnapshot {
@@ -114,8 +200,25 @@ public struct CompletedSessionSnapshot: Sendable, Codable, Equatable {
     public let plannedSessionID: UUID?
     public let entries: [CompletedEntrySnapshot]
     public let overallNote: String?
+    public let excludeFromProgression: Bool
 
-    public init(id: UUID, date: Date, weekday: Int, timeOfDayMinutes: Int, plannedDurationMin: Int, actualDurationMin: Int, energy: EnergyRating, timeAvailableMin: Int, outcome: SessionOutcome, partialReason: PartialReason?, coachSource: CoachSource, plannedSessionID: UUID?, entries: [CompletedEntrySnapshot], overallNote: String?) {
+    public init(
+        id: UUID,
+        date: Date,
+        weekday: Int,
+        timeOfDayMinutes: Int,
+        plannedDurationMin: Int,
+        actualDurationMin: Int,
+        energy: EnergyRating,
+        timeAvailableMin: Int,
+        outcome: SessionOutcome,
+        partialReason: PartialReason?,
+        coachSource: CoachSource,
+        plannedSessionID: UUID?,
+        entries: [CompletedEntrySnapshot],
+        overallNote: String?,
+        excludeFromProgression: Bool = false
+    ) {
         self.id = id
         self.date = date
         self.weekday = weekday
@@ -130,6 +233,11 @@ public struct CompletedSessionSnapshot: Sendable, Codable, Equatable {
         self.plannedSessionID = plannedSessionID
         self.entries = entries
         self.overallNote = overallNote
+        self.excludeFromProgression = excludeFromProgression
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, date, weekday, timeOfDayMinutes, plannedDurationMin, actualDurationMin, energy, timeAvailableMin, outcome, partialReason, coachSource, plannedSessionID, entries, overallNote, excludeFromProgression
     }
 }
 

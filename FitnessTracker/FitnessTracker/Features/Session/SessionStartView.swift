@@ -25,6 +25,7 @@ struct SessionStartView: View {
                 header
                 energySection
                 timeSection
+                exerciseListSection
             }
             .padding()
         }
@@ -56,9 +57,14 @@ struct SessionStartView: View {
                     .font(.title3)
                     .foregroundStyle(.secondary)
             }
-            Text("\(planned.items.count) exercises  ·  ~\(estimatedMinutes) min")
+            Text("\(previewItems.count) exercises  ·  ~\(estimatedMinutes) min")
                 .font(.subheadline)
                 .foregroundStyle(.tertiary)
+            if previewItems.count < planned.items.count {
+                Text("Trimmed from \(planned.items.count) to fit \(minutes) min")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
         }
     }
 
@@ -159,12 +165,89 @@ struct SessionStartView: View {
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
+    // MARK: - Exercise List Preview
+
+    /// Everything the session will actually contain given the Energy/Time picked
+    /// above — see it before you commit, instead of finding out mid-workout.
+    private var exerciseListSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Exercises")
+                .font(.headline)
+            VStack(spacing: 0) {
+                ForEach(Array(previewItems.enumerated()), id: \.offset) { index, item in
+                    HStack(spacing: 12) {
+                        Text("\(index + 1)")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(catalog.exercise(id: item.exerciseID)?.name ?? item.exerciseID)
+                                .font(.subheadline.weight(.medium))
+                            Text("\(item.targetSets) sets · \(item.targetReps.min)–\(item.targetReps.max) reps")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 10)
+                    if index < previewItems.count - 1 {
+                        Divider()
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
+        }
+    }
+
     // MARK: - Estimate
 
+    /// Mirrors `SessionFinalizer`'s energy adjustment (`.beat` drops the last
+    /// isolation item, `.great` adds a set to the first compound item) and time
+    /// trim (drop trailing items until the estimate fits) so this preview shows the
+    /// same exercise count and duration that pressing Start will actually produce —
+    /// not a static number that ignores what you picked above.
+    private var previewItems: [PlannedItem] {
+        var items = planned.items
+        switch energy {
+        case .beat:
+            if let idx = items.lastIndex(where: {
+                (catalog.exercise(id: $0.exerciseID)?.mechanic ?? .unknown) == .isolation
+            }) {
+                items.remove(at: idx)
+            }
+        case .great:
+            if let idx = items.firstIndex(where: {
+                (catalog.exercise(id: $0.exerciseID)?.mechanic ?? .unknown) == .compound
+            }) {
+                let item = items[idx]
+                items[idx] = PlannedItem(
+                    exerciseID: item.exerciseID,
+                    targetSets: item.targetSets + 1,
+                    targetReps: item.targetReps,
+                    targetLoadKg: item.targetLoadKg,
+                    restSeconds: item.restSeconds,
+                    coachNote: item.coachNote
+                )
+            }
+        case .normal:
+            break
+        }
+        var estMin = estimatedMinutes(for: items)
+        while estMin > Double(minutes) && items.count > 1 {
+            items.removeLast()
+            estMin = estimatedMinutes(for: items)
+        }
+        return items
+    }
+
     /// Same formula the finalizer uses: 40s work + rest per set, summed, to minutes.
+    private func estimatedMinutes(for items: [PlannedItem]) -> Double {
+        items.reduce(0.0) { $0 + Double($1.targetSets) * (40 + Double($1.restSeconds)) } / 60
+    }
+
     private var estimatedMinutes: Int {
-        let seconds = planned.items.reduce(0.0) { $0 + Double($1.targetSets) * (40 + Double($1.restSeconds)) }
-        return Int((seconds / 60).rounded())
+        Int(estimatedMinutes(for: previewItems).rounded())
     }
 }
 

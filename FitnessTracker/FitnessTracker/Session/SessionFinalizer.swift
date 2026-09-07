@@ -18,9 +18,11 @@ nonisolated struct FinalizedSession: Sendable {
 
 /// Deterministic rule-engine session finalisation (spec §5.4): progression per
 /// exercise, then an energy trim, then a time trim. No AI, no network. This is
-/// the seam Phase 2c later swaps the AI `finalize` call into.
+/// the fallback `SessionFinalizeCoordinator` uses when no AI provider is
+/// configured, or when the AI's output fails `FinalizeGuardrail` twice —
+/// conforms to `SessionFinalizing` via the `extension` in `SessionFinalizing.swift`.
 @MainActor
-struct SessionFinalizer {
+struct RuleEngineFinalizer {
     private let catalog: CatalogStore
     private let repository: any MetricsRepository
 
@@ -61,12 +63,33 @@ struct SessionFinalizer {
             )
         }
 
-        // Step 2 — energy trim: `.beat` drops the last isolation item.
-        if energy == .beat,
-           let idx = items.lastIndex(where: {
-               (catalog.exercise(id: $0.exerciseID)?.mechanic ?? .unknown) == .isolation
-           }) {
-            items.remove(at: idx)
+        // Step 2 — energy adjustment. `.beat` drops the last isolation item (less
+        // capacity today). `.great` adds one set to the first compound item (extra
+        // capacity, spent where it counts most) — `.normal` is the baseline both
+        // sides adjust from, so it alone makes no change.
+        switch energy {
+        case .beat:
+            if let idx = items.lastIndex(where: {
+                (catalog.exercise(id: $0.exerciseID)?.mechanic ?? .unknown) == .isolation
+            }) {
+                items.remove(at: idx)
+            }
+        case .great:
+            if let idx = items.firstIndex(where: {
+                (catalog.exercise(id: $0.exerciseID)?.mechanic ?? .unknown) == .compound
+            }) {
+                let item = items[idx]
+                items[idx] = PlannedItem(
+                    exerciseID: item.exerciseID,
+                    targetSets: item.targetSets + 1,
+                    targetReps: item.targetReps,
+                    targetLoadKg: item.targetLoadKg,
+                    restSeconds: item.restSeconds,
+                    coachNote: item.coachNote
+                )
+            }
+        case .normal:
+            break
         }
 
         // Step 3 — time trim: drop trailing items until the estimate fits.

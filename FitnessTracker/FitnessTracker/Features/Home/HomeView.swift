@@ -1,0 +1,747 @@
+import SwiftUI
+import SwiftData
+import FitnessDomain
+import ExerciseCatalog
+import Metrics
+import LLMKit
+
+enum HomeSheetType: Identifiable {
+    case logWeight
+    case targetWeight
+    case calendar
+    case dailyCheckin
+    case weeklySummary
+    case dayOverride(Date)
+    case workoutDetail(CompletedSessionModel)
+
+    var id: String {
+        switch self {
+        case .logWeight: return "logWeight"
+        case .targetWeight: return "targetWeight"
+        case .calendar: return "calendar"
+        case .dailyCheckin: return "dailyCheckin"
+        case .weeklySummary: return "weeklySummary"
+        case .dayOverride(let d): return "dayOverride_\(d.timeIntervalSince1970)"
+        case .workoutDetail(let s): return "workoutDetail_\(s.id)"
+        }
+    }
+}
+
+struct HomeView: View {
+    @Environment(\.modelContext) private var context
+    let profile: UserProfile
+    let plan: WeeklyPlan
+    let catalog: CatalogStore
+    let costSummary: CostSummary
+    var onStartSession: (PlannedSession) -> Void
+    var onOpenSettings: () -> Void
+
+    @Query(sort: \CompletedSessionModel.startedAt, order: .reverse)
+    private var completedSessions: [CompletedSessionModel]
+    
+    @Query(sort: \BodyweightEntryModel.date, order: .reverse)
+    private var bodyweightEntries: [BodyweightEntryModel]
+
+    // Plain @Query + Swift-side filter, not a boolean #Predicate on `confirmed`
+    // — the same shape of predicate hung Settings/Root and Settings/Providers
+    // by thrashing CoreData's SQL generator (see SessionContainerView.swift's
+    // `activeProviderProfile` and docs/HANDOFF.md).
+    @Query private var allObservations: [ObservationModel]
+    private var pendingObservations: [ObservationModel] {
+        allObservations.filter { !$0.confirmed }
+    }
+
+    // Same plain @Query + Swift-side filter as `pendingObservations` above —
+    // a boolean #Predicate on `resolvedAt == nil` is the exact shape that hung
+    // Settings/Root and Settings/Providers earlier this project.
+    @Query private var allSuggestions: [PendingCoachSuggestion]
+    private var pendingSuggestions: [PendingCoachSuggestion] {
+        allSuggestions.filter { $0.resolvedAt == nil }
+    }
+
+    @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
+
+    // Most-recent generated weekly recap (Task 4 writes one row per ISO week).
+    // Drives the "This week" card, which only appears once a recap exists.
+    @Query(sort: \WeeklySummaryModel.weekStartDate, order: .reverse)
+    private var weeklySummaries: [WeeklySummaryModel]
+
+    // Same plain @Query + Swift-side filter as `SessionContainerView`'s
+    // `activeProviderProfile` — a #Predicate boolean filter here is what hung
+    // Settings/Root and Settings/Providers earlier this project.
+    @Query private var allProviderProfiles: [ProviderProfile]
+    private var activeProviderProfile: ProviderProfile? { allProviderProfiles.first { $0.isActive } }
+
+    // Plain @Query + Swift-side filter for unread coach notes — avoids boolean
+    // #Predicate on `readAt == nil` which would hang the app (same shape that
+    // hung Settings/Root and Settings/Providers earlier this project).
+    @Query(sort: \CoachNoteModel.createdAt, order: .reverse)
+    private var allCoachNotes: [CoachNoteModel]
+    private var unreadCoachNotes: [CoachNoteModel] {
+        allCoachNotes.filter { $0.readAt == nil }
+    }
+    private var chatProvider: (any LLMProvider)? {
+        activeProviderProfile.flatMap { try? LLMProviderFactory.make(from: $0) }
+    }
+
+    // Proactive-notification toggles (design spec §7). Same `proactive.settings.*`
+    // keys Settings writes and RootView reads; all default on.
+    @AppStorage("proactive.settings.daily") private var proactiveDailyOn: Bool = true
+    @AppStorage("proactive.settings.weekly") private var proactiveWeeklyOn: Bool = true
+    @AppStorage("proactive.settings.inbody") private var proactiveInBodyOn: Bool = true
+    @AppStorage("proactive.settings.checkin") private var proactiveCheckinOn: Bool = true
+    @AppStorage("proactive.settings.pattern") private var proactivePatternOn: Bool = true
+    @AppStorage("gym_reminder_hour") private var reminderHour: Int = 18
+    @AppStorage("gym_reminder_minute") private var reminderMinute: Int = 0
+
+    private var proactiveSettings: ProactiveSettings {
+        ProactiveSettings(
+            dailyOn: proactiveDailyOn, weeklyOn: proactiveWeeklyOn, inbodyOn: proactiveInBodyOn,
+            checkinOn: proactiveCheckinOn, patternOn: proactivePatternOn,
+            reminderHour: reminderHour, reminderMinute: reminderMinute)
+    }
+
+    /// Built the same way `SessionContainerView` builds its coordinators —
+    /// active `ProviderProfile` via plain `@Query` + `.first { $0.isActive }`,
+    /// provider via `try? LLMProviderFactory.make(from:)`.
+    private var proactiveCoordinator: ProactiveCoordinator {
+        ProactiveCoordinator(
+            context: context, catalog: catalog, provider: chatProvider,
+            activeProfile: activeProviderProfile, settings: proactiveSettings)
+    }
+
+    @State private var showChat = false
+
+    @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
+    private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
+
+    /// The same day→routine map `PlanView` writes (`0`=Monday…`6`=Sunday). Reading it here
+    /// is what lets the week strip tell a real rest day from a scheduled one that just
+    /// hasn't been trained yet, instead of guessing from weekday position.
+    @AppStorage("gym_week_schedule_json") private var scheduleJSON: String = ""
+    private var weekSchedule: [Int: UUID] {
+        guard let data = scheduleJSON.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([Int: UUID].self, from: data)
+        else { return [:] }
+        return decoded
+    }
+
+    @State private var weekOffset: Int = 0
+    @State private var activeSheet: HomeSheetType?
+    @State private var targetWeight: Double? = 77.0
+
+    init(
+        profile: UserProfile,
+        plan: WeeklyPlan,
+        catalog: CatalogStore,
+        costSummary: CostSummary,
+        onStartSession: @escaping (PlannedSession) -> Void,
+        onOpenSettings: @escaping () -> Void
+    ) {
+        self.profile = profile
+        self.plan = plan
+        self.catalog = catalog
+        self.costSummary = costSummary
+        self.onStartSession = onStartSession
+        self.onOpenSettings = onOpenSettings
+    }
+
+    private var todaySession: PlannedSession? {
+        plan.sessions.sorted { $0.order < $1.order }.first
+    }
+
+    /// A finished session that happened today, if any — drives the TODAY row's
+    /// completed/not-yet-done state.
+    private var todayCompletedSession: CompletedSessionModel? {
+        let cal = Calendar.isoUTC
+        return completedSessions.first { session in
+            guard session.finishedAt != nil else { return false }
+            return cal.isDateInToday(session.startedAt)
+        }
+    }
+
+    private var sessionDisplayName: String {
+        guard let today = todaySession else { return "Rest day" }
+        if today.order == 0 { return "Push Day" }
+        if today.order == 1 { return "Pull Day" }
+        if today.order == 2 { return "Legs Day" }
+        return today.focusMuscles.isEmpty ? "Workout" : today.focusMuscles.map(\.label).joined(separator: ", ")
+    }
+
+    private var currentWeight: Double {
+        bodyweightEntries.first?.kg ?? 78.7
+    }
+
+    private var prevWeight: Double? {
+        bodyweightEntries.count > 1 ? bodyweightEntries[1].kg : 78.3
+    }
+
+    private var weightDelta: Double? {
+        guard let prev = prevWeight else { return nil }
+        return currentWeight - prev
+    }
+
+    private var sessionSnapshots: [CompletedSessionSnapshot] {
+        completedSessions.map { $0.toSnapshot() }
+    }
+
+    private var streakSummary: StreakCalculator.Summary {
+        StreakCalculator.computeSummary(from: sessionSnapshots, plannedPerWeek: plan.sessions.count, now: .now)
+    }
+
+    private var chartPoints: [ChartDataPoint] {
+        if !bodyweightEntries.isEmpty {
+            return bodyweightEntries.suffix(30).map {
+                ChartDataPoint(date: $0.date, value: $0.kg)
+            }
+        }
+        let now = Date()
+        return [
+            ChartDataPoint(date: now.addingTimeInterval(-45*86400), value: 82.5),
+            ChartDataPoint(date: now.addingTimeInterval(-31*86400), value: 80.8),
+            ChartDataPoint(date: now.addingTimeInterval(-21*86400), value: 79.9),
+            ChartDataPoint(date: now.addingTimeInterval(-11*86400), value: 79.2),
+            ChartDataPoint(date: now.addingTimeInterval(-4*86400), value: 78.3),
+            ChartDataPoint(date: now, value: currentWeight)
+        ]
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                // Header: openGym + Date + Settings Gear
+                headerSection
+
+                // Pending AI-derived observations awaiting your review
+                ForEach(pendingObservations) { observation in
+                    PendingObservationCard(
+                        observation: observation,
+                        onAccept: {
+                            observation.confirmed = true
+                            try? context.save()
+                            if observation.kind == "bodyFatPercent" || observation.kind == "muscleMassKg" {
+                                proactiveCoordinator.resetInBodyReminder()
+                            }
+                        },
+                        onDismiss: {
+                            context.delete(observation)
+                            try? context.save()
+                        }
+                    )
+                }
+
+                // Pending AI-derived plan suggestions awaiting your review
+                // (Ask Coach proposals + coverage-gap detector).
+                ForEach(pendingSuggestions) { suggestion in
+                    SuggestionCard(
+                        suggestion: suggestion,
+                        catalog: catalog,
+                        onAccept: {
+                            guard let stored = plans.first else { return }
+                            do {
+                                try SuggestionApplier.apply(suggestion, storedPlan: stored, context: context)
+                                try context.save()
+                            } catch {
+                                // apply() throws before mutating `suggestion` on failure
+                                // (e.g. its target session ID is stale), so `resolvedAt`
+                                // stays nil and the card simply remains for another look
+                                // instead of vanishing with no visible effect.
+                                print("SuggestionCard: accept failed for \(suggestion.id): \(error)")
+                            }
+                        },
+                        onSkip: {
+                            SuggestionApplier.skip(suggestion, context: context)
+                            try? context.save()
+                        }
+                    )
+                }
+
+                // Unread proactive coach messages
+                ForEach(unreadCoachNotes) { note in
+                    CoachNoteCard(note: note, onDismiss: {
+                        note.readAt = .now
+                        try? context.save()
+                    })
+                }
+
+                // Week Strip Card + Nested Today Routine
+                weekStripCard
+
+                // This-week recap card (only once a WeeklySummaryModel exists)
+                if weeklySummaries.first != nil {
+                    thisWeekCard
+                }
+
+                // Body Weight Card + 30-Day Curve Chart
+                bodyWeightCard
+
+                // 1 Week Streak Card
+                streakCard
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 90) // Pad for custom tab bar
+        }
+        .background(GymTheme.bg.ignoresSafeArea())
+        .onAppear {
+            seedInitialDataIfNeeded()
+        }
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .logWeight:
+                LogWeightSheet(initialWeight: currentWeight) { newWeight in
+                    profile.weightKg = newWeight
+                }
+            case .targetWeight:
+                TargetWeightSheet(
+                    targetWeight: targetWeight,
+                    onSave: { newTarget in targetWeight = newTarget },
+                    onRemove: { targetWeight = nil }
+                )
+            case .calendar:
+                CalendarSheet(plan: plan, catalog: catalog)
+            case .dailyCheckin:
+                CheckinEntryView { checkin in
+                    Task { await proactiveCoordinator.reactToCheckin(checkin) }
+                }
+            case .weeklySummary:
+                WeeklySummaryView()
+            case .dayOverride(let date):
+                DayOverrideSheet(date: date, plan: plan) { _ in
+                    // Override selected
+                }
+            case .workoutDetail(let session):
+                WorkoutDetailSheet(session: session, catalog: catalog)
+            }
+        }
+        .sheet(isPresented: $showChat) {
+            ChatView(catalog: catalog, provider: chatProvider, activeProfile: activeProviderProfile, onClose: { showChat = false })
+        }
+    }
+
+    private func seedInitialDataIfNeeded() {
+        if bodyweightEntries.isEmpty {
+            let now = Date()
+            let cal = Calendar.isoUTC
+            let entriesData: [(daysAgo: Int, kg: Double)] = [
+                (0, 78.7),
+                (4, 78.3),
+                (7, 78.8),
+                (11, 79.2),
+                (21, 79.9),
+                (31, 80.8),
+                (45, 82.5)
+            ]
+            for item in entriesData {
+                let d = cal.date(byAdding: .day, value: -item.daysAgo, to: now) ?? now
+                context.insert(BodyweightEntryModel(date: d, kg: item.kg))
+            }
+            try? context.save()
+        }
+    }
+
+    // MARK: - Header Section
+
+    @ViewBuilder
+    private var headerSection: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("PulseAI")
+                    .font(.system(size: 34, weight: .bold))
+                    .foregroundStyle(GymTheme.label)
+
+                Text(Date().formatted(.dateTime.weekday(.wide).day().month(.wide)))
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(Color(white: 0.65))
+            }
+
+            Spacer()
+
+            // Daily Check-in Button (1-tap opens the check-in entry sheet)
+            Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
+                activeSheet = .dailyCheckin
+            } label: {
+                Image(systemName: "checklist")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Color(white: 0.70))
+                    .frame(width: 38, height: 38)
+                    .background(GymTheme.surface, in: Circle())
+            }
+            .buttonStyle(.plain)
+
+            // Ask Coach Button (1-tap opens the chat sheet)
+            Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
+                showChat = true
+            } label: {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Color(white: 0.70))
+                    .frame(width: 38, height: 38)
+                    .background(GymTheme.surface, in: Circle())
+            }
+            .buttonStyle(.plain)
+
+            // Settings Button (1-tap opens Settings)
+            Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
+                onOpenSettings()
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 17))
+                    .foregroundStyle(Color(white: 0.70))
+                    .frame(width: 38, height: 38)
+                    .background(GymTheme.surface, in: Circle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 12)
+    }
+
+    // MARK: - Week Strip Card
+
+    @ViewBuilder
+    private var weekStripCard: some View {
+        let cal = Calendar.isoUTC
+        let now = Date()
+        let baseMonday = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)) ?? now
+        let startOfWeek = cal.date(byAdding: .day, value: weekOffset * 7, to: baseMonday) ?? now
+
+        let sessionsByDate = Dictionary(grouping: completedSessions.filter { $0.finishedAt != nil }) {
+            cal.startOfDay(for: $0.startedAt)
+        }
+
+        VStack(spacing: 14) {
+            // Week navigation header
+            HStack {
+                Button {
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    weekOffset -= 1
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(GymTheme.label)
+                        .frame(width: 30, height: 30)
+                        .background(GymTheme.surface2, in: Circle())
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Text(weekOffset == 0 ? "This week" : (weekOffset == -1 ? "Last week" : (weekOffset == 1 ? "Next week" : "Week \(weekOffset)")))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(GymTheme.label)
+
+                Spacer()
+
+                Button {
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    weekOffset += 1
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(GymTheme.label)
+                        .frame(width: 30, height: 30)
+                        .background(GymTheme.surface2, in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Clickable Weekday circles (MO TU WE TH FR SA SU) - Exactly like openGym!
+            HStack(spacing: 0) {
+                ForEach(0..<7, id: \.self) { dayIndex in
+                    let dayDate = cal.date(byAdding: .day, value: dayIndex, to: startOfWeek) ?? startOfWeek
+                    let dayNum = cal.component(.day, from: dayDate)
+                    let dayName = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"][dayIndex]
+                    let isToday = cal.isDateInToday(dayDate)
+                    let trainedSessions = sessionsByDate[cal.startOfDay(for: dayDate)] ?? []
+                    let isTrained = !trainedSessions.isEmpty
+                    let isScheduledTrainingDay = weekSchedule[dayIndex] != nil
+
+                    Button {
+                        let generator = UIImpactFeedbackGenerator(style: .light)
+                        generator.impactOccurred()
+                        if let firstTrained = trainedSessions.first {
+                            activeSheet = .workoutDetail(firstTrained)
+                        } else {
+                            activeSheet = .dayOverride(dayDate)
+                        }
+                    } label: {
+                        VStack(spacing: 6) {
+                            Text(dayName)
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(Color(white: 0.50))
+
+                            ZStack {
+                                if isToday {
+                                    Circle()
+                                        .fill(activeAccent)
+                                        .frame(width: 32, height: 32)
+                                    Text("\(dayNum)")
+                                        .font(.system(size: 15, weight: .bold))
+                                        .foregroundStyle(.black)
+                                } else {
+                                    Text("\(dayNum)")
+                                        .font(.system(size: 15, weight: isTrained ? .bold : .medium))
+                                        .foregroundStyle(isTrained ? activeAccent : GymTheme.label)
+                                }
+                            }
+                            .frame(height: 32)
+
+                            // Status dot, derived from real state: accent = trained,
+                            // gray = a scheduled training day not trained yet, clear = rest day.
+                            Circle()
+                                .fill(isTrained ? activeAccent : (isScheduledTrainingDay ? Color(white: 0.40) : Color.clear))
+                                .frame(width: 4, height: 4)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Nested Today Routine Card (1-tap action) — reads as done/not-done from
+            // whether a session actually finished today, not a static label.
+            if let today = todaySession {
+                let isDoneToday = todayCompletedSession != nil
+
+                Button {
+                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                    generator.impactOccurred()
+                    onStartSession(today)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: isDoneToday ? "checkmark" : "figure.strengthtraining.traditional")
+                            .font(.system(size: 20))
+                            .foregroundStyle(.black)
+                            .frame(width: 40, height: 40)
+                            .background(activeAccent, in: RoundedRectangle(cornerRadius: 10))
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(isDoneToday ? "COMPLETED TODAY" : "TODAY")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(Color(white: 0.50))
+
+                            Text(sessionDisplayName)
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(GymTheme.label)
+                        }
+
+                        Spacer()
+
+                        Text(isDoneToday ? "Redo" : "Start")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(activeAccent)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(activeAccent.opacity(0.16), in: Capsule())
+                    }
+                    .padding(12)
+                    .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(16)
+        .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    // MARK: - This Week Card
+
+    @ViewBuilder
+    private var thisWeekCard: some View {
+        if let latest = weeklySummaries.first {
+            Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
+                activeSheet = .weeklySummary
+            } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: "calendar.badge.clock")
+                        .font(.system(size: 22))
+                        .foregroundStyle(.black)
+                        .frame(width: 44, height: 44)
+                        .background(activeAccent, in: RoundedRectangle(cornerRadius: 10))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("LAST WEEK")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Color(white: 0.50))
+                        Text(latest.headline)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(GymTheme.label)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(white: 0.45))
+                }
+                .padding(14)
+                .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Body Weight Card
+
+    @ViewBuilder
+    private var bodyWeightCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Header: Body weight | 🎯 77 | + Log
+            HStack {
+                Text("Body weight")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(Color(white: 0.60))
+
+                Spacer()
+
+                // Target weight button
+                Button {
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    activeSheet = .targetWeight
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "target")
+                            .font(.system(size: 13, weight: .bold))
+                        Text(targetWeight != nil ? String(format: "%.0f", targetWeight!) : "Goal")
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                    .foregroundStyle(GymTheme.gold)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(GymTheme.surface2, in: Capsule())
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Spacer().frame(width: 8)
+
+                // + Log Button (1-tap opens LogWeightSheet)
+                Button {
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    activeSheet = .logWeight
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("Log")
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                    .foregroundStyle(activeAccent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(activeAccent.opacity(0.16), in: Capsule())
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Weight Value + Delta + Date
+            HStack(alignment: .lastTextBaseline, spacing: 6) {
+                Text(String(format: "%.1f", currentWeight))
+                    .font(.system(size: 40, weight: .bold, design: .rounded))
+                    .foregroundStyle(GymTheme.label)
+
+                Text("kg")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Color(white: 0.60))
+
+                if let delta = weightDelta {
+                    Text("\(delta >= 0 ? "↑" : "↓") \(String(format: "%.1f", abs(delta)))")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(delta > 0 ? GymTheme.red : activeAccent)
+                }
+
+                Spacer()
+
+                Text("Mon 31 Aug")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color(white: 0.50))
+            }
+
+            // Target Subtitle
+            if let target = targetWeight {
+                let remaining = currentWeight - target
+                HStack(spacing: 6) {
+                    Image(systemName: "target")
+                        .font(.system(size: 12))
+                        .foregroundStyle(GymTheme.gold)
+
+                    Text("Goal \(String(format: "%.0f", target)) kg · \(String(format: "%.1f", abs(remaining))) kg to \(remaining >= 0 ? "lose" : "gain")")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(GymTheme.gold)
+                }
+                .padding(.top, 2)
+            }
+
+            // Bezier Curve Chart with Goal Line — themed to the active accent, like
+            // openGym's weight chart (`<LineChart>` defaults to `var(--acc)`).
+            OpenGymLineChart(
+                points: chartPoints,
+                goal: targetWeight,
+                lineColor: activeAccent
+            )
+            .padding(.top, 4)
+        }
+        .padding(16)
+        .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    // MARK: - Streak Card
+
+    @ViewBuilder
+    private var streakCard: some View {
+        Button {
+            let generator = UIImpactFeedbackGenerator(style: .light)
+            generator.impactOccurred()
+            activeSheet = .calendar
+        } label: {
+            HStack(spacing: 14) {
+                // Flame Icon
+                Image(systemName: "flame.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(GymTheme.orange)
+                    .frame(width: 44, height: 44)
+                    .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 10))
+
+                // Streak details
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(streakSummary.currentStreakWeeks) week streak")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(GymTheme.label)
+
+                    Text("\(streakSummary.workoutsThisWeek)/\(plan.sessions.count) this week · \(streakSummary.totalWorkouts) workouts total")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(Color(white: 0.60))
+                }
+
+                Spacer()
+
+                // Calendar Action Icon
+                Image(systemName: "calendar")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Color(white: 0.70))
+                    .frame(width: 32, height: 32)
+                    .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 8))
+            }
+            .padding(14)
+            .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+    }
+}

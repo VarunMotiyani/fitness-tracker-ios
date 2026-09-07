@@ -15,7 +15,7 @@ is **bundled into the app** and works **fully offline**, no backend
 | `wger` (wger-project) | ~845 | some images, few animations | **CC-BY-SA 3.0/4.0** (attribution + share-alike) | ⚠️ yes, with attribution + share-alike obligations |
 | `exercemus/exercises` | ~800+ | mixed | curated from wger + exercises.json, mixed permissive | ⚠️ depends on entry |
 | `hasaneyldrm/exercises-dataset` | 1,324 | **animated GIFs** + thumbnails (180×180), 10 languages | code/text MIT; **media © GymVisual**, "with permission" only | ❌ media needs a separate paid GymVisual licence |
-| **ExerciseDB** (`exercisedb.dev` / RapidAPI) | 11,000+ (many variations) | ~20k images, ~5k GIFs, ~15k videos | API code AGPL-3.0; **media proprietary**, hosted-API / hotlink model | ❌ API-access only; permanent caching/bundling not permitted |
+| **ExerciseDB** (`exercisedb.dev` / RapidAPI) | 11,000+ (many variations) | ~20k images, ~5k GIFs, ~15k videos | Hosted API model; **media proprietary** | ❌ API-access only; permanent caching/bundling not permitted |
 | MuscleWiki | large | high-quality video/GIF | proprietary; scraped copies on GitHub are unlicensed | ❌ |
 
 ### Notes on the count leader (ExerciseDB)

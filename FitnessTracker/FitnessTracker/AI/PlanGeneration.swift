@@ -3,6 +3,7 @@ import SwiftData
 import FitnessDomain
 import ExerciseCatalog
 import LLMKit
+import CoachMemory
 
 /// Outcome of a plan-generation attempt. Carries a user-facing `note` so the UI
 /// can tell "AI succeeded" / "validated then fell back" / "provider misconfigured"
@@ -52,12 +53,24 @@ func generateAndStore(context: UserContext,
         }
     }
 
+    let existingMemories = ((try? modelContext.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []).map { $0.toDomain() }
+    let recalled = MemoryRecall.select(from: existingMemories, context: RecallContext(), now: .now)
+
     let result = await PlanCoordinator(provider: provider, catalog: catalog)
-        .makePlan(context: context, weekStartDate: .now)
+        .makePlan(context: context, weekStartDate: .now, memoryDigest: recalled.digest)
 
     if let stored = try? StoredPlan(plan: result.plan,
                                     hadValidationIssues: !result.issues.isEmpty) {
+        // Resolve every currently-pending suggestion before inserting the new plan:
+        // it necessarily targeted the plan that's about to be superseded, and after
+        // regeneration `SuggestionApplier` can never find that `plannedSessionID` again.
+        let stalePending = (try? modelContext.fetch(FetchDescriptor<PendingCoachSuggestion>())) ?? []
+        for suggestion in stalePending where suggestion.resolvedAt == nil {
+            suggestion.resolvedAt = .now
+            suggestion.accepted = false
+        }
         modelContext.insert(stored)
+        CoverageGapDetector.detect(context: modelContext, catalog: catalog, storedPlan: stored)
     }
 
     // One AICallRecord per paid call actually made (call-granular ledger).
@@ -111,6 +124,8 @@ private func factoryErrorReason(_ error: Error) -> String {
     case .missingAPIKey: "missing API key"
     case .missingBaseURL: "missing base URL"
     case .invalidBaseURL: "invalid base URL"
+    case .missingRegion: "missing region"
+    case .malformedCredentials: "malformed credentials"
     case .none: "configuration error"
     }
 }

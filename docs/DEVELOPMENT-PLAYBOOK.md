@@ -16,9 +16,9 @@ Everything marked **[project]** is our local convention, not part of the base sk
 ```
 idea
  └─ brainstorming ........... one question at a time → 2–3 approaches → sectioned design
-      └─ SPEC  docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md   (committed)
+      └─ SPEC  docs/specs/YYYY-MM-DD-<topic>-design.md   (committed)
            └─ writing-plans ... File Structure first → bite-sized tasks with REAL code
-                └─ PLAN  docs/superpowers/plans/YYYY-MM-DD-<feature>.md   (committed)
+                └─ PLAN  docs/plans/YYYY-MM-DD-<feature>.md   (committed)
                      └─ subagent-driven-development
                           │  branch off main  +  ledger  +  pre-flight conflict scan
                           │
@@ -120,7 +120,7 @@ Skill: `superpowers:brainstorming`. Announce it. **Do not write code, scaffold, 
 
 ### 4.2 The spec document
 
-Path: `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`. Commit it.
+Path: `docs/specs/YYYY-MM-DD-<topic>-design.md`. Commit it.
 
 **[project] sections we use** (from the Phase 2 spec):
 
@@ -540,7 +540,7 @@ Every ruling is a ledger line. A silent discard is forbidden.
 ## 12. Cross-cutting: the Ledger format
 
 ```
-# SDD ledger — plan: docs/superpowers/plans/2026-08-30-phase-2c-i-ai-session-finalize.md
+# SDD ledger — plan: docs/plans/2026-08-30-phase-2c-i-ai-session-finalize.md
 
 Branch: phase-2c-i-ai-session-finalize
 BASE (plan commit): 0a27669…
@@ -571,7 +571,7 @@ Scan clean. / Ruling: …
 
 Deferred/parked items that must outlive the SDD run get a **committed** doc:
 
-`docs/superpowers/plans/YYYY-MM-DD-phase-<X>-followups.md`
+`docs/plans/YYYY-MM-DD-phase-<X>-followups.md`
 
 **[project] contents** (from `2026-08-29-phase-2a-followups.md`):
 
@@ -612,9 +612,9 @@ The whole-branch fix-wave brief also carries a `## CARRY FORWARD` section (§8.1
 
 | Path | What |
 |---|---|
-| `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` | spec (committed) |
-| `docs/superpowers/plans/YYYY-MM-DD-<feature>.md` | implementation plan (committed) |
-| `docs/superpowers/plans/YYYY-MM-DD-phase-<X>-followups.md` | carry-forwards (committed) |
+| `docs/specs/YYYY-MM-DD-<topic>-design.md` | spec (committed) |
+| `docs/plans/YYYY-MM-DD-<feature>.md` | implementation plan (committed) |
+| `docs/plans/YYYY-MM-DD-phase-<X>-followups.md` | carry-forwards (committed) |
 | `docs/HANDOFF.md` | living status — **read first**, updated every phase |
 | `docs/04-roadmap-phases.md` | phase roadmap |
 | `.superpowers/sdd/<plan-basename>/progress.md` | the ledger (gitignored) |
@@ -698,8 +698,8 @@ Subagent (general-purpose):
 
 ## 18. Worked example — Phase 2b, end to end
 
-1. **Spec** — `docs/superpowers/specs/2026-08-29-phase-2-session-runner-design.md` §3 (lifecycle), §5.4 (rule-engine finalisation), §6 (runner UI), §8.1 (typed core), §14 (2b bullet). Committed.
-2. **Plan** — `docs/superpowers/plans/2026-08-29-phase-2b-persistence-session-runner.md`, 12 tasks. Global Constraints: **app target only, FitnessCore frozen**; Xcode 26 `@MainActor` default; no AI/network; API keys untouched; plain commits; test gate = `xcodebuild test … -id=B29C47DD…` + `cd FitnessCore && swift test`.
+1. **Spec** — `docs/specs/2026-08-29-phase-2-session-runner-design.md` §3 (lifecycle), §5.4 (rule-engine finalisation), §6 (runner UI), §8.1 (typed core), §14 (2b bullet). Committed.
+2. **Plan** — `docs/plans/2026-08-29-phase-2b-persistence-session-runner.md`, 12 tasks. Global Constraints: **app target only, FitnessCore frozen**; Xcode 26 `@MainActor` default; no AI/network; API keys untouched; plain commits; test gate = `xcodebuild test … -id=B29C47DD…` + `cd FitnessCore && swift test`.
 3. **SDD** — branch `phase-2b-persistence-session-runner`, ledger created, pre-flight scan table written (clean).
 4. **Task loop** — 12 tasks, fresh implementer each (Sonnet for integration, Haiku for transcription), task review each. Rulings recorded inline (e.g. Ruling 2, 4, 8 above). Notable task-review catch: T6 `logSet` read the finalized item **positionally**, so targets were wrong after `reorder` → fixed to match by `exerciseID` (`fcd3f15`).
 5. **Whole-branch review** — dispatched on the most capable model. Verdict "merge WITH FIXES": **2 Critical + 6 Important**.

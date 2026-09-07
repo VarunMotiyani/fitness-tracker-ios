@@ -44,21 +44,29 @@ final class SessionRunner {
     private let modelContext: ModelContext
     private let catalog: CatalogStore
     private let repository: any MetricsRepository
-    private let finalizer: SessionFinalizer
+    private let finalizer: any SessionFinalizing
+    private let memoryKeeper: (any MemoryKeeperRunning)?
     private let now: () -> Date
 
     /// The outcome computed by `finish`, replayed by `closeSummary`.
     private var resolvedOutcome: SessionOutcome = .partial
 
+    /// Whether the currently-active session's plan came from the AI coach or
+    /// the deterministic rule-engine fallback — drives the "backup coach"
+    /// indicator (design spec §3).
+    private(set) var coachSource: CoachSource = .rule
+
     init(modelContext: ModelContext,
          catalog: CatalogStore,
          repository: any MetricsRepository,
-         finalizer: SessionFinalizer,
+         finalizer: any SessionFinalizing,
+         memoryKeeper: (any MemoryKeeperRunning)? = nil,
          now: @escaping () -> Date = { .now }) {
         self.modelContext = modelContext
         self.catalog = catalog
         self.repository = repository
         self.finalizer = finalizer
+        self.memoryKeeper = memoryKeeper
         self.now = now
     }
 
@@ -83,12 +91,14 @@ final class SessionRunner {
 
     // MARK: - Lifecycle
 
-    func start(planned: PlannedSession, energy: EnergyRating, timeAvailableMin: Int) {
+    func start(planned: PlannedSession, energy: EnergyRating, timeAvailableMin: Int) async {
         guard phase == .idle else { return }   // F4: no second CompletedSessionModel on a double-tap
         phase = .finalizing
 
-        let fin = finalizer.finalize(planned, energy: energy, timeAvailableMin: timeAvailableMin)
+        let result = await finalizer.finalize(planned, energy: energy, timeAvailableMin: timeAvailableMin)
+        let fin = result.session
         self.finalized = fin
+        self.coachSource = result.coachSource
 
         let ts = now()
         let cal = Calendar.isoUTC
@@ -109,6 +119,7 @@ final class SessionRunner {
             timeAvailableMin: timeAvailableMin,
             plannedSessionID: planned.id
         )
+        it.coachSourceRaw = result.coachSource.rawValue
         modelContext.insert(it)
 
         for (idx, item) in fin.session.items.enumerated() {
@@ -157,6 +168,20 @@ final class SessionRunner {
         entry.sets.append(set)
         entry.stateRaw = EntryState.inProgress.rawValue
         try? modelContext.save()
+    }
+
+    func removeLastSet(entryIndex: Int) {
+        let entries = orderedEntries
+        guard entries.indices.contains(entryIndex) else { return }
+        let entry = entries[entryIndex]
+        if !entry.sets.isEmpty {
+            let lastSet = entry.sets.removeLast()
+            modelContext.delete(lastSet)
+            if entry.sets.isEmpty {
+                entry.stateRaw = EntryState.notStarted.rawValue
+            }
+            try? modelContext.save()
+        }
     }
 
     func markDone(entryIndex: Int) {
@@ -227,6 +252,13 @@ final class SessionRunner {
         lastSessionPRs = new
         resolvedOutcome = outcome
         phase = .summary
+
+        // Fire-and-forget: never blocks the transition to .summary above. A
+        // finished/failed/skipped call is always a silent, valid outcome.
+        if let memoryKeeper {
+            let snapshot = session.toSnapshot()
+            Task { await memoryKeeper.run(session: snapshot) }
+        }
     }
 
     func closeSummary() {
@@ -239,6 +271,32 @@ final class SessionRunner {
     func requestSummary() {
         guard phase == .active else { return }
         phase = .summary
+    }
+
+    /// Mid-session exercise swap. If the entry has no logged work, replaces in place.
+    /// If work was already logged, inserts the replacement as the next entry.
+    func swapExercise(at index: Int, to newExerciseID: String) {
+        let entries = orderedEntries
+        guard entries.indices.contains(index) else { return }
+        let current = entries[index]
+        let originalID = current.exerciseID
+
+        if !current.sets.contains(where: { $0.actualReps > 0 }) {
+            current.exerciseID = newExerciseID
+            current.wasSwappedFrom = originalID
+        } else {
+            guard let session else { return }
+            let replacement = CompletedEntryModel(exerciseID: newExerciseID, performedOrder: current.performedOrder + 1)
+            replacement.wasSwappedFrom = originalID
+            replacement.session = session
+            modelContext.insert(replacement)
+            session.entries.append(replacement)
+
+            for other in session.entries where other !== replacement && other.performedOrder > current.performedOrder {
+                other.performedOrder += 1
+            }
+        }
+        try? modelContext.save()
     }
 
     // MARK: - Abandoned-session sweep

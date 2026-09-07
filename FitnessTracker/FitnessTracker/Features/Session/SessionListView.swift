@@ -3,6 +3,13 @@ import SwiftData
 import FitnessDomain
 import ExerciseCatalog
 import Metrics
+import LLMKit
+
+private struct SwapTarget: Identifiable {
+    let index: Int
+    let exercise: Exercise
+    var id: Int { index }
+}
 
 /// The "jump around" sheet for a live session: every finalized entry with a
 /// state dot, tap-to-focus, drag-to-reorder, swipe-to-skip, and a "Finish
@@ -15,6 +22,17 @@ struct SessionListView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var showPartialConfirm = false
+    @State private var swapTarget: SwapTarget?
+    @State private var showChat = false
+
+    // Same plain @Query + Swift-side filter as `SessionContainerView`'s
+    // `activeProviderProfile` — a #Predicate boolean filter here is what hung
+    // Settings/Root and Settings/Providers earlier this project.
+    @Query private var allProviderProfiles: [ProviderProfile]
+    private var activeProviderProfile: ProviderProfile? { allProviderProfiles.first { $0.isActive } }
+    private var chatProvider: (any LLMProvider)? {
+        activeProviderProfile.flatMap { try? LLMProviderFactory.make(from: $0) }
+    }
 
     private var entries: [CompletedEntryModel] { runner.entriesInOrder }
 
@@ -45,10 +63,20 @@ struct SessionListView: View {
             .navigationTitle("Session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showChat = true
+                    } label: {
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) { EditButton() }
             }
             .safeAreaInset(edge: .bottom) {
                 finishButton
+            }
+            .sheet(isPresented: $showChat) {
+                ChatView(catalog: catalog, provider: chatProvider, activeProfile: activeProviderProfile, onClose: { showChat = false })
             }
             .confirmationDialog(
                 "\(doneCount) of \(entries.count) done",
@@ -58,6 +86,11 @@ struct SessionListView: View {
                 Button("Finish as partial", role: .destructive) { dismiss(); onFinish() }
                 Button("Cancel", role: .cancel) {}
             }
+            .sheet(item: $swapTarget) { target in
+                ExerciseSwapSheet(currentExercise: target.exercise, catalog: catalog) { replacement, _, _ in
+                    runner.swapExercise(at: target.index, to: replacement.id)
+                }
+            }
         }
     }
 
@@ -65,20 +98,26 @@ struct SessionListView: View {
 
     @ViewBuilder
     private func row(index: Int, entry: CompletedEntryModel) -> some View {
+        let exercise = catalog.exercise(id: entry.exerciseID)
         Button {
             runner.currentEntryIndex = index
             dismiss()
         } label: {
             HStack(spacing: 12) {
-                Circle()
-                    .fill(stateColor(entry))
-                    .frame(width: 10, height: 10)
+                ExerciseThumbnailView(exercise: exercise, size: 44, cornerRadius: 8)
+                    .overlay(alignment: .bottomTrailing) {
+                        Circle()
+                            .fill(stateColor(entry))
+                            .frame(width: 12, height: 12)
+                            .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 2))
+                            .offset(x: 3, y: 3)
+                    }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(catalog.exercise(id: entry.exerciseID)?.name ?? entry.exerciseID)
+                    Text(exercise?.name ?? entry.exerciseID)
                         .font(.body)
                         .foregroundStyle(.primary)
-                    Text("\(entry.sets.count) sets")
+                    Text(entry.sets.count == 1 ? "1 set" : "\(entry.sets.count) sets")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -98,6 +137,13 @@ struct SessionListView: View {
         .swipeActions(edge: .trailing) {
             Button("Skip") { runner.markSkipped(entryIndex: index) }
                 .tint(.orange)
+            // Only offer a substitute for exercises you haven't started — swapping
+            // one you've already logged sets against would orphan that history.
+            if EntryState(rawValue: entry.stateRaw) != .done, entry.sets.isEmpty,
+               let exercise = catalog.exercise(id: entry.exerciseID) {
+                Button("Substitute") { swapTarget = SwapTarget(index: index, exercise: exercise) }
+                    .tint(.blue)
+            }
         }
     }
 

@@ -84,14 +84,20 @@ final class LoggedSetModel {
     var completedAt: Date
     var restBeforeSec: Int
     var rpe: Double?
+    var rir: Double?
+    var heldSec: Int?
     var isWarmup: Bool
     var isDropSet: Bool
     var toFailure: Bool
     var assisted: Bool
+    var dropsJSON: String
+    var clustersJSON: String
     var entry: CompletedEntryModel?
 
     init(targetReps: Int, targetLoadKg: Double?, actualReps: Int, actualLoadKg: Double,
-         startedAt: Date, completedAt: Date, restBeforeSec: Int) {
+         startedAt: Date, completedAt: Date, restBeforeSec: Int,
+         rpe: Double? = nil, rir: Double? = nil, heldSec: Int? = nil,
+         isWarmup: Bool = false, isDropSet: Bool = false, toFailure: Bool = false, assisted: Bool = false) {
         self.targetReps = targetReps
         self.targetLoadKg = targetLoadKg
         self.actualReps = actualReps
@@ -99,10 +105,14 @@ final class LoggedSetModel {
         self.startedAt = startedAt
         self.completedAt = completedAt
         self.restBeforeSec = restBeforeSec
-        self.rpe = nil
-        self.isWarmup = false
-        self.isDropSet = false
-        self.toFailure = false
-        self.assisted = false
+        self.rpe = rpe
+        self.rir = rir
+        self.heldSec = heldSec
+        self.isWarmup = isWarmup
+        self.isDropSet = isDropSet
+        self.toFailure = toFailure
+        self.assisted = assisted
+        self.dropsJSON = "[]"
+        self.clustersJSON = "[]"
     }
 }

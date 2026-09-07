@@ -192,6 +192,23 @@ import Metrics
         #expect(sut.observations(kind: "bodyweight", since: date(2026, 2, 10)).isEmpty)
     }
 
+    @Test func unconfirmedObservationExcludedFromRead() throws {
+        let cont = try container()
+        let ctx = ModelContext(cont)
+        let confirmed = ObservationModel(kind: "bodyweight", value: 80.5, unit: "kg", timestamp: date(2026, 2, 3))
+        let unconfirmed = ObservationModel(kind: "bodyweight", value: 999, unit: "kg", timestamp: date(2026, 2, 4))
+        unconfirmed.confirmed = false
+        ctx.insert(confirmed)
+        ctx.insert(unconfirmed)
+        try ctx.save()
+
+        let sut = SwiftDataMetricsRepository(context: ctx, catalog: catalog(), plannedSessionsPerWeek: 3)
+        let results = sut.observations(kind: "bodyweight", since: nil)
+
+        #expect(results.count == 1)
+        #expect(results[0].value == 80.5)
+    }
+
     // MARK: - personalRecords: persisted rows, not a re-derivation
 
     @Test func personalRecordsReturnsPersistedRows() throws {

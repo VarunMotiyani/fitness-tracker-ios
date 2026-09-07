@@ -29,4 +29,11 @@ public struct Exercise: Codable, Sendable, Equatable, Identifiable {
         self.instructions = instructions
         self.imagePaths = imagePaths
     }
+
+    /// The animated-demo path in `imagePaths`, if the catalog entry has one (a static
+    /// thumbnail and a `.gif` demo are both listed for most bundled exercises; custom,
+    /// user-created exercises have neither).
+    public var gifImagePath: String? {
+        imagePaths.first { $0.lowercased().hasSuffix(".gif") }
+    }
 }

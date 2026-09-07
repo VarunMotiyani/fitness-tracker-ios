@@ -41,13 +41,39 @@ private let sampleJSON = """
 }
 
 @Test func unknownEquipmentBecomesOther() throws {
+    // "foam roll" is deliberately not used here — it now maps to `.roller`, along with
+    // the rest of the Gym Visual / free-exercise-db equipment vocabulary (see
+    // `FreeExerciseDBMapper.equipment`). This exercises a string neither dataset uses.
     let json = """
-    {"name":"Foam Roll IT Band","level":"beginner","equipment":"foam roll",
-     "primaryMuscles":["quadriceps"],"secondaryMuscles":[],"instructions":[],
-     "category":"stretching","images":[]}
+    {"name":"Bungee Resistance Curl","level":"beginner","equipment":"resistance bungee",
+     "primaryMuscles":["biceps"],"secondaryMuscles":[],"instructions":[],
+     "category":"strength","images":[]}
     """.data(using: .utf8)!
     let raw = try JSONDecoder().decode(RawFreeExerciseDBExercise.self, from: json)
     let ex = try #require(FreeExerciseDBMapper.map(raw))
     #expect(ex.equipment == .other)
     #expect(ex.force == nil)
+}
+
+@Test("Expanded equipment vocabulary maps to its own case, not the generic bucket",
+      arguments: [
+        ("leverage machine", Equipment.leverageMachine),
+        ("smith machine", Equipment.smithMachine),
+        ("sled machine", Equipment.sled),
+        ("stability ball", Equipment.stabilityBall),
+        ("exercise ball", Equipment.stabilityBall),
+        ("bosu ball", Equipment.stabilityBall),
+        ("medicine ball", Equipment.medicineBall),
+        ("rope", Equipment.rope),
+        ("roller", Equipment.roller),
+        ("wheel roller", Equipment.roller),
+        ("foam roll", Equipment.roller),
+        ("weighted", Equipment.bodyweight),
+        ("resistance band", Equipment.bands),
+        ("upper body ergometer", Equipment.cardioMachine),
+        ("stationary bike", Equipment.cardioMachine),
+        ("elliptical machine", Equipment.cardioMachine),
+      ])
+func expandedEquipmentMapsToItsOwnCase(raw: String, expected: Equipment) {
+    #expect(FreeExerciseDBMapper.equipment(raw) == expected)
 }

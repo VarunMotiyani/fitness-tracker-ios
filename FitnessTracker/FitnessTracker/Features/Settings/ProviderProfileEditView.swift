@@ -7,8 +7,14 @@ extension AdapterKind {
         case .openAICompatible: "OpenAI-compatible"
         case .gemini: "Gemini"
         case .appleOnDevice: "On-device (Apple)"
+        case .vertexAI: "Vertex AI (GCP)"
+        case .bedrock: "Bedrock (AWS)"
         }
     }
+}
+
+enum ProviderProfileEditLayoutMetrics {
+    static let persistentBottomBarClearance = 80
 }
 
 /// Create (`profile == nil`) or edit a single ``ProviderProfile``.
@@ -45,7 +51,27 @@ struct ProviderProfileEditView: View {
     private var isEditing: Bool { profile != nil }
 
     private var showsAPIKeyField: Bool {
-        kind == .openAICompatible || kind == .gemini
+        kind != .appleOnDevice
+    }
+
+    private var showsModelIDField: Bool {
+        kind != .appleOnDevice
+    }
+
+    private var showsBaseURLField: Bool {
+        kind == .openAICompatible || kind == .vertexAI || kind == .bedrock
+    }
+
+    private var baseURLFieldLabel: String {
+        kind == .bedrock ? "Region (e.g. us-east-1)" : "Base URL"
+    }
+
+    private var apiKeyFieldLabel: String {
+        switch kind {
+        case .gemini, .vertexAI: "API key"
+        case .bedrock: "Credentials JSON"
+        default: "API key (optional)"
+        }
     }
 
     var body: some View {
@@ -57,24 +83,37 @@ struct ProviderProfileEditView: View {
                         Text(k.label).tag(k)
                     }
                 }
-                TextField("Model ID", text: $modelID)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                if kind == .openAICompatible {
-                    TextField("Base URL", text: $baseURL)
+                if showsModelIDField {
+                    TextField("Model ID", text: $modelID)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .keyboardType(.URL)
+                } else {
+                    LabeledContent("Model") {
+                        Text("Apple system model")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if showsBaseURLField {
+                    TextField(baseURLFieldLabel, text: $baseURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(kind == .bedrock ? .default : .URL)
                 }
             }
 
             if showsAPIKeyField {
                 Section {
-                    SecureField(kind == .gemini ? "API key" : "API key (optional)", text: $apiKey)
+                    SecureField(apiKeyFieldLabel, text: $apiKey)
                     if isEditing, profile?.apiKeyRef != nil {
                         Text("A key is already stored. Leave blank to keep it.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    if kind == .bedrock {
+                        Text("{\"accessKeyId\":\"...\",\"secretAccessKey\":\"...\",\"sessionToken\":\"...\"} — sessionToken optional.")
+                    } else if kind == .vertexAI {
+                        Text("A short-lived OAuth2 access token (e.g. from `gcloud auth print-access-token`) — expires roughly hourly and needs re-pasting here when it does.")
                     }
                 }
             }
@@ -109,6 +148,9 @@ struct ProviderProfileEditView: View {
         }
         .navigationTitle(isEditing ? "Edit Provider" : "New Provider")
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: CGFloat(ProviderProfileEditLayoutMetrics.persistentBottomBarClearance))
+        }
         .alert("Couldn't save the API key", isPresented: Binding(
             get: { keychainError != nil },
             set: { if !$0 { keychainError = nil } })) {
@@ -125,7 +167,7 @@ struct ProviderProfileEditView: View {
     }
 
     private func save() {
-        let resolvedBaseURL = (kind == .openAICompatible && !baseURL.trimmingCharacters(in: .whitespaces).isEmpty)
+        let resolvedBaseURL = (showsBaseURLField && !baseURL.trimmingCharacters(in: .whitespaces).isEmpty)
             ? baseURL.trimmingCharacters(in: .whitespaces)
             : nil
 
@@ -134,7 +176,7 @@ struct ProviderProfileEditView: View {
             target = profile
             target.displayName = displayName
             target.adapterKindRaw = kind.rawValue
-            target.modelID = modelID
+            target.modelID = kind == .appleOnDevice ? "system" : modelID
             target.baseURL = resolvedBaseURL
             target.supportsVision = supportsVision
             target.pricePerMTokIn = priceIn

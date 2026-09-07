@@ -77,7 +77,7 @@ import Metrics
     // MARK: - Assertions
 
     @Test func progressionAppliedNoTrimUnderGenerousTime() {
-        let finalizer = SessionFinalizer(catalog: catalog(), repository: repository())
+        let finalizer = RuleEngineFinalizer(catalog: catalog(), repository: repository())
         let result = finalizer.finalize(plannedSession([benchItem(), flyItem()]),
                                         energy: .normal, timeAvailableMin: 999)
 
@@ -88,7 +88,7 @@ import Metrics
     }
 
     @Test func beatEnergyDropsTheLastIsolationItem() {
-        let finalizer = SessionFinalizer(catalog: catalog(), repository: repository())
+        let finalizer = RuleEngineFinalizer(catalog: catalog(), repository: repository())
         let result = finalizer.finalize(plannedSession([benchItem(), flyItem()]),
                                         energy: .beat, timeAvailableMin: 999)
 
@@ -98,7 +98,7 @@ import Metrics
     }
 
     @Test func tightTimeTrimsTrailingItems() {
-        let finalizer = SessionFinalizer(catalog: catalog(), repository: repository())
+        let finalizer = RuleEngineFinalizer(catalog: catalog(), repository: repository())
         let result = finalizer.finalize(plannedSession([benchItem(), flyItem()]),
                                         energy: .normal, timeAvailableMin: 5)
 
@@ -106,7 +106,7 @@ import Metrics
     }
 
     @Test func noHistoryKeepsNilLoadAndHoldRationale() {
-        let finalizer = SessionFinalizer(catalog: catalog(), repository: repository())
+        let finalizer = RuleEngineFinalizer(catalog: catalog(), repository: repository())
         let curl = PlannedItem(exerciseID: "curl", targetSets: 3, targetReps: RepRange(min: 8, max: 12),
                                targetLoadKg: nil, restSeconds: 60, coachNote: "")
         let result = finalizer.finalize(plannedSession([benchItem(), curl]),

@@ -1,4 +1,5 @@
 import SwiftUI
+import AudioToolbox
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -16,6 +17,8 @@ final class RestTimer {
     private(set) var total: Int = 0
     /// Wall-clock moment the current countdown began — drives `elapsed`.
     private(set) var startedAt: Date?
+    /// Callback invoked when timer hits zero.
+    var onComplete: (() -> Void)?
 
     private var timer: Timer?
 
@@ -50,7 +53,8 @@ final class RestTimer {
         if remaining == 0 {
             isRunning = false
             stopTimer()
-            fireCompletionHaptic()
+            fireCompletionFeedback()
+            onComplete?()
         } else if !isRunning {
             isRunning = true
             scheduleTimer()
@@ -74,11 +78,15 @@ final class RestTimer {
             return
         }
         remaining -= 1
+        if remaining > 0 && remaining <= 3 {
+            fireWarningSound()
+        }
         if remaining <= 0 {
             remaining = 0
             isRunning = false
             stopTimer()
-            fireCompletionHaptic()
+            fireCompletionFeedback()
+            onComplete?()
         }
     }
 
@@ -98,7 +106,20 @@ final class RestTimer {
         timer = nil
     }
 
-    private func fireCompletionHaptic() {
+    private func isSoundEnabled() -> Bool {
+        UserDefaults.standard.object(forKey: "gym_sound") as? Bool ?? true
+    }
+
+    private func fireWarningSound() {
+        if isSoundEnabled() {
+            AudioServicesPlaySystemSound(1052)
+        }
+    }
+
+    private func fireCompletionFeedback() {
+        if isSoundEnabled() {
+            AudioServicesPlaySystemSound(1005)
+        }
         // TODO(phase4): local notification when backgrounded
         #if canImport(UIKit)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
