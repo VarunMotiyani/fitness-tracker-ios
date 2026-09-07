@@ -49,8 +49,10 @@ nonisolated enum LLMProviderFactory {
     @MainActor
     static func make(from profile: ProviderProfile, session: URLSession? = nil) throws -> any LLMProvider {
         let key = profile.apiKeyRef.flatMap { try? KeychainStore.get(account: $0) } ?? nil
-        return try make(kind: profile.adapterKind, baseURL: profile.baseURL,
-                        apiKey: key, modelID: profile.modelID, session: session)
+        let base = try make(kind: profile.adapterKind, baseURL: profile.baseURL,
+                            apiKey: key, modelID: profile.modelID, session: session)
+        // Every production provider gets bounded retry on transient failures.
+        return ResilientProvider(wrapped: base)
     }
 
     /// A dedicated ephemeral session for LLM calls: no shared on-disk cache,
