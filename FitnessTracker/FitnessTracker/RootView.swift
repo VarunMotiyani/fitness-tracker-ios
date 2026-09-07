@@ -92,7 +92,9 @@ struct RootView: View {
     /// — kept in one place here rather than duplicated a third time.
     private var resolvedProvider: (any LLMProvider)? {
         guard let activeProfile = activeProfiles.first else { return nil }
-        return try? LLMProviderFactory.make(from: activeProfile)
+        return try? LLMProviderFactory.make(
+            from: activeProfile,
+            fallback: activeProfile.resolvedFallback(in: allProviderProfiles))
     }
 
     var body: some View {

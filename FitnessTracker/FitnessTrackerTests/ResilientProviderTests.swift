@@ -53,6 +53,57 @@ struct ResilientProviderTests {
         if case .failure(let e) = result { #expect(e as? LLMError == .rateLimited) } else { Issue.record("expected failure") }
     }
 
+    // MARK: - Fallback
+
+    private func runWithFallback(primary: [Result<String, LLMError>],
+                                fallback: [Result<String, LLMError>],
+                                maxRetries: Int = 2) async -> (Result<Box, Error>, primaryCalls: Int, fallbackCalls: Int) {
+        let p = StubLLMProvider(responses: primary)
+        let f = StubLLMProvider(responses: fallback)
+        let provider = ResilientProvider(wrapped: p, fallback: f, maxRetries: maxRetries, baseDelay: .zero)
+        do {
+            let r: LLMResult<Box> = try await provider.complete(system: "s", user: "u", schema: schema(), as: Box.self)
+            return (.success(r.value), p.callCount, f.callCount)
+        } catch {
+            return (.failure(error), p.callCount, f.callCount)
+        }
+    }
+
+    @Test func failsOverToFallbackAfterPrimaryExhausted() async {
+        let (result, primaryCalls, fallbackCalls) = await runWithFallback(
+            primary: [.failure(.rateLimited), .failure(.rateLimited), .failure(.rateLimited)],
+            fallback: [.success(ok)])
+        #expect(try! result.get() == Box(ok: true))
+        #expect(primaryCalls == 3)   // 1 + 2 retries
+        #expect(fallbackCalls == 1)  // one shot, no retry
+    }
+
+    @Test func doesNotUseFallbackWhenPrimarySucceeds() async {
+        let (result, primaryCalls, fallbackCalls) = await runWithFallback(
+            primary: [.success(ok)], fallback: [.success(#"{"ok":false}"#)])
+        #expect(try! result.get() == Box(ok: true))
+        #expect(primaryCalls == 1)
+        #expect(fallbackCalls == 0)
+    }
+
+    @Test func surfacesPrimaryErrorWhenFallbackAlsoFails() async {
+        let (result, _, fallbackCalls) = await runWithFallback(
+            primary: [.failure(.transport("HTTP 400: primary bad"))],
+            fallback: [.failure(.transport("HTTP 500: fallback bad"))])
+        #expect(fallbackCalls == 1)
+        if case .failure(let e) = result {
+            #expect(e as? LLMError == .transport("HTTP 400: primary bad"))
+        } else { Issue.record("expected failure") }
+    }
+
+    @Test func nonRetryablePrimaryErrorStillReachesFallback() async {
+        let (result, primaryCalls, fallbackCalls) = await runWithFallback(
+            primary: [.failure(.decoding("bad json"))], fallback: [.success(ok)])
+        #expect(try! result.get() == Box(ok: true))
+        #expect(primaryCalls == 1)   // decode error not retried
+        #expect(fallbackCalls == 1)
+    }
+
     @Test func passesCapabilitiesThrough() {
         let stub = StubLLMProvider(responses: [])
         let provider = ResilientProvider(wrapped: stub)

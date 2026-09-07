@@ -22,6 +22,9 @@ nonisolated enum AdapterKind: String, Codable, Sendable, CaseIterable {
 
 @Model
 final class ProviderProfile {
+    /// Stable identity for cross-profile references (`fallbackProfileID`).
+    /// Property default keeps this an additive migration for existing rows.
+    var id: UUID = UUID()
     var displayName: String
     var adapterKindRaw: String
     var baseURL: String?
@@ -61,5 +64,13 @@ final class ProviderProfile {
         self.isActive = false
         self.createdAt = .now
         self.fallbackProfileID = nil
+    }
+}
+
+extension ProviderProfile {
+    /// The configured fallback profile, looked up in `profiles`, excluding self.
+    func resolvedFallback(in profiles: [ProviderProfile]) -> ProviderProfile? {
+        guard let fallbackProfileID, fallbackProfileID != id else { return nil }
+        return profiles.first { $0.id == fallbackProfileID }
     }
 }

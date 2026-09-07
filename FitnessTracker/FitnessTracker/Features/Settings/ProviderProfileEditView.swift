@@ -38,6 +38,7 @@ struct ProviderProfileEditView: View {
     @State private var keychainError: String?
     @State private var openRouterModels: [OpenRouterProvider.Model] = []
     @State private var showingOpenRouterModelPicker = false
+    @State private var fallbackProfileID: UUID?
 
     init(profile: ProviderProfile?) {
         self.profile = profile
@@ -49,6 +50,7 @@ struct ProviderProfileEditView: View {
         _priceIn = State(initialValue: profile?.pricePerMTokIn ?? 0)
         _priceOut = State(initialValue: profile?.pricePerMTokOut ?? 0)
         _priceCached = State(initialValue: profile?.pricePerMTokCached ?? 0)
+        _fallbackProfileID = State(initialValue: profile?.fallbackProfileID)
     }
 
     private var isEditing: Bool { profile != nil }
@@ -159,6 +161,20 @@ struct ProviderProfileEditView: View {
                     }
                     Toggle("Supports vision", isOn: $supportsVision)
                 }
+
+                let others = allProfiles.filter { $0.id != profile?.id }
+                if !others.isEmpty {
+                    Section {
+                        Picker("Fallback provider", selection: $fallbackProfileID) {
+                            Text("None").tag(UUID?.none)
+                            ForEach(others) { p in
+                                Text(p.displayName).tag(UUID?.some(p.id))
+                            }
+                        }
+                    } footer: {
+                        Text("Used automatically when this provider fails after retries — e.g. an on-device profile when the network is down.")
+                    }
+                }
             }
 
             if isEditing {
@@ -243,6 +259,8 @@ struct ProviderProfileEditView: View {
                 return
             }
         }
+
+        target.fallbackProfileID = fallbackProfileID
 
         // Insert only after the key write has succeeded, so a failed write
         // can't leave a key-less new profile behind via SwiftData autosave.

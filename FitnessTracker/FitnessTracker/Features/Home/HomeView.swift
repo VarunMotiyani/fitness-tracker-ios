@@ -81,7 +81,9 @@ struct HomeView: View {
         allCoachNotes.filter { $0.readAt == nil }
     }
     private var chatProvider: (any LLMProvider)? {
-        activeProviderProfile.flatMap { try? LLMProviderFactory.make(from: $0) }
+        activeProviderProfile.flatMap {
+            try? LLMProviderFactory.make(from: $0, fallback: $0.resolvedFallback(in: allProviderProfiles))
+        }
     }
 
     // Proactive-notification toggles (design spec §7). Same `proactive.settings.*`
