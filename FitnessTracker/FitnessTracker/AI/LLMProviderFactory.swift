@@ -18,6 +18,8 @@ nonisolated enum LLMProviderFactory {
                   url.host != nil
             else { throw FactoryError.invalidBaseURL }
             return OpenAICompatibleProvider(baseURL: url, apiKey: apiKey, modelID: modelID, session: session)
+        case .openRouter:
+            return OpenRouterProvider(apiKey: apiKey, modelID: modelID, session: session)
         case .gemini:
             guard let apiKey, !apiKey.isEmpty else { throw FactoryError.missingAPIKey }
             return GeminiProvider(apiKey: apiKey, modelID: modelID, session: session)

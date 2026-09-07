@@ -3,6 +3,7 @@ import SwiftData
 
 nonisolated enum AdapterKind: String, Codable, Sendable, CaseIterable {
     case openAICompatible
+    case openRouter
     case gemini
     case appleOnDevice
     /// Google Cloud Vertex AI — Gemini models via a GCP project/location

@@ -5,6 +5,7 @@ extension AdapterKind {
     var label: String {
         switch self {
         case .openAICompatible: "OpenAI-compatible"
+        case .openRouter: "OpenRouter"
         case .gemini: "Gemini"
         case .appleOnDevice: "On-device (Apple)"
         case .vertexAI: "Vertex AI (GCP)"
@@ -35,6 +36,8 @@ struct ProviderProfileEditView: View {
     @State private var priceOut: Double
     @State private var priceCached: Double
     @State private var keychainError: String?
+    @State private var openRouterModels: [OpenRouterProvider.Model] = []
+    @State private var showingOpenRouterModelPicker = false
 
     init(profile: ProviderProfile?) {
         self.profile = profile
@@ -83,7 +86,26 @@ struct ProviderProfileEditView: View {
                         Text(k.label).tag(k)
                     }
                 }
-                if showsModelIDField {
+                if kind == .openRouter {
+                    Button {
+                        showingOpenRouterModelPicker = true
+                    } label: {
+                        LabeledContent("Model") {
+                            Text(openRouterModels.first(where: { $0.id == modelID })?.name ?? modelID)
+                                .foregroundStyle(modelID.isEmpty ? .secondary : .primary)
+                                .lineLimit(1)
+                        }
+                    }
+                    if openRouterModels.isEmpty {
+                        TextField("Model ID (offline fallback)", text: $modelID)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    } else if !modelID.isEmpty {
+                        Text("\(openRouterModels.first(where: { $0.id == modelID })?.contextLength.map(String.init) ?? "unknown") token context")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if showsModelIDField {
                     TextField("Model ID", text: $modelID)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -148,6 +170,21 @@ struct ProviderProfileEditView: View {
         }
         .navigationTitle(isEditing ? "Edit Provider" : "New Provider")
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: kind) {
+            guard kind == .openRouter else {
+                openRouterModels = []
+                return
+            }
+            do {
+                openRouterModels = try await OpenRouterProvider.fetchModels()
+            } catch {
+                // The picker remains usable with the offline free-text field.
+                openRouterModels = []
+            }
+        }
+        .sheet(isPresented: $showingOpenRouterModelPicker) {
+            OpenRouterModelPicker(models: openRouterModels, selection: $modelID)
+        }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: CGFloat(ProviderProfileEditLayoutMetrics.persistentBottomBarClearance))
         }
@@ -223,5 +260,47 @@ struct ProviderProfileEditView: View {
         }
         profile.isActive = true
         try? context.save()
+    }
+}
+
+private struct OpenRouterModelPicker: View {
+    @Environment(\.dismiss) private var dismiss
+    let models: [OpenRouterProvider.Model]
+    @Binding var selection: String
+    @State private var searchText = ""
+
+    private var filteredModels: [OpenRouterProvider.Model] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return models }
+        return models.filter { $0.id.localizedCaseInsensitiveContains(query) || $0.name.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(filteredModels) { model in
+                Button {
+                    selection = model.id
+                    dismiss()
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(model.name)
+                            .foregroundStyle(.primary)
+                        Text(model.id)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Text("Context \(model.contextLength.map(String.init) ?? "unknown") · $\(model.promptPrice, format: .number.precision(.fractionLength(0...8)))/$1M in")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .searchable(text: $searchText, prompt: "Search OpenRouter models")
+            .navigationTitle("Choose model")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
     }
 }
