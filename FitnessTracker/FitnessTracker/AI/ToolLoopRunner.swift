@@ -68,7 +68,8 @@ struct ToolLoopRunner {
                 throw Self.classify(error, calls: &calls)
             }
             calls.append(CallOutcome(inputTokens: result.inputTokens, outputTokens: result.outputTokens,
-                                     cachedTokens: result.cachedTokens, succeeded: true))
+                                     cachedTokens: result.cachedTokens, succeeded: true,
+                                     usedFallback: result.usedFallback))
 
             switch result.value {
             case .final(let value):
@@ -101,7 +102,8 @@ struct ToolLoopRunner {
                 throw Self.classify(error, calls: &calls)
             }
             calls.append(CallOutcome(inputTokens: result.inputTokens, outputTokens: result.outputTokens,
-                                     cachedTokens: result.cachedTokens, succeeded: true))
+                                     cachedTokens: result.cachedTokens, succeeded: true,
+                                     usedFallback: result.usedFallback))
 
             switch result.turn {
             case .final(let value):

@@ -54,7 +54,9 @@ struct SessionContainerView: View {
 
                     var provider: (any LLMProvider)?
                     if let activeProviderProfile {
-                        provider = try? LLMProviderFactory.make(from: activeProviderProfile)
+                        provider = try? LLMProviderFactory.make(
+                            from: activeProviderProfile,
+                            fallback: activeProviderProfile.resolvedFallback(in: allProviderProfiles))
                     }
                     let fin: any SessionFinalizing = SessionFinalizeCoordinator(
                         catalog: cat, context: context, provider: provider,

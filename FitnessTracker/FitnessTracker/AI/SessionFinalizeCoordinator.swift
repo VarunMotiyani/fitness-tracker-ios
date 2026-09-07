@@ -128,7 +128,7 @@ struct SessionFinalizeCoordinator: SessionFinalizing {
                                       modelID: activeProfile?.modelID ?? "—",
                                       inputTokens: call.inputTokens, outputTokens: call.outputTokens,
                                       cachedTokens: call.cachedTokens, costUSD: costUSD,
-                                      success: call.succeeded, usedFallback: usedFallback)
+                                      success: call.succeeded, usedFallback: usedFallback || call.usedFallback)
             context.insert(record)
         }
         try? context.save()

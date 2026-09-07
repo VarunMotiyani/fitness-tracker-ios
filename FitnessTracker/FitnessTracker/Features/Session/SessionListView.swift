@@ -31,7 +31,7 @@ struct SessionListView: View {
     @Query private var allProviderProfiles: [ProviderProfile]
     private var activeProviderProfile: ProviderProfile? { allProviderProfiles.first { $0.isActive } }
     private var chatProvider: (any LLMProvider)? {
-        activeProviderProfile.flatMap { try? LLMProviderFactory.make(from: $0) }
+        activeProviderProfile.flatMap { try? LLMProviderFactory.make(from: $0, fallback: $0.resolvedFallback(in: allProviderProfiles)) }
     }
 
     private var entries: [CompletedEntryModel] { runner.entriesInOrder }

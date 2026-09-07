@@ -78,6 +78,25 @@ struct ResilientProviderTests {
         #expect(fallbackCalls == 1)  // one shot, no retry
     }
 
+    @Test func fallbackResultIsStampedUsedFallback() async throws {
+        let p = StubLLMProvider(responses: [.failure(.transport("HTTP 503"))])
+        let f = StubLLMProvider(responses: [.success(ok)])
+        let provider = ResilientProvider(wrapped: p, fallback: f, maxRetries: 0, baseDelay: .zero)
+        let r: LLMResult<Box> = try await provider.complete(system: "s", user: "u", schema: schema(), as: Box.self)
+        #expect(r.usedFallback == true)
+
+        let noFallback = ResilientProvider(wrapped: StubLLMProvider(responses: [.success(ok)]), baseDelay: .zero)
+        let r2: LLMResult<Box> = try await noFallback.complete(system: "s", user: "u", schema: schema(), as: Box.self)
+        #expect(r2.usedFallback == false)
+    }
+
+    @Test func streamTextDefaultYieldsWholeCompletionOnce() async throws {
+        let stub = StubLLMProvider(responses: [.success(#"{"text":"hello world"}"#)])
+        var chunks: [String] = []
+        for try await chunk in stub.streamText(system: "s", user: "u") { chunks.append(chunk) }
+        #expect(chunks == ["hello world"])
+    }
+
     @Test func doesNotUseFallbackWhenPrimarySucceeds() async {
         let (result, primaryCalls, fallbackCalls) = await runWithFallback(
             primary: [.success(ok)], fallback: [.success(#"{"ok":false}"#)])

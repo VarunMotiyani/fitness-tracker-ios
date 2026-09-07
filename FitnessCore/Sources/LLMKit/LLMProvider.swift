@@ -1,3 +1,6 @@
+/// Wrapper the default `streamText` decodes into. Not for callers.
+public struct StreamTextBox: Decodable, Sendable { public let text: String }
+
 public protocol LLMProvider: Sendable {
     /// What this provider can actually be driven to do (structured-output mode,
     /// tool-calling lane). The runner reads this instead of guessing.
@@ -45,5 +48,30 @@ public extension LLMProvider {
         as type: Final.Type
     ) async throws -> NativeToolTurnResult<Final> {
         throw LLMError.unsupported("native tool calling")
+    }
+
+    /// Streaming plain-text output. The default is not real streaming — it runs
+    /// the normal completion and yields the whole reply as one chunk — so a
+    /// feature can be written against the streaming API today and start
+    /// delivering tokens for real the moment an adapter (OpenAI SSE, …)
+    /// overrides this. `capabilities.streaming` is not yet modelled; add it when
+    /// the first real implementation lands.
+    func streamText(system: String, user: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let result: LLMResult<StreamTextBox> = try await complete(
+                        system: system,
+                        user: user + "\n\nReply as a JSON object: {\"text\": \"<your full answer>\"}",
+                        schema: JSONSchema(json: #"{"text":"string"}"#),
+                        as: StreamTextBox.self)
+                    continuation.yield(result.value.text)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 }

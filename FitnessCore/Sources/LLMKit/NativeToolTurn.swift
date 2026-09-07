@@ -54,11 +54,15 @@ public struct NativeToolTurnResult<Final: Decodable & Sendable>: Sendable {
     public let inputTokens: Int
     public let outputTokens: Int
     public let cachedTokens: Int
+    /// Set by `ResilientProvider` when this turn came from the fallback provider.
+    public var usedFallback: Bool
 
-    public init(turn: NativeToolTurn<Final>, inputTokens: Int, outputTokens: Int, cachedTokens: Int) {
+    public init(turn: NativeToolTurn<Final>, inputTokens: Int, outputTokens: Int,
+                cachedTokens: Int, usedFallback: Bool = false) {
         self.turn = turn
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.cachedTokens = cachedTokens
+        self.usedFallback = usedFallback
     }
 }

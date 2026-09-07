@@ -94,7 +94,7 @@ struct ChatSummarizer {
                                         modelID: activeProfile?.modelID ?? "—",
                                         inputTokens: call.inputTokens, outputTokens: call.outputTokens,
                                         cachedTokens: call.cachedTokens, costUSD: costUSD,
-                                        success: call.succeeded, usedFallback: false))
+                                        success: call.succeeded, usedFallback: call.usedFallback))
         }
     }
 }
