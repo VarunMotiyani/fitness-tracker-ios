@@ -9,6 +9,16 @@ public enum AppTab: Int, CaseIterable {
     case coach = 5
 }
 
+enum TabBarMetrics {
+    static let iconFrame = CGSize(width: 28, height: 24)
+    static let iconContentFrame = CGSize(width: 22, height: 22)
+    static let iconFontSize: CGFloat = 20
+    static let titleFontSize: CGFloat = 10
+    static let itemSpacing: CGFloat = 3
+    static let centerActionOverlayWidth: CGFloat = 80
+    static let primaryTabCount = 5
+}
+
 struct CustomTabBar: View {
     @Binding var selectedTab: AppTab
     let isWorkoutActive: Bool
@@ -21,24 +31,29 @@ struct CustomTabBar: View {
     @State private var resumePulse: Bool = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            // 1. Home
-            tabButton(tab: .home, title: "Home", icon: "house.fill")
+        GeometryReader { proxy in
+            let contentWidth = proxy.size.width - 16
 
-            // 2. Plan
-            tabButton(tab: .plan, title: "Plan", icon: "calendar")
+            HStack(spacing: 0) {
+                // Five equal slots keep the primary navigation uniform. Coach
+                // remains available from the Home toolbar instead of crowding
+                // the persistent bottom bar.
+                tabButton(tab: .home, title: "Home", icon: "house.fill")
+                tabButton(tab: .plan, title: "Plan", icon: "calendar")
 
-            // 3. Center FAB (Start / Resume)
-            centerStartButton
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .accessibilityHidden(true)
 
-            // 4. Stats
-            tabButton(tab: .stats, title: "Stats", icon: "chart.bar.xaxis")
-
-            // 5. Exercises
-            tabButton(tab: .exercises, title: "Exercises", icon: "dumbbell.fill")
-
-            // 6. Coach
-            tabButton(tab: .coach, title: "Coach", icon: "bubble.left.and.bubble.right.fill")
+                tabButton(tab: .stats, title: "Stats", icon: "chart.bar.xaxis")
+                tabButton(tab: .exercises, title: "Exercises", icon: "dumbbell.fill")
+            }
+            .frame(width: contentWidth)
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .center) {
+                centerStartButton
+                    .frame(width: TabBarMetrics.centerActionOverlayWidth)
+            }
         }
         .frame(height: 54)
         .padding(.horizontal, 8)
@@ -63,12 +78,16 @@ struct CustomTabBar: View {
                 selectedTab = tab
             }
         } label: {
-            VStack(spacing: 3) {
+            VStack(spacing: TabBarMetrics.itemSpacing) {
                 Image(systemName: icon)
-                    .font(.system(size: 20))
+                    .resizable()
+                    .scaledToFit()
+                    .font(.system(size: TabBarMetrics.iconFontSize, weight: .semibold))
                     .foregroundStyle(selectedTab == tab ? activeAccent : GymTheme.label3)
+                    .frame(width: TabBarMetrics.iconContentFrame.width, height: TabBarMetrics.iconContentFrame.height)
+                    .frame(width: TabBarMetrics.iconFrame.width, height: TabBarMetrics.iconFrame.height)
                 Text(title)
-                    .font(.system(size: 10, weight: selectedTab == tab ? .semibold : .regular))
+                    .font(.system(size: TabBarMetrics.titleFontSize, weight: selectedTab == tab ? .semibold : .regular))
                     .foregroundStyle(selectedTab == tab ? activeAccent : GymTheme.label3)
             }
             .frame(maxWidth: .infinity)
@@ -109,7 +128,7 @@ struct CustomTabBar: View {
                 .offset(y: -8)
 
                 Text(isWorkoutActive ? "Resume" : "Start")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: TabBarMetrics.titleFontSize, weight: .bold))
                     .foregroundStyle(isWorkoutActive ? GymTheme.orange : activeAccent)
                     .offset(y: -8)
             }

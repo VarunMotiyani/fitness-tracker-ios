@@ -55,7 +55,13 @@ public enum ToolLoopTurn<Final: Codable & Sendable>: Sendable {
 extension ToolLoopTurn: Codable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let decision = try container.decode(String.self, forKey: .decision)
+        // JSON Object Mode providers may follow the final schema but omit the
+        // tool-loop envelope. Treat a direct final DTO as an implicit final
+        // turn so valid model output is not discarded during decoding.
+        guard let decision = try? container.decode(String.self, forKey: .decision) else {
+            self = .final(try Final(from: decoder))
+            return
+        }
         switch decision {
         case "tool_call":
             self = .toolCall(try container.decode(ToolCallRequest.self, forKey: .toolCall))

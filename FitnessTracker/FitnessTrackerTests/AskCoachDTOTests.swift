@@ -10,4 +10,9 @@ import Foundation
         let dto = try JSONDecoder().decode(AskCoachDTO.self, from: Data(json.utf8))
         #expect(dto.reply.contains("push day"))
     }
+
+    @Test func decodesCommonProviderMessageAlias() throws {
+        let dto = try JSONDecoder().decode(AskCoachDTO.self, from: Data(#"{"message":"Ready when you are."}"#.utf8))
+        #expect(dto.reply == "Ready when you are.")
+    }
 }

@@ -1,6 +1,6 @@
 # HANDOFF — Read This First
 
-_Living document. Last updated: 2026-09-04 (PulseAI Full Architecture, openGym Visual & Behavioral Parity, Gym-Floor Workout Runner, Data Import/Export & Multi-App Migration on branch `fitness-engine-v2`)._
+_Living document. Last updated: 2026-09-07 (Session progress: navigation polish, Apple Foundation Models validation, and Groq/Qwen integration fixes on branch `fitness-engine-v2`)._
 
 **Purpose:** One read = full context. If you're a new agent/session on any device, read this top to bottom before doing anything. It captures the project, every decision, current state, how to work here, and what's next. Deep detail lives in the numbered docs; this is the index + digest.
 
@@ -18,6 +18,29 @@ A **proactive AI strength & physique coaching app (PulseAI)** for iOS (iPhone 17
   - Swift 6 Strict Concurrency + Native SwiftUI + SwiftData architecture.
 
 ---
+
+## 1A. Session Progress — 2026-09-07
+
+This session focused on stabilizing the app’s navigation and AI-provider path.
+
+### Completed
+
+- Reworked the persistent bottom navigation to five equal slots: Home, Plan, centered Start, Stats, and Exercises. Coach remains available from Home’s top conversation control.
+- Added shared bottom-tab safe-area clearance to provider settings so the “Set as active” action is visible above the persistent bar.
+- Removed the manual Model ID input for Apple on-device profiles; Apple profiles now persist the OS-selected `"system"` model identifier.
+- Confirmed Apple Foundation Models support is implemented in the codebase. The iPhone simulator cannot run it because its Foundation Model assets are unavailable; validation requires a compatible physical Apple Intelligence device.
+- Diagnosed Groq/Qwen failures from simulator evidence: the endpoint and API key path reached Groq successfully, but the first request failed with HTTP 400 because descriptive app schemas were sent as strict `json_schema`. After switching to JSON Object Mode, Qwen returned a direct JSON object with a `message` field rather than the tool-loop envelope and `reply` field.
+- Updated the OpenAI-compatible adapter to use strict JSON Schema only when the supplied schema is strict-compatible, otherwise using JSON Object Mode with an explicit JSON-only instruction.
+- Updated tool-loop and Coach DTO decoding to accept direct final objects and Qwen’s `message` alias.
+- Preserved safe transport diagnostics in interactive Coach errors.
+- Verified the live Groq/Qwen path in the iPhone 17 Pro simulator: “Can you reply?” returned “Yeah, I’m here. What’s up?” ([live screenshot](/private/tmp/pulseai-qwen-working.png)).
+- Captured visual verification for the provider editor safe-area fix ([screenshot](/private/tmp/pulseai-provider-safe-area-fix.png)) and the final five-tab Home layout ([screenshot](/private/tmp/pulseai-final-verification.png)).
+
+### Verification
+
+- `swift test --package-path FitnessCore --filter ToolLoopSchemaTests` — 6 tests passed.
+- Focused iOS tests for `AskCoachDTOTests`, `OpenAICompatibleProviderTests`, `ToolLoopRunnerTests`, and `ProviderProfileTests` passed.
+- The full repository test suite was not rerun in this session; verification stayed scoped to the changed paths.
 
 ## 2. Current Implementation State & Task Ledger
 
@@ -40,7 +63,6 @@ A **proactive AI strength & physique coaching app (PulseAI)** for iOS (iPhone 17
 ### B. Navigation & Theme Engine (`FitnessTracker`)
 - **App Branding:** **PulseAI** header branding with personalized athlete greeting support.
 - **`GymTheme.swift` / `Theme.swift`**: True pitch black (`#000000`), elevated card surfaces (`#1c1c1e`), control surfaces (`#2c2c2e`), and dynamic reactive accent themes (`Lime`, `Cyan/Sky`, `Orange`, `Violet`, `Pink`, `Red`, `Teal`, `Gold`).
-- **`CustomTabBar.swift` & `RootView.swift`**: Persistent 5-tab bar with elevated center action button (`dumbbell.fill` FAB / `Start` / `Resume`), and `list.bullet` Exercises icon.
 - **`CustomTabBar.swift` & `RootView.swift`**: Persistent 5-tab bar with elevated center action button (`dumbbell.fill` FAB / `Start` / `Resume`), pulsing orange resume ring (`scaleEffect 1.0 -> 1.45`, `opacity 0.7 -> 0.0`, 1.9s ease-out) when a workout is active, `viewfade` tab-switch transition (`.opacity.combined(with: .offset(y: 4))`), and `list.bullet` Exercises icon.
 - **Inline Settings Navigation**: Settings is rendered directly within the `RootView` navigation hierarchy rather than presenting as a covering modal sheet, ensuring the bottom tab bar is permanently accessible and mounted.
 
@@ -64,7 +86,6 @@ A **proactive AI strength & physique coaching app (PulseAI)** for iOS (iPhone 17
   - **"+ New"** routine button styled in green-tinted rounded capsule.
   - Split Routine Cards with icon, exercise count, and direct Start capsule.
 - **`RoutineModels.swift`**: `RoutineDraft`, `ExerciseConfig`, `StarterRoutines.ppl()`.
-- **`RoutineEditView.swift` & `DayAssignSheet.swift` & `ExerciseConfigSheet.swift` & `IconPickerSheet.swift` & `PlanShareSheet.swift`**: Full suite of routine authoring, exercise parameter customization, schedule assignment, and JSON export/import.
 - **`RoutineEditView.swift` & `DayAssignSheet.swift` & `ExerciseConfigSheet.swift` & `IconPickerSheet.swift` & `PlanShareSheet.swift`**: Full suite of routine authoring, exercise parameter customization, schedule assignment, equipment profile filtering on exercise catalog pickers, and JSON export/import.
 
 ---
@@ -79,12 +100,10 @@ A **proactive AI strength & physique coaching app (PulseAI)** for iOS (iPhone 17
   - "Last time" recap line: `🕒 Last time (30 Aug): 73.8×8, 73.8×8...`.
   - "Why" autoregulation progression rationale banner.
   - **"Make superset with next"** toggle button.
-  - **Exercise Swap**: Seamless swap sheet with muscle group filters and in-place active workout replacement via `SessionRunner.swapExercise`.
   - **Exercise Swap**: Seamless swap sheet with muscle group & equipment profile filters and in-place active workout replacement via `SessionRunner.swapExercise`.
   - **All-Sets Editable Table**: Every set (completed + upcoming planned) is an active row with `[− weight +]` `[− reps +]` `[− RIR +]` steppers and `○` check circle.
   - Inline Set Actions: `🔥 Add warm-up set`, `− Remove set`, `+ Add set`.
   - `WorkingWeightSheet.swift`: Post-exercise working-weight confirmation sheet with personal record detection.
-  - `TimerFlashOverlay.swift`: Visual expiration flashing alert and `keepAwake` idle timer lock.
   - `RestTimerView.swift`: Rest countdown with warning tick (`1052`) on $\le 3\text{s}$, completion chime (`1005`) on zero, haptic pulses, and hook to flash overlay.
   - `TimerFlashOverlay.swift`: Visual expiration $2.4\text{s}$ alternating 4-flash sequence (black/white) and `keepAwake` idle timer lock.
 
@@ -92,7 +111,6 @@ A **proactive AI strength & physique coaching app (PulseAI)** for iOS (iPhone 17
 
 ### F. Data Management, Multi-App Importers & Equipment Profiles
 - **`HevyAPIClient.swift` & `HevyAPISyncSheet.swift`**: Direct REST synchronization with Hevy Developer API (`api.hevyapp.com/v1/`) with real-time sync progress and SwiftData ingestion.
-- **`EquipmentModels.swift` & `EquipmentProfileSheet.swift`**: Equipment profile manager supporting named custom equipment environments (Commercial Gym, Home Dumbbells, Travel Hotel) and library filtering.
 - **`EquipmentModels.swift` & `EquipmentProfileSheet.swift`**: Equipment profile manager supporting named custom equipment environments (Commercial Gym, Home Dumbbells, Travel Hotel) and library/swap/picker filtering via `EquipmentFilter.isAvailable`.
 - **`HistoryExportManager.swift`**: Generates full RFC 4180 CSV workout logs and openGym-compatible complete JSON backup archives.
 - **`HistoryIngestionService.swift`**: SwiftData service mapping imported external sessions into `CompletedSessionModel`, `CompletedEntryModel`, `LoggedSetModel`, and `BodyweightEntryModel`.
@@ -103,16 +121,14 @@ A **proactive AI strength & physique coaching app (PulseAI)** for iOS (iPhone 17
 - **`ActivityHeatmapView.swift`**: 52-week horizontal grid aligned to week start with 5-level intensity gradient and "Less time / More time" legend.
 - **`InteractiveBodyMapView.swift`**: Interactive front/back anatomical body map powered by `MuscleBalanceModel` with precision volume set credits and status levels.
 - **`HistoryListView.swift`**: Complete history list with "＋ Log past workout" toolbar action wired to `BackfillEntryView.swift`.
-- **`LibraryView.swift` & `ExerciseDetailSheet.swift`**: 1,324 exercise catalog with animated GIF players and still illustration fallback.
 - **`LibraryView.swift` & `ExerciseDetailSheet.swift`**: 1,324 exercise catalog with equipment profile filtering, animated GIF players, and still illustration fallback.
 
 ---
 
 ## 3. Test Suite Verification
 
-- **`FitnessCore`**: **195/195 tests passed (26 suites) in 0.007s**.
-- **`FitnessTrackerTests`**: **63/63 tests passed (16 suites) in 1.2s** on iOS Simulator.
-- **Total Tests**: **258 Automated Tests Passing 100%**.
+The totals below are the last recorded full-suite baseline. The 2026-09-07 session intentionally used focused verification only.
+
 - **`FitnessCore`**: **201/201 tests passed (27 suites) in 0.007s**.
 - **`FitnessTrackerTests`**: **64/64 tests passed (16 suites) in 1.1s** on iOS Simulator.
 - **`FitnessTrackerUITests`**: **5/5 tests passed in 10.4s** on iOS Simulator.
@@ -122,7 +138,6 @@ A **proactive AI strength & physique coaching app (PulseAI)** for iOS (iPhone 17
 
 ## 4. What to Do Next
 
-1. **Live Activity & Lock Screen Dynamic Island**: Background rest timer countdown and live workout tracking for Dynamic Island.
 1. **Live Activity & Lock Screen Dynamic Island**: Background rest timer countdown and live workout tracking for Dynamic Island (`ActivityKit`).
 2. **HealthKit Bi-Directional Sync**: Sync bodyweight and completed workouts with Apple Health.
 3. **Audio / Voice Coaching**: Spoken rest countdown and set completion cues.

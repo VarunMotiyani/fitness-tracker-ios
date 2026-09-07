@@ -92,6 +92,22 @@ private struct DummyFinal: Codable, Sendable, Equatable { let value: Int }
         #expect(provider.callCount == 2)
     }
 
+    @Test func providerTransportFailurePreservesSafeDiagnostic() async throws {
+        let provider = StubLLMProvider(responses: [.failure(.transport("HTTP 400: invalid response format"))])
+        let runner = ToolLoopRunner()
+
+        do {
+            let _: ToolLoopResult<DummyFinal> = try await runner.run(
+                system: "test", initialUser: "test",
+                finalSchema: JSONSchema(json: "{\"value\":\"number\"}"),
+                tools: ToolRegistry(tools: []), provider: provider)
+            Issue.record("expected provider failure to throw")
+        } catch let ToolLoopError.providerFailedWithMessage(calls, message) {
+            #expect(calls.count == 1)
+            #expect(message == "HTTP 400: invalid response format")
+        }
+    }
+
     @Test func returnsFinalImmediatelyWithNoToolCalls() async throws {
         let finalTurn = """
         {"decision":"final","final":{"value":7}}

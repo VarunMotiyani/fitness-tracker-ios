@@ -47,7 +47,7 @@ final class ProviderProfile {
         self.displayName = displayName
         self.adapterKindRaw = adapterKind.rawValue
         self.baseURL = baseURL
-        self.modelID = modelID
+        self.modelID = adapterKind == .appleOnDevice ? "system" : modelID
         self.apiKeyRef = apiKeyRef
         self.supportsVision = supportsVision
         self.pricePerMTokIn = pricePerMTokIn

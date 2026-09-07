@@ -70,6 +70,11 @@ struct AskCoachCoordinator {
             // Provider threw mid-loop — bill the sub-calls that already ran.
             recordCalls(partialCalls)
             return AskCoachReply(text: "Coach couldn't respond — try again.", isError: true)
+        } catch ToolLoopError.providerFailedWithMessage(let partialCalls, let message) {
+            // Keep provider diagnostics visible so configuration errors (such
+            // as an unsupported model or response format) are actionable.
+            recordCalls(partialCalls)
+            return AskCoachReply(text: "Coach couldn't respond — \(message)", isError: true)
         } catch {
             return AskCoachReply(text: "Coach couldn't respond — try again.", isError: true)
         }

@@ -27,4 +27,15 @@ struct ProviderProfileTests {
         p.adapterKindRaw = "nonsense"
         #expect(p.adapterKind == .appleOnDevice)
     }
+
+    @Test func appleOnDeviceUsesSystemModelID() {
+        let p = ProviderProfile(displayName: "Apple", adapterKind: .appleOnDevice, baseURL: nil,
+            modelID: "user-entered-value", apiKeyRef: nil, supportsVision: false,
+            pricePerMTokIn: 0, pricePerMTokOut: 0, pricePerMTokCached: 0)
+        #expect(p.modelID == "system")
+    }
+
+    @Test func providerEditReservesPersistentTabBarClearance() {
+        #expect(ProviderProfileEditLayoutMetrics.persistentBottomBarClearance == 80)
+    }
 }

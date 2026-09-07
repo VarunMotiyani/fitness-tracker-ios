@@ -29,6 +29,15 @@ private struct DummyFinal: Codable, Sendable, Equatable {
         #expect(value.answer == "done")
     }
 
+    @Test func decodesDirectFinalObjectFromJSONModeProviders() throws {
+        let json = #"{"answer":"done"}"#.data(using: .utf8)!
+        let turn = try JSONDecoder().decode(ToolLoopTurn<DummyFinal>.self, from: json)
+        guard case .final(let value) = turn else {
+            Issue.record("expected .final"); return
+        }
+        #expect(value.answer == "done")
+    }
+
     @Test func encodesToolCallTurnRoundTrip() throws {
         let turn = ToolLoopTurn<DummyFinal>.toolCall(ToolCallRequest(name: "plate_math", argsJSON: "{\"targetLoadKg\":100}"))
         let data = try JSONEncoder().encode(turn)

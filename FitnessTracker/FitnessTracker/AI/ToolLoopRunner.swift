@@ -10,6 +10,9 @@ enum ToolLoopError: Error, Sendable, Equatable {
     /// final failed one — so the caller still bills what actually happened
     /// instead of discarding it with a bare `catch`.
     case providerFailed(calls: [CallOutcome])
+    /// Same as `providerFailed`, but preserves a safe provider diagnostic for
+    /// the interactive coach screen (for example, Groq's HTTP 400 body).
+    case providerFailedWithMessage(calls: [CallOutcome], message: String)
 }
 
 /// `ToolLoopRunner.run`'s result: the model's final answer plus one
@@ -49,6 +52,9 @@ struct ToolLoopRunner {
                     system: system, user: user, schema: schema, as: ToolLoopTurn<Final>.self)
             } catch {
                 calls.append(CallOutcome(inputTokens: 0, outputTokens: 0, cachedTokens: 0, succeeded: false))
+                if case LLMError.transport(let message) = error {
+                    throw ToolLoopError.providerFailedWithMessage(calls: calls, message: message)
+                }
                 throw ToolLoopError.providerFailed(calls: calls)
             }
             calls.append(CallOutcome(inputTokens: result.inputTokens, outputTokens: result.outputTokens,

@@ -95,7 +95,7 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .background(GymTheme.bg.ignoresSafeArea())
         .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 80) // Prevents bottom tab bar clipping
+            Color.clear.frame(height: CGFloat(ProviderProfileEditLayoutMetrics.persistentBottomBarClearance)) // Prevents bottom tab bar clipping
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)

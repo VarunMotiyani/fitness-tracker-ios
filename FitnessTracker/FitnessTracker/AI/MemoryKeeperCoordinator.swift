@@ -81,7 +81,7 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
             // Still ran real, billable calls even though it never converged.
             recordCalls(partialCalls)
             return
-        } catch ToolLoopError.providerFailed(let partialCalls) {
+        } catch ToolLoopError.providerFailed(let partialCalls), ToolLoopError.providerFailedWithMessage(let partialCalls, _) {
             // Provider threw mid-loop — bill the sub-calls that already ran.
             recordCalls(partialCalls)
             return

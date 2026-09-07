@@ -13,6 +13,10 @@ extension AdapterKind {
     }
 }
 
+enum ProviderProfileEditLayoutMetrics {
+    static let persistentBottomBarClearance = 80
+}
+
 /// Create (`profile == nil`) or edit a single ``ProviderProfile``.
 struct ProviderProfileEditView: View {
     @Environment(\.modelContext) private var context
@@ -50,6 +54,10 @@ struct ProviderProfileEditView: View {
         kind != .appleOnDevice
     }
 
+    private var showsModelIDField: Bool {
+        kind != .appleOnDevice
+    }
+
     private var showsBaseURLField: Bool {
         kind == .openAICompatible || kind == .vertexAI || kind == .bedrock
     }
@@ -75,9 +83,16 @@ struct ProviderProfileEditView: View {
                         Text(k.label).tag(k)
                     }
                 }
-                TextField("Model ID", text: $modelID)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+                if showsModelIDField {
+                    TextField("Model ID", text: $modelID)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } else {
+                    LabeledContent("Model") {
+                        Text("Apple system model")
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 if showsBaseURLField {
                     TextField(baseURLFieldLabel, text: $baseURL)
                         .textInputAutocapitalization(.never)
@@ -133,6 +148,9 @@ struct ProviderProfileEditView: View {
         }
         .navigationTitle(isEditing ? "Edit Provider" : "New Provider")
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: CGFloat(ProviderProfileEditLayoutMetrics.persistentBottomBarClearance))
+        }
         .alert("Couldn't save the API key", isPresented: Binding(
             get: { keychainError != nil },
             set: { if !$0 { keychainError = nil } })) {
@@ -158,7 +176,7 @@ struct ProviderProfileEditView: View {
             target = profile
             target.displayName = displayName
             target.adapterKindRaw = kind.rawValue
-            target.modelID = modelID
+            target.modelID = kind == .appleOnDevice ? "system" : modelID
             target.baseURL = resolvedBaseURL
             target.supportsVision = supportsVision
             target.pricePerMTokIn = priceIn

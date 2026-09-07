@@ -22,17 +22,24 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let apiKey { request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
 
-        let schemaObject = try JSONSerialization.jsonObject(with: Data(schema.json.utf8))
+        let schemaObject = try? JSONSerialization.jsonObject(with: Data(schema.json.utf8))
+        let usesJSONMode = schemaObject.map { !Self.isStrictJSONSchema($0) } ?? true
+        let responseFormat: [String: Any] = usesJSONMode
+            ? ["type": "json_object"]
+            : [
+                "type": "json_schema",
+                "json_schema": ["name": "response", "strict": true, "schema": schemaObject as Any],
+            ]
+        let systemPrompt = usesJSONMode
+            ? system + "\n\nReturn a valid JSON object only."
+            : system
         let body: [String: Any] = [
             "model": modelID,
             "messages": [
-                ["role": "system", "content": system],
+                ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": user],
             ],
-            "response_format": [
-                "type": "json_schema",
-                "json_schema": ["name": "plan", "strict": true, "schema": schemaObject],
-            ],
+            "response_format": responseFormat,
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -47,7 +54,6 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
             let body = Self.redactSecrets(String(decoding: data.prefix(300), as: UTF8.self))
             throw LLMError.transport("HTTP \(http.statusCode): \(body)")
         }
-
         let envelope: Envelope
         do { envelope = try JSONDecoder().decode(Envelope.self, from: data) }
         catch { throw LLMError.decoding("envelope: \(error)") }
@@ -75,6 +81,37 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
     static func redactSecrets(_ text: String) -> String {
         text.replacing(/sk-[A-Za-z0-9_-]{8,}/, with: "«redacted»")
             .replacing(/AIza[A-Za-z0-9_-]{8,}/, with: "«redacted»")
+    }
+
+    /// The app's prompt builders historically used a compact descriptive
+    /// schema (for example, `{"reply":"string"}`) rather than JSON Schema.
+    /// Groq rejects that shape when it is sent as strict `json_schema`; JSON
+    /// Object Mode is the compatible fallback and still lets us decode the
+    /// typed response locally.
+    private static func isStrictJSONSchema(_ object: Any) -> Bool {
+        guard let root = object as? [String: Any],
+              root["type"] as? String == "object",
+              let properties = root["properties"] as? [String: Any],
+              let required = root["required"] as? [Any],
+              root["additionalProperties"] as? Bool == false,
+              Set(required.compactMap { $0 as? String }) == Set(properties.keys),
+              required.count == properties.count else { return false }
+        return properties.values.allSatisfy(isStrictJSONSchemaValue)
+    }
+
+    private static func isStrictJSONSchemaValue(_ object: Any) -> Bool {
+        guard let value = object as? [String: Any], let type = value["type"] as? String else {
+            return false
+        }
+        switch type {
+        case "object":
+            return isStrictJSONSchema(value)
+        case "array":
+            guard let items = value["items"] else { return false }
+            return isStrictJSONSchemaValue(items)
+        default:
+            return true
+        }
     }
 
     private struct Envelope: Decodable {
