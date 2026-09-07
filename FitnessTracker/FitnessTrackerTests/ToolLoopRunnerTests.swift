@@ -124,6 +124,40 @@ private struct DummyFinal: Codable, Sendable, Equatable { let value: Int }
         #expect(result.value.value == 7)
         #expect(provider.callCount == 1)
     }
+
+    // MARK: - Native lane
+
+    @Test func nativeLaneRunsOneToolCallThenReturnsFinal() async throws {
+        let stub = NativeToolStub()
+        let runner = ToolLoopRunner()
+
+        let result: ToolLoopResult<DummyFinal> = try await runner.run(
+            system: "test", initialUser: "start",
+            finalSchema: JSONSchema(json: "{\"value\":\"number\"}"),
+            tools: ToolRegistry(tools: [EchoTool()]), provider: stub)
+
+        #expect(result.value.value == 9)
+        #expect(stub.turnCount == 2)
+        #expect(result.calls.count == 2)
+        // Turn 2's message history carries the assistant tool_call + the tool result.
+        #expect(stub.lastMessages.contains { $0.role == .assistant && $0.toolCalls?.isEmpty == false })
+        #expect(stub.lastMessages.contains { $0.role == .tool && $0.content == "\"echo-result\"" })
+    }
+
+    @Test func nativeLaneProviderFailurePreservesDiagnostic() async throws {
+        let stub = NativeToolStub()
+        stub.failFirstTurnWith = .transport("HTTP 400: bad tools")
+        let runner = ToolLoopRunner()
+        do {
+            let _: ToolLoopResult<DummyFinal> = try await runner.run(
+                system: "t", initialUser: "u", finalSchema: JSONSchema(json: "{}"),
+                tools: ToolRegistry(tools: [EchoTool()]), provider: stub)
+            Issue.record("expected throw")
+        } catch let ToolLoopError.providerFailedWithMessage(calls, message) {
+            #expect(calls.count == 1)
+            #expect(message == "HTTP 400: bad tools")
+        }
+    }
 }
 
 private struct EchoTool: CoachTool {
@@ -131,4 +165,35 @@ private struct EchoTool: CoachTool {
         ToolDescriptor(name: "convert_test", description: "test tool", argsSchemaJSON: "{}")
     }
     func run(argsJSON: String) -> String { "\"echo-result\"" }
+}
+
+private final class NativeToolStub: LLMProvider, @unchecked Sendable {
+    var capabilities: ProviderCapabilities { .init(structuredOutput: .jsonObject, toolCalling: .native) }
+    private(set) var turnCount = 0
+    private(set) var lastMessages: [ToolChatMessage] = []
+    var failFirstTurnWith: LLMError?
+
+    func complete<Value: Decodable & Sendable>(system: String, user: String, schema: JSONSchema,
+                                               as type: Value.Type) async throws -> LLMResult<Value> {
+        throw LLMError.unsupported("native stub: use completeToolTurn")
+    }
+    func completeWithImage<Value: Decodable & Sendable>(system: String, user: String, image: ImagePayload,
+                                                        schema: JSONSchema, as type: Value.Type) async throws -> LLMResult<Value> {
+        throw LLMError.visionUnsupported
+    }
+    func completeToolTurn<Final: Decodable & Sendable>(
+        system: String, messages: [ToolChatMessage], tools: [ToolDescriptor],
+        finalSchema: JSONSchema, as type: Final.Type
+    ) async throws -> NativeToolTurnResult<Final> {
+        turnCount += 1
+        lastMessages = messages
+        if turnCount == 1, let failure = failFirstTurnWith { throw failure }
+        if turnCount == 1 {
+            return NativeToolTurnResult(
+                turn: .toolCalls([NativeToolCall(id: "c1", name: "convert_test", argumentsJSON: "{}")]),
+                inputTokens: 3, outputTokens: 4, cachedTokens: 0)
+        }
+        let value = try JSONDecoder().decode(Final.self, from: Data(#"{"value":9}"#.utf8))
+        return NativeToolTurnResult(turn: .final(value), inputTokens: 1, outputTokens: 2, cachedTokens: 0)
+    }
 }

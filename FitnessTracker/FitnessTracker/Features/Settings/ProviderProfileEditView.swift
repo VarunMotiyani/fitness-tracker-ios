@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import LLMKit
 
 extension AdapterKind {
     var label: String {
@@ -39,6 +40,7 @@ struct ProviderProfileEditView: View {
     @State private var openRouterModels: [OpenRouterProvider.Model] = []
     @State private var showingOpenRouterModelPicker = false
     @State private var fallbackProfileID: UUID?
+    @State private var toolCallingOverride: ProviderCapabilities.ToolCalling?
 
     init(profile: ProviderProfile?) {
         self.profile = profile
@@ -51,6 +53,8 @@ struct ProviderProfileEditView: View {
         _priceOut = State(initialValue: profile?.pricePerMTokOut ?? 0)
         _priceCached = State(initialValue: profile?.pricePerMTokCached ?? 0)
         _fallbackProfileID = State(initialValue: profile?.fallbackProfileID)
+        _toolCallingOverride = State(initialValue: profile?.capToolCallingRaw
+            .flatMap(ProviderCapabilities.ToolCalling.init(rawValue:)))
     }
 
     private var isEditing: Bool { profile != nil }
@@ -175,6 +179,16 @@ struct ProviderProfileEditView: View {
                         Text("Used automatically when this provider fails after retries — e.g. an on-device profile when the network is down.")
                     }
                 }
+
+                Section {
+                    Picker("Tool calling", selection: $toolCallingOverride) {
+                        Text("Auto").tag(ProviderCapabilities.ToolCalling?.none)
+                        Text("Native (function calling)").tag(ProviderCapabilities.ToolCalling?.some(.native))
+                        Text("Prompt loop").tag(ProviderCapabilities.ToolCalling?.some(.viaPrompt))
+                    }
+                } footer: {
+                    Text("Auto uses the adapter default. Set Native for a model that supports function calling (most OpenAI/Anthropic/Gemini models on OpenRouter); Prompt loop for smaller models.")
+                }
             }
 
             if isEditing {
@@ -261,6 +275,7 @@ struct ProviderProfileEditView: View {
         }
 
         target.fallbackProfileID = fallbackProfileID
+        target.capToolCallingRaw = toolCallingOverride?.rawValue
 
         // Insert only after the key write has succeeded, so a failed write
         // can't leave a key-less new profile behind via SwiftData autosave.

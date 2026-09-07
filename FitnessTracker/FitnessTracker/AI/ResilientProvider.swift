@@ -14,18 +14,21 @@ import LLMKit
 nonisolated struct ResilientProvider: LLMProvider {
     let wrapped: any LLMProvider
     let fallback: (any LLMProvider)?
+    let capabilitiesOverride: ProviderCapabilities?
     let maxRetries: Int
     let baseDelay: Duration
 
     init(wrapped: any LLMProvider, fallback: (any LLMProvider)? = nil,
+         capabilitiesOverride: ProviderCapabilities? = nil,
          maxRetries: Int = 2, baseDelay: Duration = .milliseconds(500)) {
         self.wrapped = wrapped
         self.fallback = fallback
+        self.capabilitiesOverride = capabilitiesOverride
         self.maxRetries = maxRetries
         self.baseDelay = baseDelay
     }
 
-    var capabilities: ProviderCapabilities { wrapped.capabilities }
+    var capabilities: ProviderCapabilities { capabilitiesOverride ?? wrapped.capabilities }
 
     func complete<Value: Decodable & Sendable>(system: String, user: String,
                                                schema: JSONSchema,
@@ -41,6 +44,18 @@ nonisolated struct ResilientProvider: LLMProvider {
         try await attempt(
             primary: { try await wrapped.completeWithImage(system: system, user: user, image: image, schema: schema, as: type) },
             fallback: fallback.map { fb in { try await fb.completeWithImage(system: system, user: user, image: image, schema: schema, as: type) } })
+    }
+
+    /// Native tool turns retry the primary but do not fail over — a fallback
+    /// provider may not implement `completeToolTurn` at all.
+    func completeToolTurn<Final: Decodable & Sendable>(
+        system: String, messages: [ToolChatMessage], tools: [ToolDescriptor],
+        finalSchema: JSONSchema, as type: Final.Type
+    ) async throws -> NativeToolTurnResult<Final> {
+        try await withRetry {
+            try await wrapped.completeToolTurn(system: system, messages: messages, tools: tools,
+                                               finalSchema: finalSchema, as: type)
+        }
     }
 
     /// Retry the primary; on giving up, try the fallback once. If the fallback

@@ -41,6 +41,11 @@ final class ProviderProfile {
     /// provider after the primary exhausts its retries.
     var fallbackProfileID: UUID?
 
+    /// Optional override of the adapter's default tool-calling lane
+    /// (`ProviderCapabilities.ToolCalling` raw value). nil = use the adapter
+    /// default. Lets a specific OpenRouter/Groq model opt into native tools.
+    var capToolCallingRaw: String?
+
     var adapterKind: AdapterKind { AdapterKind(rawValue: adapterKindRaw) ?? .appleOnDevice }
 
     init(displayName: String,
@@ -64,6 +69,7 @@ final class ProviderProfile {
         self.isActive = false
         self.createdAt = .now
         self.fallbackProfileID = nil
+        self.capToolCallingRaw = nil
     }
 }
 

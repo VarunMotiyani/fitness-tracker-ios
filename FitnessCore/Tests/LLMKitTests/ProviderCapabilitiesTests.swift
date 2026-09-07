@@ -2,6 +2,19 @@ import Testing
 import Foundation
 @testable import LLMKit
 
+private struct BareProvider: LLMProvider {
+    func complete<Value: Decodable & Sendable>(system: String, user: String, schema: JSONSchema,
+                                               as type: Value.Type) async throws -> LLMResult<Value> {
+        throw LLMError.transport("unused")
+    }
+    func completeWithImage<Value: Decodable & Sendable>(system: String, user: String, image: ImagePayload,
+                                                        schema: JSONSchema, as type: Value.Type) async throws -> LLMResult<Value> {
+        throw LLMError.visionUnsupported
+    }
+}
+
+private struct DummyDTO: Decodable, Sendable, Equatable { let ok: Bool }
+
 struct ProviderCapabilitiesTests {
 
     @Test func codableRoundTrip() throws {
@@ -19,8 +32,9 @@ struct ProviderCapabilitiesTests {
         #expect(ProviderCapabilities.openAICompatibleDefault(host: "api.openai.com").structuredOutput == .nativeJSONSchema)
         #expect(ProviderCapabilities.openAICompatibleDefault(host: "api.groq.com").structuredOutput == .jsonObject)
         #expect(ProviderCapabilities.openAICompatibleDefault(host: nil).structuredOutput == .jsonObject)
-        // No adapter drives native tools yet.
-        #expect(ProviderCapabilities.openAICompatibleDefault(host: "api.openai.com").toolCalling == .viaPrompt)
+        // api.openai.com gets the native tool lane; other endpoints stay on the prompt loop.
+        #expect(ProviderCapabilities.openAICompatibleDefault(host: "api.openai.com").toolCalling == .native)
+        #expect(ProviderCapabilities.openAICompatibleDefault(host: "api.groq.com").toolCalling == .viaPrompt)
     }
 
     @Test func namedDefaults() {
@@ -29,16 +43,19 @@ struct ProviderCapabilitiesTests {
     }
 
     @Test func protocolDefaultIsPromptOnly() {
-        struct Bare: LLMProvider {
-            func complete<Value: Decodable & Sendable>(system: String, user: String, schema: JSONSchema,
-                                                       as type: Value.Type) async throws -> LLMResult<Value> {
-                throw LLMError.transport("unused")
-            }
-            func completeWithImage<Value: Decodable & Sendable>(system: String, user: String, image: ImagePayload,
-                                                                schema: JSONSchema, as type: Value.Type) async throws -> LLMResult<Value> {
-                throw LLMError.visionUnsupported
-            }
+        #expect(BareProvider().capabilities == .promptOnly)
+    }
+
+    @Test func overridingReplacesOnlyGivenFields() {
+        let base = ProviderCapabilities(structuredOutput: .jsonObject, toolCalling: .viaPrompt)
+        #expect(base.overriding(toolCalling: .native) == ProviderCapabilities(structuredOutput: .jsonObject, toolCalling: .native))
+        #expect(base.overriding() == base)
+    }
+
+    @Test func completeToolTurnDefaultThrowsUnsupported() async {
+        await #expect(throws: LLMError.unsupported("native tool calling")) {
+            let _: NativeToolTurnResult<DummyDTO> = try await BareProvider().completeToolTurn(
+                system: "s", messages: [], tools: [], finalSchema: JSONSchema(json: "{}"), as: DummyDTO.self)
         }
-        #expect(Bare().capabilities == .promptOnly)
     }
 }

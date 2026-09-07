@@ -53,9 +53,13 @@ nonisolated enum LLMProviderFactory {
         let base = try makeRaw(from: profile, session: session)
         // A fallback that itself can't be built (bad config) is dropped, not fatal.
         let fb = fallback.flatMap { try? makeRaw(from: $0, session: session) }
+        // Per-profile override of the tool-calling lane, on top of the adapter default.
+        let override = profile.capToolCallingRaw
+            .flatMap(ProviderCapabilities.ToolCalling.init(rawValue:))
+            .map { base.capabilities.overriding(toolCalling: $0) }
         // Every production provider gets bounded retry on transient failures,
         // plus one-shot failover when a fallback profile is configured.
-        return ResilientProvider(wrapped: base, fallback: fb)
+        return ResilientProvider(wrapped: base, fallback: fb, capabilitiesOverride: override)
     }
 
     @MainActor
