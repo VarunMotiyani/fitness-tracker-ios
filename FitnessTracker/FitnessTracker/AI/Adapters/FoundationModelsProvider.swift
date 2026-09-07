@@ -9,6 +9,10 @@ import FoundationModels
 nonisolated struct FoundationModelsProvider: LLMProvider {
     init() {}
 
+    // Schema is embedded in the prompt today; Unit 5 switches this to guided
+    // generation and flips `structuredOutput` to `.nativeJSONSchema`.
+    var capabilities: ProviderCapabilities { .promptOnly }
+
     func complete<Value: Decodable & Sendable>(system: String, user: String,
                                                schema: JSONSchema,
                                                as type: Value.Type) async throws -> LLMResult<Value> {
@@ -76,6 +80,10 @@ nonisolated struct FoundationModelsProvider: LLMProvider {
 /// Fallback when FoundationModels is not part of the SDK for this build.
 nonisolated struct FoundationModelsProvider: LLMProvider {
     init() {}
+
+    // Schema is embedded in the prompt today; Unit 5 switches this to guided
+    // generation and flips `structuredOutput` to `.nativeJSONSchema`.
+    var capabilities: ProviderCapabilities { .promptOnly }
 
     func complete<Value: Decodable & Sendable>(system: String, user: String,
                                                schema: JSONSchema,

@@ -32,6 +32,9 @@ nonisolated struct BedrockProvider: LLMProvider {
         self.session = session
     }
 
+    // Schema is enforced by instruction only, not server-side (see type doc).
+    var capabilities: ProviderCapabilities { .promptOnly }
+
     /// Parses the composite secret `ProviderProfile.apiKeyRef` stores for
     /// this adapter kind: `{"accessKeyId":"...","secretAccessKey":"...","sessionToken":"..."}`
     /// (`sessionToken` optional). Returns `nil` on malformed JSON so the

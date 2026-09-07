@@ -33,6 +33,10 @@ final class ProviderProfile {
     var isActive: Bool
     var createdAt: Date
 
+    /// When set, `ResilientProvider` (Unit 4) fails over to this profile's
+    /// provider after the primary exhausts its retries.
+    var fallbackProfileID: UUID?
+
     var adapterKind: AdapterKind { AdapterKind(rawValue: adapterKindRaw) ?? .appleOnDevice }
 
     init(displayName: String,
@@ -55,5 +59,6 @@ final class ProviderProfile {
         self.pricePerMTokCached = pricePerMTokCached
         self.isActive = false
         self.createdAt = .now
+        self.fallbackProfileID = nil
     }
 }

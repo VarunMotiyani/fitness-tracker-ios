@@ -14,6 +14,8 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
         self.session = session
     }
 
+    var capabilities: ProviderCapabilities { .openAICompatibleDefault(host: baseURL.host) }
+
     func complete<Value: Decodable & Sendable>(system: String, user: String,
                                                schema: JSONSchema,
                                                as type: Value.Type) async throws -> LLMResult<Value> {

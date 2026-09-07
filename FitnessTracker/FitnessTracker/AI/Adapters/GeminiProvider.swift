@@ -15,6 +15,8 @@ nonisolated struct GeminiProvider: LLMProvider {
         self.baseURL = baseURL
     }
 
+    var capabilities: ProviderCapabilities { .googleResponseSchema }
+
     func complete<Value: Decodable & Sendable>(system: String, user: String,
                                                schema: JSONSchema,
                                                as type: Value.Type) async throws -> LLMResult<Value> {
