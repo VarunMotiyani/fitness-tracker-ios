@@ -62,7 +62,9 @@ struct SessionContainerView: View {
                         catalog: cat, context: context, provider: provider,
                         activeProfile: activeProviderProfile,
                         memories: allMemories.map { $0.toDomain() },
-                        ruleEngineFallback: ruleEngineFallback
+                        ruleEngineFallback: ruleEngineFallback,
+                        userContext: profiles.first?.makeUserContext(),
+                        repository: repo
                     )
                     let keeper: (any MemoryKeeperRunning)? = provider.map {
                         MemoryKeeperCoordinator(catalog: cat, context: context, provider: $0,

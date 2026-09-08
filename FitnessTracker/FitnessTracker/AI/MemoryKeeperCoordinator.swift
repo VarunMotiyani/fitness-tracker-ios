@@ -64,8 +64,7 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
     private func runToolLoopAndApply(system: String, user: String, existingMemories: [CoachMemory], sessionID: UUID?) async {
         guard let provider else { return }
 
-        let exportJSON = HistoryExportManager.exportFullJSONData(context: context, catalog: catalog) ?? Data("{}".utf8)
-        let tools = ToolRegistry(tools: [QueryTrainingDataTool(exportJSON: exportJSON)])
+        let tools = ToolRegistry(tools: [QueryTrainingDataTool(context: context, catalog: catalog)])
 
         let calls: [CallOutcome]
         let dto: MemoryKeeperDTO

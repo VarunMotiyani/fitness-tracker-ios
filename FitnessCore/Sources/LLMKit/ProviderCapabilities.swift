@@ -26,18 +26,26 @@ public struct ProviderCapabilities: Sendable, Equatable, Codable {
 
     public var structuredOutput: StructuredOutput
     public var toolCalling: ToolCalling
+    /// Whether the adapter can deliver a token stream via `streamText`. Purely
+    /// informational today — no code branches on it until a real SSE
+    /// implementation lands; the default `streamText` yields the whole reply
+    /// once regardless.
+    public var streaming: Bool
 
-    public init(structuredOutput: StructuredOutput, toolCalling: ToolCalling) {
+    public init(structuredOutput: StructuredOutput, toolCalling: ToolCalling, streaming: Bool = false) {
         self.structuredOutput = structuredOutput
         self.toolCalling = toolCalling
+        self.streaming = streaming
     }
 
     /// Returns a copy with the given fields replaced — used to apply a
     /// per-profile override on top of an adapter's default.
     public func overriding(structuredOutput: StructuredOutput? = nil,
-                           toolCalling: ToolCalling? = nil) -> ProviderCapabilities {
+                           toolCalling: ToolCalling? = nil,
+                           streaming: Bool? = nil) -> ProviderCapabilities {
         ProviderCapabilities(structuredOutput: structuredOutput ?? self.structuredOutput,
-                             toolCalling: toolCalling ?? self.toolCalling)
+                             toolCalling: toolCalling ?? self.toolCalling,
+                             streaming: streaming ?? self.streaming)
     }
 }
 
@@ -53,10 +61,10 @@ public extension ProviderCapabilities {
     /// until a per-profile override opts a specific model into native tools.
     static func openAICompatibleDefault(host: String?) -> ProviderCapabilities {
         host == "api.openai.com"
-            ? ProviderCapabilities(structuredOutput: .nativeJSONSchema, toolCalling: .native)
-            : ProviderCapabilities(structuredOutput: .jsonObject, toolCalling: .viaPrompt)
+            ? ProviderCapabilities(structuredOutput: .nativeJSONSchema, toolCalling: .native, streaming: true)
+            : ProviderCapabilities(structuredOutput: .jsonObject, toolCalling: .viaPrompt, streaming: true)
     }
 
     /// Gemini / Vertex AI: `responseSchema` is enforced server-side.
-    static let googleResponseSchema = ProviderCapabilities(structuredOutput: .nativeJSONSchema, toolCalling: .viaPrompt)
+    static let googleResponseSchema = ProviderCapabilities(structuredOutput: .nativeJSONSchema, toolCalling: .viaPrompt, streaming: true)
 }

@@ -33,8 +33,14 @@ nonisolated enum AskCoachPromptBuilder {
         that shapes future plans, not an immediate edit.
 
         If a request is ambiguous, ask a clarifying question rather than \
-        guessing what they meant. Keep replies conversational and concise — \
-        this is a chat, not a report. Respond only in the required JSON shape.
+        guessing what they meant — but put that question in the `reply` field \
+        of the final JSON, never as plain text.
+
+        Keep replies conversational and concise — this is a chat, not a \
+        report. EVERY response, including a clarifying question or a refusal, \
+        must be the JSON object the schema requires: \
+        {"decision":"final","final":{"reply":"..."}} or a tool call. Never \
+        answer with bare prose.
         """
     }
 
@@ -42,6 +48,7 @@ nonisolated enum AskCoachPromptBuilder {
         recentMessages: [(role: String, text: String)],
         summary: String,
         memoryDigest: String,
+        equipmentSummary: String = "",
         newMessage: String
     ) -> String {
         let summarySection = summary.isEmpty ? "" : "Earlier in this conversation:\n\(summary)"
@@ -49,8 +56,11 @@ nonisolated enum AskCoachPromptBuilder {
         let memorySection = memoryDigest.isEmpty
             ? ""
             : "What you know about this athlete:\n\(memoryDigest)"
+        let equipmentSection = equipmentSummary.isEmpty
+            ? ""
+            : "Equipment the athlete has: \(equipmentSummary). Don't propose anything that needs equipment not on this list."
 
-        let sections = [summarySection, recentSection, memorySection, "athlete: \(newMessage)"]
+        let sections = [summarySection, recentSection, memorySection, equipmentSection, "athlete: \(newMessage)"]
             .filter { !$0.isEmpty }
         return sections.joined(separator: "\n\n")
     }

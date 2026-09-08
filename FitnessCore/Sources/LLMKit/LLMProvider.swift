@@ -54,8 +54,8 @@ public extension LLMProvider {
     /// the normal completion and yields the whole reply as one chunk — so a
     /// feature can be written against the streaming API today and start
     /// delivering tokens for real the moment an adapter (OpenAI SSE, …)
-    /// overrides this. `capabilities.streaming` is not yet modelled; add it when
-    /// the first real implementation lands.
+    /// overrides this. `capabilities.streaming` says whether a real
+    /// implementation exists for this provider.
     func streamText(system: String, user: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {

@@ -32,6 +32,12 @@ struct SessionFinalizeCoordinator: SessionFinalizing {
     let activeProfile: ProviderProfile?
     let memories: [CoachMemory]
     let ruleEngineFallback: RuleEngineFinalizer
+    /// The athlete's planning context — experience, available equipment,
+    /// exclusions — so the guardrail checks against real limits, not defaults.
+    let userContext: UserContext?
+    /// Per-exercise history, so the guardrail's load-jump / load-drop caps
+    /// actually fire (they're gated on a `lastPerformance` being present).
+    let repository: any MetricsRepository
 
     func finalize(_ planned: PlannedSession, energy: EnergyRating, timeAvailableMin: Int) async -> FinalizedResult {
         guard let provider else {
@@ -47,11 +53,10 @@ struct SessionFinalizeCoordinator: SessionFinalizing {
             now: .now
         )
 
-        let exportJSON = HistoryExportManager.exportFullJSONData(context: context, catalog: catalog) ?? Data("{}".utf8)
         let tools = ToolRegistry(tools: [
             PlateMathTool(),
             EstimateOneRepMaxTool(),
-            QueryTrainingDataTool(exportJSON: exportJSON),
+            QueryTrainingDataTool(context: context, catalog: catalog),
         ])
 
         let system = FinalizePromptBuilder.system()
@@ -63,6 +68,19 @@ struct SessionFinalizeCoordinator: SessionFinalizing {
         let guardrail = FinalizeGuardrail(catalog: catalog)
         var lastViolationSummary: String?
         var allCalls: [CallOutcome] = []
+
+        // Real guardrail inputs (design spec §2.2). An empty equipment set means
+        // "not configured" — fall back to all equipment rather than failing
+        // every barbell lift.
+        let experience = userContext?.experience ?? .intermediate
+        let excludedExerciseIDs = userContext?.excludedExerciseIDs ?? []
+        let excludedMuscles = userContext?.excludedMuscles ?? []
+        let availableEquipment = (userContext?.availableEquipment).flatMap { $0.isEmpty ? nil : $0 }
+            ?? Set(Equipment.allCases)
+        var lastPerformances: [String: ExercisePerformance] = [:]
+        for id in Set(planned.items.map(\.exerciseID)) {
+            if let perf = repository.lastPerformance(exerciseID: id) { lastPerformances[id] = perf }
+        }
 
         for _ in 0..<2 {
             let user = lastViolationSummary.map { "\(baseUser)\n\nYour previous attempt was rejected: \($0). Try again, staying within safe bounds." } ?? baseUser
@@ -77,11 +95,11 @@ struct SessionFinalizeCoordinator: SessionFinalizing {
                 let candidate = dto.toDomain(originalSession: planned)
                 let report = guardrail.check(
                     finalized: candidate,
-                    experience: .intermediate,
-                    excludedExerciseIDs: [],
-                    excludedMuscles: [],
-                    availableEquipment: Set(Equipment.allCases),
-                    lastPerformances: [:],
+                    experience: experience,
+                    excludedExerciseIDs: excludedExerciseIDs,
+                    excludedMuscles: excludedMuscles,
+                    availableEquipment: availableEquipment,
+                    lastPerformances: lastPerformances,
                     timeAvailableMin: timeAvailableMin
                 )
                 if report.violations.isEmpty {
