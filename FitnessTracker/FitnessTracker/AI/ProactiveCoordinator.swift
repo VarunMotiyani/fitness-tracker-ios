@@ -53,8 +53,13 @@ struct ProactiveCoordinator {
         // Sweep stale patternNudge keys before the provider guard — orphan
         // cleanup must run even when there's no LLM configured.
         if settings.patternOn { pruneOrphanPatternNudgeKeys() }
+        if settings.patternOn { refreshDataInsights() }
 
-        guard provider != nil else { return }
+        guard provider != nil else {
+            if settings.dailyOn, isDailyDue() { generateFallbackDaily() }
+            if settings.weeklyOn, isWeeklyDue() { generateFallbackWeekly() }
+            return
+        }
 
         if settings.dailyOn, isDailyDue() { await generateDailyNarration() }
         if settings.weeklyOn, isWeeklyDue() { await generateWeeklySummary() }      // Task 4
@@ -64,7 +69,11 @@ struct ProactiveCoordinator {
     // MARK: - Daily narration (#6)
 
     private func isDailyDue() -> Bool {
-        UserDefaults.standard.string(forKey: "proactive.daily.lastGeneratedDay") != Self.dayFormatter.string(from: .now)
+        let today = Self.dayFormatter.string(from: .now)
+        let markedGenerated = UserDefaults.standard.string(forKey: "proactive.daily.lastGeneratedDay") == today
+        guard markedGenerated else { return true }
+        return !((try? context.fetch(FetchDescriptor<CoachNoteModel>())) ?? [])
+            .contains { $0.kindRaw == "daily" && Calendar.current.isDateInToday($0.createdAt) }
     }
 
     private func generateDailyNarration() async {
@@ -90,15 +99,18 @@ struct ProactiveCoordinator {
                 tools: ToolRegistry(tools: []), provider: provider)
             recordCalls(result.calls, callType: "dailyNarration")
             let text = result.value.narration
-            context.insert(CoachNoteModel(kindRaw: "daily", text: text))
+            let reason = "Based on today’s \(sessionLabel) session, its planned exercises, and the latest recovery check-in available to the coach."
+            upsertCurrentCoachNote(kindRaw: "daily", text: text, reason: reason, period: .day)
             try? context.save()
             scheduleDaily(body: text)
             UserDefaults.standard.set(Self.dayFormatter.string(from: .now), forKey: "proactive.daily.lastGeneratedDay")
         } catch ToolLoopError.exceededMaxIterations(let calls) {
             recordCalls(calls, callType: "dailyNarration")
+            generateFallbackDaily()
         } catch ToolLoopError.providerFailed(let calls), ToolLoopError.providerFailedWithMessage(let calls, _) {
             recordCalls(calls, callType: "dailyNarration")
-        } catch { return }
+            generateFallbackDaily()
+        } catch { generateFallbackDaily() }
     }
 
     private func scheduleDaily(body: String) {
@@ -165,7 +177,12 @@ struct ProactiveCoordinator {
     func isWeeklyDue() -> Bool {
         guard let weekStart = Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)?.start else { return false }
         let iso = ISO8601DateFormatter().string(from: weekStart)
-        return UserDefaults.standard.string(forKey: "proactive.weekly.lastWeekStart") != iso
+        let markedGenerated = UserDefaults.standard.string(forKey: "proactive.weekly.lastWeekStart") == iso
+        guard markedGenerated else { return true }
+        return !((try? context.fetch(FetchDescriptor<CoachNoteModel>())) ?? [])
+            .contains {
+                $0.kindRaw == "weekly" && Calendar.current.isDate($0.createdAt, equalTo: .now, toGranularity: .weekOfYear)
+            }
     }
 
     private func generateWeeklySummary() async {
@@ -227,16 +244,58 @@ struct ProactiveCoordinator {
             }
             // The Home `thisWeekCard` already surfaces `headline` persistently;
             // the CoachNote carries the complementary next-week focus instead.
-            context.insert(CoachNoteModel(kindRaw: "weekly", text: "Next week: \(dto.nextWeekFocus)"))
+            let reason = "Based on \(weekSessions.count) completed sessions, a \(streak)-week streak, \(prCount) PRs, and this week’s muscle coverage (\(coverageDigest))."
+            upsertCurrentCoachNote(kindRaw: "weekly", text: "Next week: \(dto.nextWeekFocus)", reason: reason, period: .weekOfYear)
             try? context.save()
             scheduleWeekly(body: dto.headline)
             UserDefaults.standard.set(ISO8601DateFormatter().string(from: weekStart),
                                      forKey: "proactive.weekly.lastWeekStart")
         } catch ToolLoopError.exceededMaxIterations(let calls) {
             recordCalls(calls, callType: "weeklySummary")
+            generateFallbackWeekly()
         } catch ToolLoopError.providerFailed(let calls), ToolLoopError.providerFailedWithMessage(let calls, _) {
             recordCalls(calls, callType: "weeklySummary")
-        } catch { return }
+            generateFallbackWeekly()
+        } catch { generateFallbackWeekly() }
+    }
+
+    /// Keeps the current daily card useful when no provider is configured or
+    /// an AI request fails. A later successful AI run upserts this same row.
+    private func generateFallbackDaily() {
+        guard let plan = mostRecentPlan(), let session = todaysOrNextSession(in: plan) else { return }
+        let label = session.focusMuscles.map { $0.rawValue.capitalized }.joined(separator: "/") + " Day"
+        let names = session.items.compactMap { catalog.exercise(id: $0.exerciseID)?.name }
+        let exerciseSummary = names.prefix(3).joined(separator: ", ")
+        let suffix = names.count > 3 ? " and " + String(names.count - 3) + " more" : ""
+        let text: String
+        if exerciseSummary.isEmpty {
+            text = label + " today. Keep the session controlled and leave a little in reserve on your working sets."
+        } else {
+            text = label + " today: " + exerciseSummary + suffix + ". Keep the reps controlled and leave 1–3 reps in reserve on your working sets."
+        }
+        let reason = "Offline summary from today’s planned session and its " + String(names.count) + " scheduled exercises."
+        upsertCurrentCoachNote(kindRaw: "daily", text: text, reason: reason, period: .day)
+        try? context.save()
+        UserDefaults.standard.set(Self.dayFormatter.string(from: .now), forKey: "proactive.daily.lastGeneratedDay")
+    }
+
+    /// Provides a transparent, data-backed weekly card while an AI provider is
+    /// unavailable. It is replaced by the richer generated recap when possible.
+    private func generateFallbackWeekly() {
+        guard let weekStart = Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)?.start else { return }
+        let priorWeek = Calendar.isoUTC.date(byAdding: .weekOfYear, value: -1, to: weekStart)!
+        let interval = DateInterval(start: priorWeek, end: weekStart)
+        let sessions = ((try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? [])
+            .filter { $0.finishedAt.map(interval.contains) ?? false }
+        let prs = ((try? context.fetch(FetchDescriptor<PersonalRecordModel>())) ?? [])
+            .filter { interval.contains($0.date) }.count
+        let planned = (try? context.fetch(FetchDescriptor<UserProfile>()))?.first?.sessionsPerWeek ?? 3
+        let focus = sessions.isEmpty ? "getting your next session on the calendar" : "keeping your working sets consistent"
+        let text = "Last week: " + String(sessions.count) + " sessions and " + String(prs) + " new PRs. Next week, focus on " + focus + "."
+        let reason = "Offline recap from " + String(sessions.count) + " completed sessions, " + String(prs) + " PRs, and a plan target of " + String(planned) + " sessions per week."
+        upsertCurrentCoachNote(kindRaw: "weekly", text: text, reason: reason, period: .weekOfYear)
+        try? context.save()
+        UserDefaults.standard.set(ISO8601DateFormatter().string(from: weekStart), forKey: "proactive.weekly.lastWeekStart")
     }
 
     private func scheduleWeekly(body: String) {
@@ -253,6 +312,109 @@ struct ProactiveCoordinator {
     }
 
     // MARK: - Pattern nudge (#10) — Task 5 fills this
+
+    /// Produce a small set of explainable, offline insights from the athlete's
+    /// own history. These are intentionally deterministic and cheap: no extra
+    /// provider call is needed, and each topic is upserted once per day.
+    private func refreshDataInsights() {
+        let sessions = ((try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? [])
+            .filter { $0.finishedAt != nil }
+        guard !sessions.isEmpty else { return }
+
+        let now = Date.now
+        let calendar = Calendar.current
+        guard let recentStart = calendar.date(byAdding: .day, value: -28, to: now),
+              let previousStart = calendar.date(byAdding: .day, value: -56, to: now) else { return }
+        let recent = sessions.filter { ($0.finishedAt ?? $0.startedAt) >= recentStart }
+        let previous = sessions.filter {
+            let date = $0.finishedAt ?? $0.startedAt
+            return date >= previousStart && date < recentStart
+        }
+        var candidates: [(topic: String, text: String, reason: String)] = []
+
+        let targetPerFourWeeks = ((try? context.fetch(FetchDescriptor<UserProfile>()))?.first?.sessionsPerWeek ?? 3) * 4
+        candidates.append((
+            "consistency",
+            "You completed \(recent.count) sessions in the last 4 weeks.",
+            "Compared with your profile target of \(targetPerFourWeeks) sessions over the same four-week window."
+        ))
+
+        let recentSets = workingSetCount(in: recent)
+        let previousSets = workingSetCount(in: previous)
+        if previousSets > 0 {
+            let change = Int((Double(recentSets - previousSets) / Double(previousSets) * 100).rounded())
+            let direction = change >= 0 ? "up" : "down"
+            candidates.append((
+                "volume",
+                "Working-set volume is \(abs(change))% \(direction) versus the previous 4 weeks.",
+                "Compared \(recentSets) working sets in the last 28 days with \(previousSets) in the 28 days before that; warm-ups and skipped entries are excluded."
+            ))
+        } else if recentSets > 0 {
+            candidates.append((
+                "volume",
+                "You logged \(recentSets) working sets in the last 4 weeks.",
+                "Counted completed, non-warm-up sets across your finished sessions."
+            ))
+        }
+
+        if let progression = strongestProgression(in: sessions) {
+            candidates.append(progression)
+        }
+
+        let rirValues = workingSets(in: recent).compactMap(\.rir)
+        if !rirValues.isEmpty {
+            let average = rirValues.reduce(0, +) / Double(rirValues.count)
+            let hardShare = Int((Double(rirValues.filter { $0 <= 2 }.count) / Double(rirValues.count) * 100).rounded())
+            candidates.append((
+                "effort",
+                "Your recent sets average \(average.formatted(.number.precision(.fractionLength(1)))) RIR.",
+                "Based on \(rirValues.count) rated working sets; \(hardShare)% were at 2 RIR or harder."
+            ))
+        }
+
+        for candidate in candidates.prefix(4) {
+            upsertCurrentCoachNote(kindRaw: "analysis", text: candidate.text, reason: candidate.reason,
+                                   period: .day, topicRaw: candidate.topic)
+        }
+    }
+
+    private func workingSets(in sessions: [CompletedSessionModel]) -> [LoggedSetModel] {
+        sessions.flatMap { session in
+            session.entries.filter { !$0.skipped }.flatMap { entry in
+                entry.sets.filter { !$0.isWarmup }
+            }
+        }
+    }
+
+    private func workingSetCount(in sessions: [CompletedSessionModel]) -> Int {
+        workingSets(in: sessions).count
+    }
+
+    private func strongestProgression(in sessions: [CompletedSessionModel]) -> (topic: String, text: String, reason: String)? {
+        var loadsByExercise: [String: [(date: Date, load: Double)]] = [:]
+        for session in sessions {
+            let date = session.finishedAt ?? session.startedAt
+            for entry in session.entries where !entry.skipped {
+                let loads = entry.sets.filter { !$0.isWarmup && $0.actualLoadKg > 0 }.map { $0.actualLoadKg }
+                guard let maxLoad = loads.max() else { continue }
+                loadsByExercise[entry.exerciseID, default: []].append((date, maxLoad))
+            }
+        }
+
+        let best = loadsByExercise.compactMap { exerciseID, values -> (String, Double, Double)? in
+            let sorted = values.sorted { $0.date < $1.date }
+            guard sorted.count >= 2, let latest = sorted.last?.load,
+                  let previous = sorted.dropLast().last?.load, latest > previous else { return nil }
+            return (exerciseID, latest, previous)
+        }.max { ($0.1 - $0.2) < ($1.1 - $1.2) }
+        guard let best, let exercise = catalog.exercise(id: best.0) else { return nil }
+        let delta = best.1 - best.2
+        return (
+            "progression",
+            "\(exercise.name) is moving up by \(delta.formatted(.number.precision(.fractionLength(1)))) kg.",
+            "Your latest recorded top load was \(best.1.formatted(.number.precision(.fractionLength(1)))) kg versus \(best.2.formatted(.number.precision(.fractionLength(1)))) kg previously."
+        )
+    }
 
     /// Drop `proactive.patternNudge.<uuid>` UserDefaults keys whose memory no
     /// longer exists. Keys for still-live `responsePattern` memories stay, even
@@ -293,7 +455,9 @@ struct ProactiveCoordinator {
                 system: system, initialUser: user, finalSchema: ProactivePromptBuilder.patternNudgeSchema,
                 tools: ToolRegistry(tools: []), provider: provider)
             recordCalls(result.calls, callType: "patternNudge")
-            context.insert(CoachNoteModel(kindRaw: "pattern", text: result.value.nudge))
+            context.insert(CoachNoteModel(kindRaw: "pattern", text: result.value.nudge,
+                                          reason: "This was generated from the recurring pattern: \(target.statement)",
+                                          topicRaw: target.id.uuidString))
             try? context.save()
             UserDefaults.standard.set(ISO8601DateFormatter().string(from: .now),
                                       forKey: "proactive.patternNudge.\(target.id.uuidString)")
@@ -342,7 +506,9 @@ struct ProactiveCoordinator {
                 tools: ToolRegistry(tools: []), provider: provider)
             recordCalls(result.calls, callType: "checkinReaction")
             let text = result.value.message
-            context.insert(CoachNoteModel(kindRaw: "checkin", text: text))
+            context.insert(CoachNoteModel(kindRaw: "checkin", text: text,
+                                          reason: "Based on today’s check-in: soreness \(checkin.soreness.map(String.init) ?? "not rated")/10 and sleep \(checkin.sleepQuality.map(String.init) ?? "not rated")/10.",
+                                          topicRaw: todayKey))
             try? context.save()
             UserDefaults.standard.set(todayKey, forKey: "proactive.checkin.lastReactedDay")
 
@@ -370,6 +536,36 @@ struct ProactiveCoordinator {
     }
 
     // MARK: - Shared helpers
+
+    /// Daily and weekly guidance represent the current period, not an inbox
+    /// history. Replace the current-period row so repeated foreground checks
+    /// cannot create duplicate cards.
+    private func upsertCurrentCoachNote(kindRaw: String, text: String, reason: String,
+                                        period: Calendar.Component, topicRaw: String? = nil) {
+        let calendar = Calendar.current
+        let existing = ((try? context.fetch(FetchDescriptor<CoachNoteModel>())) ?? [])
+            .filter { $0.kindRaw == kindRaw }
+            .filter {
+                switch period {
+                case .day: return calendar.isDateInToday($0.createdAt)
+                case .weekOfYear:
+                    return calendar.isDate($0.createdAt, equalTo: Date.now, toGranularity: .weekOfYear)
+                default: return false
+                }
+            }
+            .max { $0.createdAt < $1.createdAt }
+
+        if let existing {
+            let changed = existing.text != text || existing.reason != reason
+            existing.text = text
+            existing.reason = reason
+            existing.topicRaw = topicRaw ?? existing.topicRaw
+            existing.createdAt = Date.now
+            if changed { existing.readAt = nil }
+        } else {
+            context.insert(CoachNoteModel(kindRaw: kindRaw, text: text, reason: reason, topicRaw: topicRaw))
+        }
+    }
 
     private func mostRecentPlan() -> WeeklyPlan? {
         (try? context.fetch(FetchDescriptor<StoredPlan>(sortBy: [SortDescriptor(\.generatedAt, order: .reverse)])))?

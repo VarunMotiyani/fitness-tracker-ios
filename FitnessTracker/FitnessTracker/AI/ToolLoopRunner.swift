@@ -1,5 +1,6 @@
 import Foundation
 import LLMKit
+import os
 
 enum ToolLoopError: Error, Sendable, Equatable {
     /// Carries the calls made before the cap was hit so the caller can still
@@ -33,6 +34,15 @@ struct ToolLoopResult<Final: Codable & Sendable>: Sendable {
 /// exactly this kind of multi-step tool use.
 @MainActor
 struct ToolLoopRunner {
+    /// So "did the coach actually look at anything, or just talk?" is answerable
+    /// from Console: every tool the model invokes, its args, and a snippet of
+    /// what the tool returned. Filter `subsystem:PulseAI category:ToolLoop`.
+    private static let log = Logger(subsystem: "PulseAI", category: "ToolLoop")
+
+    private static func logTool(_ name: String, args: String, result: String) {
+        log.debug("tool \(name, privacy: .public) args=\(args, privacy: .public) -> \(result.prefix(200), privacy: .public)")
+    }
+
     func run<Final: Codable & Sendable>(
         system: String,
         initialUser: String,
@@ -73,9 +83,11 @@ struct ToolLoopRunner {
 
             switch result.value {
             case .final(let value):
+                Self.log.debug("prompt lane: final answer after \(calls.count) call(s)")
                 return ToolLoopResult(value: value, calls: calls)
             case .toolCall(let request):
                 let toolResult = tools.execute(request)
+                Self.logTool(request.name, args: request.argsJSON, result: toolResult)
                 user += "\n\nTool '\(request.name)' returned: \(toolResult)\n\nContinue: call another tool, or give your final answer."
             }
         }
@@ -107,11 +119,13 @@ struct ToolLoopRunner {
 
             switch result.turn {
             case .final(let value):
+                Self.log.debug("native lane: final answer after \(calls.count) call(s)")
                 return ToolLoopResult(value: value, calls: calls)
             case .toolCalls(let toolCalls):
                 messages.append(ToolChatMessage(role: .assistant, toolCalls: toolCalls))
                 for call in toolCalls {
                     let output = tools.execute(ToolCallRequest(name: call.name, argsJSON: call.argumentsJSON))
+                    Self.logTool(call.name, args: call.argumentsJSON, result: output)
                     messages.append(ToolChatMessage(role: .tool, content: output, toolCallID: call.id))
                 }
             }

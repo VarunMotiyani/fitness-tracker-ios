@@ -83,6 +83,15 @@ struct ProposeSetChangeTool: CoachTool {
         guard let args = decodeArgs(argsJSON, as: ProposeSetChangeArgs.self),
               let sessionID = UUID(uuidString: args.plannedSessionID)
         else { return "{\"error\": \"bad args\"}" }
+        // Match ProposeExerciseSwapTool: a hallucinated session/exercise must
+        // fail loudly here, not write a PendingCoachSuggestion that can never
+        // resolve (SuggestionApplier would hit sessionNotFound forever).
+        guard let plan = mostRecentStoredPlan(in: context)?.decodedPlanOrNil(),
+              let session = plan.sessions.first(where: { $0.id == sessionID })
+        else { return "{\"error\": \"unknown session — call get_upcoming_sessions first\"}" }
+        guard session.items.contains(where: { $0.exerciseID == args.exerciseID }) else {
+            return "{\"error\": \"that exercise is not in that session\"}"
+        }
         if let sets = args.targetSets, !(1...10).contains(sets) { return "{\"error\": \"implausible sets\"}" }
         if let reps = args.targetRepsMin, !(1...30).contains(reps) { return "{\"error\": \"implausible reps\"}" }
         if let reps = args.targetRepsMax, !(1...30).contains(reps) { return "{\"error\": \"implausible reps\"}" }

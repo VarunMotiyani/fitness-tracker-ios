@@ -1,7 +1,20 @@
 import Foundation
 import LLMKit
+import os
+
+/// A model that wraps its answer in the prompt-lane envelope emits
+/// `{"final": <obj>}` (or `{"decision":"final","final": <obj>}`); this pulls the
+/// inner object out. File-scope because a generic type cannot nest in a generic
+/// function.
+private nonisolated struct PromptEnvelopeWrapper<T: Decodable>: Decodable { let final: T }
 
 nonisolated struct OpenAICompatibleProvider: LLMProvider {
+    /// Provider round-trips are otherwise invisible until they surface as a red
+    /// banner. Log the outgoing shape and the *full* error body (the
+    /// `LLMError.transport` string is truncated for the UI) so provider-specific
+    /// 400s are diagnosable from Console without a debugger.
+    private static let log = Logger(subsystem: "PulseAI", category: "LLMProvider")
+
     let baseURL: URL
     let apiKey: String?
     let modelID: String
@@ -41,15 +54,19 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
             request.setValue(value, forHTTPHeaderField: field)
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        Self.log.debug("POST chat/completions host=\(baseURL.host ?? "?", privacy: .public) model=\(modelID, privacy: .public) fields=\(body.keys.sorted().joined(separator: ","), privacy: .public)")
 
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            Self.log.error("transport failure host=\(baseURL.host ?? "?", privacy: .public) model=\(modelID, privacy: .public): \(error.localizedDescription, privacy: .public)")
             throw LLMError.transport(error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else { throw LLMError.transport("no HTTP response") }
         guard (200...299).contains(http.statusCode) else {
+            let full = Self.redactSecrets(String(decoding: data, as: UTF8.self))
+            Self.log.error("HTTP \(http.statusCode) host=\(baseURL.host ?? "?", privacy: .public) model=\(modelID, privacy: .public) body=\(full, privacy: .public)")
             let snippet = Self.redactSecrets(String(decoding: data.prefix(300), as: UTF8.self))
             throw LLMError.transport("HTTP \(http.statusCode): \(snippet)")
         }
@@ -147,7 +164,7 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
         // Permissive `parameters` — the app validates tool args itself when it
         // decodes `argumentsJSON`; the shape is carried in the description so the
         // model still knows what to send.
-        let wireTools: [[String: Any]] = tools.map { tool in
+        var wireTools: [[String: Any]] = tools.map { tool in
             ["type": "function",
              "function": [
                 "name": tool.name,
@@ -156,12 +173,42 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
              ]]
         }
 
+        // Groq's GPT-OSS models deliver their final answer as a synthetic
+        // function call (Harmony "json" channel) instead of as message content,
+        // and Groq rejects any tool call whose name is not in `request.tools`
+        // ("attempted to call tool 'json'/'JSON' which was not in
+        // request.tools"). The exact name the model picks varies by casing, so
+        // register every observed variant; the parser maps any call that isn't
+        // one of the real tools back to `.final`.
+        let realToolNames = Set(tools.map(\.name))
+        let usesJSONFinalTool = requiresGPTOSSNativeTools && !wireTools.isEmpty
+        if usesJSONFinalTool {
+            for name in ["json", "JSON"] {
+                wireTools.append([
+                    "type": "function",
+                    "function": [
+                        "name": name,
+                        "description": "When you are done using other tools, call `json` with your final answer as a JSON object matching: " + finalSchema.json,
+                        "parameters": ["type": "object", "additionalProperties": true],
+                    ],
+                ])
+            }
+        }
+
         var body: [String: Any] = [
             "model": modelID,
             "messages": wireMessages,
-            "response_format": ["type": "json_object"],
         ]
-        if !wireTools.isEmpty {
+        if wireTools.isEmpty {
+            // No tools this turn: the model must return the final JSON object,
+            // so ask the provider to guarantee valid JSON.
+            body["response_format"] = ["type": "json_object"]
+        } else {
+            // Many OpenAI-compatible providers 400 on `response_format:
+            // json_object` sent alongside `tools` ("json mode cannot be
+            // combined with tool/function calling"). The system prompt already
+            // carries the final schema; on the turn the model stops calling
+            // tools we rely on that plus the local decode.
             body["tools"] = wireTools
             body["tool_choice"] = "auto"
         }
@@ -180,14 +227,20 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
 
         let turn: NativeToolTurn<Final>
         if let toolCalls = message.tool_calls, !toolCalls.isEmpty {
-            turn = .toolCalls(toolCalls.map {
-                NativeToolCall(id: $0.id, name: $0.function.name, argumentsJSON: $0.function.arguments)
-            })
+            // A call to anything that isn't one of the real tools is GPT-OSS's
+            // synthetic final-answer channel (`json`/`JSON`/…) — decode its
+            // arguments as the final answer rather than trying to execute it.
+            if usesJSONFinalTool, let finalCall = toolCalls.first(where: { !realToolNames.contains($0.function.name) }) {
+                do { turn = .final(try Self.decodeFinal(Final.self, from: finalCall.function.arguments)) }
+                catch { throw LLMError.decoding("final tool-call '\(finalCall.function.name)': \(error)") }
+            } else {
+                turn = .toolCalls(toolCalls.map {
+                    NativeToolCall(id: $0.id, name: $0.function.name, argumentsJSON: $0.function.arguments)
+                })
+            }
         } else if let content = message.content, !content.isEmpty {
-            let value: Final
-            do { value = try JSONDecoder().decode(Final.self, from: Data(content.utf8)) }
+            do { turn = .final(try Self.decodeFinal(Final.self, from: content)) }
             catch { throw LLMError.decoding("final content: \(error)") }
-            turn = .final(value)
         } else {
             throw LLMError.emptyResponse
         }
@@ -197,6 +250,17 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
             inputTokens: envelope.usage?.prompt_tokens ?? 0,
             outputTokens: envelope.usage?.completion_tokens ?? 0,
             cachedTokens: envelope.usage?.prompt_tokens_details?.cached_tokens ?? 0)
+    }
+
+    /// Decodes the model's final answer, tolerating a model that wraps it in the
+    /// prompt-lane envelope (`{"final": <obj>}` or `{"decision":"final","final":
+    /// <obj>}`) — the shared Ask Coach system prompt teaches that shape for the
+    /// prompt lane, so a native-lane model on the same prompt sometimes emits it.
+    static func decodeFinal<F: Decodable>(_ type: F.Type, from json: String) throws -> F {
+        let data = Data(json.utf8)
+        if let value = try? JSONDecoder().decode(F.self, from: data) { return value }
+        if let wrapped = try? JSONDecoder().decode(PromptEnvelopeWrapper<F>.self, from: data) { return wrapped.final }
+        return try JSONDecoder().decode(F.self, from: data)
     }
 
     /// Strips anything shaped like an OpenAI (`sk-…`) or Google (`AIza…`) key from

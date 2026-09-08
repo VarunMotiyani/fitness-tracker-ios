@@ -124,7 +124,6 @@ struct HomeView: View {
             activeProfile: activeProviderProfile, settings: proactiveSettings)
     }
 
-    @State private var showChat = false
     @State private var showCoachInbox = false
     @State private var showProfile = false
 
@@ -281,16 +280,15 @@ struct HomeView: View {
                 // Week Strip Card + Nested Today Routine
                 weekStripCard
 
-                dailyCheckinCard
+                if todayCheckin == nil {
+                    dailyCheckinCard
+                }
 
                 // One compact coach preview keeps the workout action primary;
                 // the Coach screen owns the full note history.
                 if let note = homeCoachNote {
                     CoachInsightPreview(note: note, onOpenCoach: {
                         showCoachInbox = true
-                    }, onDismiss: {
-                        note.readAt = .now
-                        try? context.save()
                     })
                 }
 
@@ -334,18 +332,24 @@ struct HomeView: View {
             case .weeklySummary:
                 WeeklySummaryView()
             case .dayOverride(let date):
-                DayOverrideSheet(date: date, plan: plan) { _ in
+                DayOverrideSheet(date: date, plan: plan, onSavedCheckin: { checkin in
+                    Task { await proactiveCoordinator.reactToCheckin(checkin) }
+                }) { _ in
                     // Override selected
                 }
             case .workoutDetail(let session):
-                WorkoutDetailSheet(session: session, catalog: catalog)
+                WorkoutDetailSheet(session: session, catalog: catalog, onSavedCheckin: { checkin in
+                    Task { await proactiveCoordinator.reactToCheckin(checkin) }
+                })
             }
         }
-        .sheet(isPresented: $showChat) {
-            ChatView(catalog: catalog, provider: chatProvider, activeProfile: activeProviderProfile, onClose: { showChat = false })
-        }
         .sheet(isPresented: $showCoachInbox) {
-            CoachInboxView(onClose: { showCoachInbox = false })
+            CoachInboxView(
+                catalog: catalog,
+                provider: chatProvider,
+                activeProfile: activeProviderProfile,
+                onClose: { showCoachInbox = false }
+            )
         }
         .fullScreenCover(isPresented: $showProfile) {
             AthleteProfileView(profile: profile, catalog: catalog, onOpenPlan: onOpenPlan)
@@ -407,11 +411,11 @@ struct HomeView: View {
             .accessibilityLabel("Profile")
             .accessibilityHint("View and edit your training profile")
 
-            // Ask Coach Button (1-tap opens the chat sheet)
+            // Coach hub: unread badge opens Insights first; Chat is a separate section.
             Button {
                 let generator = UIImpactFeedbackGenerator(style: .light)
                 generator.impactOccurred()
-                showChat = true
+                showCoachInbox = true
             } label: {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: "bubble.left.and.bubble.right.fill")
@@ -432,7 +436,7 @@ struct HomeView: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Coach")
+            .accessibilityLabel("Coach insights")
             .accessibilityValue(unreadCoachNotes.isEmpty ? "No unread insights" : "\(unreadCoachNotes.count) unread insights")
 
             // Settings Button (1-tap opens Settings)

@@ -2,20 +2,24 @@ import Foundation
 import SwiftData
 
 /// A proactive message from the coach (design spec §5). `kindRaw` is
-/// `"daily"` | `"weekly"` | `"checkin"` | `"pattern"`. Home shows unread ones
-/// (`readAt == nil`) as cards.
+/// `"daily"` | `"weekly"` | `"checkin"` | `"pattern"`. Daily and weekly rows
+/// are replaced for the current period; reactive rows retain their history.
 @Model
 final class CoachNoteModel {
     var id: UUID
     var kindRaw: String
+    var topicRaw: String?
     var text: String
+    var reason: String?
     var createdAt: Date
     var readAt: Date?
 
-    init(kindRaw: String, text: String, createdAt: Date = .now) {
+    init(kindRaw: String, text: String, reason: String? = nil, topicRaw: String? = nil, createdAt: Date = .now) {
         self.id = UUID()
         self.kindRaw = kindRaw
+        self.topicRaw = topicRaw
         self.text = text
+        self.reason = reason
         self.createdAt = createdAt
         self.readAt = nil
     }

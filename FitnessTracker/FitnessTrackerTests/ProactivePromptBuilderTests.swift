@@ -21,6 +21,14 @@ import Testing
         #expect(p.contains("4"))
         #expect(p.contains("back undertrained"))
     }
+
+    @Test func weeklyUserPromptSeparatesCompletedCountFromPlanTarget() {
+        let p = ProactivePromptBuilder.userWeeklySummary(
+            sessionsCompleted: 20, plannedPerWeek: 4, streakWeeks: 13,
+            muscleCoverageDigest: "quads undertrained", prCount: 7, memoryDigest: "")
+        #expect(p.contains("20 sessions completed against a plan of 4"))
+        #expect(p.contains("Do not describe this as X of Y when completed exceeds the plan"))
+    }
     @Test func checkinUserPromptIncludesRatings() {
         let p = ProactivePromptBuilder.userCheckinReaction(
             soreness: 8, sleepQuality: 4, note: "quads wrecked",

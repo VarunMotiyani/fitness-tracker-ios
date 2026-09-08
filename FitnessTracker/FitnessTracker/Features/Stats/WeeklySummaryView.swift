@@ -20,6 +20,8 @@ struct WeeklySummaryView: View {
     @Query(sort: \PersonalRecordModel.date, order: .reverse)
     private var prRecords: [PersonalRecordModel]
 
+    @Query private var profiles: [UserProfile]
+
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
 
@@ -65,6 +67,8 @@ struct WeeklySummaryView: View {
         prRecords.filter { $0.date >= weekStart && $0.date < weekEnd }.count
     }
 
+    private var plannedSessions: Int { profiles.first?.sessionsPerWeek ?? 0 }
+
     private var currentStreakWeeks: Int {
         // `plannedPerWeek` only feeds adherence fields, not `currentStreakWeeks`.
         // Evaluate the streak as of the end of the displayed week so all three
@@ -85,17 +89,28 @@ struct WeeklySummaryView: View {
                     if let latest = displayed {
                         headerView(for: latest)
                         recapCard(for: latest)
-                        deterministicRowsCard
+                        if !latest.nextWeekFocus.isEmpty {
+                            nextWeekCard(for: latest)
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("At a glance")
+                                .font(.headline)
+                                .foregroundStyle(GymTheme.label)
+                            deterministicRowsCard
+                        }
                     } else {
                         emptyState
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 12)
+                .padding(.top, 4)
                 .padding(.bottom, 40)
+                .frame(maxWidth: 720, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(GymTheme.bg.ignoresSafeArea())
+            .navigationTitle("Weekly recap")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -111,14 +126,14 @@ struct WeeklySummaryView: View {
     private func headerView(for summary: WeeklySummaryModel) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Last week")
-                .font(.system(size: 32, weight: .bold))
+                .font(.largeTitle.weight(.bold))
                 .foregroundStyle(GymTheme.label)
             Text("Week of \(summary.weekStartDate.formatted(.dateTime.weekday(.wide).day().month(.wide)))")
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(Color(white: 0.60))
+                .font(.subheadline)
+                .foregroundStyle(GymTheme.label2)
         }
-        .padding(.top, 12)
-        .padding(.bottom, 2)
+        .padding(.top, 4)
+        .padding(.bottom, 4)
     }
 
     // MARK: - Recap Card (generated prose)
@@ -126,44 +141,83 @@ struct WeeklySummaryView: View {
     @ViewBuilder
     private func recapCard(for summary: WeeklySummaryModel) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(summary.headline)
-                .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(GymTheme.label)
-                .fixedSize(horizontal: false, vertical: true)
+            Label("Coach recap", systemImage: "sparkles")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(activeAccent)
+                .textCase(.uppercase)
 
-            if !summary.summaryBody.isEmpty {
+            Text("Your week in review")
+                .font(.title2.weight(.bold))
+                .foregroundStyle(GymTheme.label)
+
+            let sentences = summarySentences(for: summary)
+            if !sentences.isEmpty {
                 HStack(alignment: .top, spacing: 10) {
                     RoundedRectangle(cornerRadius: 1.5)
                         .fill(activeAccent.opacity(0.75))
                         .frame(width: 3)
 
-                    CoachTextStyler.highlighted(
-                        summary.summaryBody,
-                        accent: activeAccent,
-                        base: Color(white: 0.70)
-                    )
-                    .font(.system(size: 15, weight: .regular))
-                    .lineSpacing(4)
-                    .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(sentences.enumerated()), id: \.offset) { _, sentence in
+                            CoachTextStyler.highlighted(
+                                sentence,
+                                accent: activeAccent,
+                                base: GymTheme.label2
+                            )
+                            .font(.body)
+                            .lineSpacing(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
-            }
-
-            if !summary.nextWeekFocus.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("NEXT WEEK")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Color(white: 0.50))
-                    Text(summary.nextWeekFocus)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(activeAccent)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.top, 2)
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    @ViewBuilder
+    private func nextWeekCard(for summary: WeeklySummaryModel) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Next week", systemImage: "arrow.up.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(activeAccent)
+                .textCase(.uppercase)
+
+            Text(summary.nextWeekFocus)
+                .font(.headline)
+                .foregroundStyle(GymTheme.label)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(activeAccent.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(activeAccent.opacity(0.28), lineWidth: 1)
+        }
+    }
+
+    private func summarySentences(for summary: WeeklySummaryModel) -> [String] {
+        var sentences: [String] = []
+        var current = ""
+        let body = WeeklySummaryCopy.correctedBody(
+            summary.summaryBody,
+            completed: sessionsThisWeek,
+            planned: plannedSessions
+        )
+        for character in body {
+            current.append(character)
+            if ".!?".contains(character) {
+                let sentence = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !sentence.isEmpty { sentences.append(sentence) }
+                current = ""
+            }
+        }
+        let remainder = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !remainder.isEmpty { sentences.append(remainder) }
+        return sentences
     }
 
     // MARK: - Deterministic Rows Card

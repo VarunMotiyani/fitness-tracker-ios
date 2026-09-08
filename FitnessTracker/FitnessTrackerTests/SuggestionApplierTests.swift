@@ -74,6 +74,22 @@ import CoachMemory
         #expect(suggestion.accepted == false)
     }
 
+    @Test func applyThrowsWhenExerciseNotInSession() throws {
+        let sessionID = UUID()
+        let stored = try StoredPlan(plan: plan(sessionID: sessionID), hadValidationIssues: false)
+        let suggestion = PendingCoachSuggestion(plannedSessionID: sessionID, kind: "setChange",
+                                                exerciseID: "squat", rationale: "test", source: "askCoach")
+        suggestion.targetSets = 2
+        let ctx = ModelContext(try container())
+
+        #expect(throws: SuggestionApplierError.itemNotFound) {
+            try SuggestionApplier.apply(suggestion, storedPlan: stored, context: ctx)
+        }
+        // The card must stay for another look, not vanish with no effect.
+        #expect(suggestion.resolvedAt == nil)
+        #expect(try stored.decodedPlan().sessions[0].items[0].targetSets == 3)
+    }
+
     @Test func applyThrowsForUnknownSession() throws {
         let stored = try StoredPlan(plan: plan(sessionID: UUID()), hadValidationIssues: false)
         let suggestion = PendingCoachSuggestion(plannedSessionID: UUID(), kind: "exerciseSwap",

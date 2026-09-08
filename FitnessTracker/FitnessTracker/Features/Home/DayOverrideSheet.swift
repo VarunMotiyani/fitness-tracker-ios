@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import FitnessDomain
 import Metrics
 
@@ -6,16 +7,28 @@ struct DayOverrideSheet: View {
     let date: Date
     let plan: WeeklyPlan
     var onSelectSession: (PlannedSession?) -> Void
+    var onSavedCheckin: ((DailyCheckinModel) -> Void)?
     @Environment(\.dismiss) private var dismiss
+
+    @Query(sort: \DailyCheckinModel.date, order: .reverse)
+    private var dailyCheckins: [DailyCheckinModel]
 
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
 
     @State private var selectedSessionID: UUID?
+    @State private var showCheckinSheet = false
 
-    init(date: Date, plan: WeeklyPlan, currentSession: PlannedSession? = nil, onSelectSession: @escaping (PlannedSession?) -> Void) {
+    init(
+        date: Date,
+        plan: WeeklyPlan,
+        currentSession: PlannedSession? = nil,
+        onSavedCheckin: ((DailyCheckinModel) -> Void)? = nil,
+        onSelectSession: @escaping (PlannedSession?) -> Void
+    ) {
         self.date = date
         self.plan = plan
+        self.onSavedCheckin = onSavedCheckin
         self.onSelectSession = onSelectSession
         _selectedSessionID = State(initialValue: currentSession?.id)
     }
@@ -36,6 +49,86 @@ struct DayOverrideSheet: View {
         return "Rest"
     }
 
+    private var isToday: Bool {
+        Calendar.isoUTC.isDate(date, inSameDayAs: .now)
+    }
+
+    private var isPast: Bool {
+        let cal = Calendar.isoUTC
+        let startOfDate = cal.startOfDay(for: date)
+        let startOfToday = cal.startOfDay(for: .now)
+        return startOfDate < startOfToday
+    }
+
+    private var dayCheckin: DailyCheckinModel? {
+        dailyCheckins.first { Calendar.isoUTC.isDate($0.date, inSameDayAs: date) }
+    }
+
+    private var checkinSummaryText: String {
+        guard let checkin = dayCheckin else {
+            return "Share sleep and soreness so your coach can adapt."
+        }
+        var parts: [String] = []
+        if let sleep = checkin.sleepQuality {
+            parts.append("Sleep: \(sleep)/10")
+        }
+        if let sore = checkin.soreness {
+            parts.append("Soreness: \(sore)/10")
+        }
+        if let note = checkin.note, !note.isEmpty {
+            parts.append(note)
+        }
+        return parts.isEmpty ? "Sleep and soreness saved" : parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private var checkinSection: some View {
+        if isToday {
+            Button {
+                showCheckinSheet = true
+            } label: {
+                checkinCardContent(isEditable: true)
+            }
+            .buttonStyle(.plain)
+        } else if isPast, dayCheckin != nil {
+            checkinCardContent(isEditable: false)
+        }
+    }
+
+    @ViewBuilder
+    private func checkinCardContent(isEditable: Bool) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: dayCheckin == nil ? "heart.text.square.fill" : "checkmark.circle.fill")
+                .font(.title3)
+                .foregroundStyle(dayCheckin == nil ? GymTheme.violet : activeAccent)
+                .frame(width: 40, height: 40)
+                .background((dayCheckin == nil ? GymTheme.violet : activeAccent).opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(dayCheckin == nil ? "How are you feeling?" : (isToday ? "Today’s check-in" : "Daily check-in"))
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(GymTheme.label)
+
+                Text(checkinSummaryText)
+                    .font(.system(size: 13))
+                    .foregroundStyle(GymTheme.label2)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 8)
+
+            if isEditable {
+                Text(dayCheckin == nil ? "Check in" : "Update")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(activeAccent)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 12))
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -50,6 +143,8 @@ struct DayOverrideSheet: View {
                         .foregroundStyle(Color(white: 0.60))
                 }
                 .padding(.top, 28)
+
+                checkinSection
 
                 Text("Sick, missed a day or want a different session? Pick what to train instead.")
                     .font(.system(size: 13.5, weight: .regular))
@@ -170,6 +265,12 @@ struct DayOverrideSheet: View {
         }
         .background(GymTheme.bgElevated.ignoresSafeArea())
         .presentationDetents([.fraction(0.72), .large])
+        .presentationDetents([.fraction(0.78), .large])
         .presentationDragIndicator(.visible)
+        .sheet(isPresented: $showCheckinSheet) {
+            CheckinEntryView { checkin in
+                onSavedCheckin?(checkin)
+            }
+        }
     }
 }
