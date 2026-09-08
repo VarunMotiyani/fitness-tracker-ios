@@ -10,6 +10,7 @@ import ExerciseCatalog
     private func container() throws -> ModelContainer {
         try ModelContainer(for: StoredPlan.self, PendingCoachSuggestion.self,
                            CompletedSessionModel.self, CompletedEntryModel.self, LoggedSetModel.self,
+                           CoachMemoryModel.self,
                            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
     }
 
@@ -39,6 +40,28 @@ import ExerciseCatalog
 
         let pending = try ctx.fetch(FetchDescriptor<PendingCoachSuggestion>())
         #expect(pending.contains { $0.kind == "addExercise" })
+    }
+
+    @Test func skipsAMuscleWithALiveConstraintMemory() throws {
+        let ctx = ModelContext(try container())
+        let sessionID = UUID()
+        let plan = WeeklyPlan(weekStartDate: Date(), source: .ruleEngine, rationale: "test",
+                              sessions: [PlannedSession(id: sessionID, order: 0, focusMuscles: [.chest, .shoulders], items: [
+                                  PlannedItem(exerciseID: "bench", targetSets: 3, targetReps: RepRange(min: 6, max: 8),
+                                              targetLoadKg: 60, restSeconds: 90, coachNote: "")
+                              ])], weeklyVolumeTargets: [])
+        let stored = try StoredPlan(plan: plan, hadValidationIssues: false)
+        ctx.insert(stored)
+        let constraint = CoachMemoryModel(kindRaw: "constraint", statement: "avoid direct shoulder work — impingement",
+                                          confidence: 0.8, sourceKind: "user", createdAt: .now, lastConfirmedAt: .now)
+        constraint.tagMuscleRaw = MuscleGroup.shoulders.rawValue
+        ctx.insert(constraint)
+        try ctx.save()
+
+        CoverageGapDetector.detect(context: ctx, catalog: catalog(), storedPlan: stored)
+
+        let pending = try ctx.fetch(FetchDescriptor<PendingCoachSuggestion>())
+        #expect(pending.allSatisfy { $0.exerciseID != "lateral_raise" })
     }
 
     @Test func doesNotDuplicateAnUnresolvedSuggestionForTheSameMuscle() throws {
