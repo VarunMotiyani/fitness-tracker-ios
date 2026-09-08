@@ -137,15 +137,8 @@ openGym's equivalent (`equipment.js`'s `exAvailable(S, ex)`) is consumed by the 
 
 ---
 
-## Ranked worklist (new items from this pass, on top of the screen-diff doc's list)
 ## Ranked worklist — Status: ALL RESOLVED (2026-09-04)
 
-1. **§4.1 wire the equipment filter** — currently a fully-built no-op feature; either finish it or the toggle is misleading.
-2. **§3.3 fix rest-timer sound** — the shipped timer is silent by mistake (haptic-only), dead code already has the right implementation sitting unused.
-3. **§3.1 fix `TimerFlashOverlay`** — wrong color (white-only vs black+white alternating) and roughly half the intended duration.
-4. **§3.4 add a tab-switch transition** — every screen change is currently a hard cut.
-5. **§3.2 add the pulsing resume ring** — the "you have an unfinished workout" affordance is static.
-6. **§4.2 verify muscle-balance math** against `muscles.js`'s alias table + effective-set formula.
 1. ✅ **§4.1 wire the equipment filter** — Ported `equipment.js` logic to `EquipmentFilter`, wired across `LibraryView`, `ExerciseSwapSheet`, `StatsView` (`ExercisePickerSheet`), and `RoutineEditView` (`ExercisePickerCatalogSheet`). Verified with unit tests.
 2. ✅ **§3.3 fix rest-timer sound** — RestTimer now triggers `AudioServicesPlaySystemSound(1052)` warning ticks (<=3s) and `AudioServicesPlaySystemSound(1005)` completion chime alongside success haptic, respecting user sound preference.
 3. ✅ **§3.1 fix `TimerFlashOverlay`** — Implemented openGym's exact 2.4s `@keyframes timer-flash-four` sequence alternating black and white flashes (96ms..384ms black, 768ms..1056ms white, 1440ms..1728ms black, 2112ms..2304ms white).

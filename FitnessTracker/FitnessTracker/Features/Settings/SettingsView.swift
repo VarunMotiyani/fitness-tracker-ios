@@ -247,26 +247,26 @@ struct SettingsView: View {
     @ViewBuilder
     private func profileSection(_ p: UserProfile) -> some View {
         Section {
-            LabeledContent("Goal", value: p.goalRaw.capitalized)
-            LabeledContent("Experience", value: p.experienceRaw.capitalized)
-            LabeledContent("Sessions / week", value: "\(p.sessionsPerWeek)")
-            LabeledContent("Session length", value: "\(p.sessionLengthMinutes) min")
-
-            Button {
-                regenerate(p)
+            NavigationLink {
+                AthleteProfileView(profile: p, catalog: catalog)
             } label: {
-                HStack {
-                    Text("Regenerate Weekly Plan")
+                HStack(spacing: 12) {
+                    Image(systemName: "figure.strengthtraining.traditional")
                         .foregroundStyle(activeAccent)
-                    Spacer()
-                    if isGenerating {
-                        ProgressView()
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("View athlete profile")
+                            .foregroundStyle(GymTheme.label)
+                        Text("\(p.sessionsPerWeek) sessions/week · \(p.sessionLengthMinutes) min")
+                            .font(.caption)
+                            .foregroundStyle(GymTheme.label3)
                     }
                 }
             }
-            .disabled(isGenerating)
         } header: {
             Text("Athlete Profile")
+        } footer: {
+            Text("Update your training inputs and body-composition snapshot in one place.")
         }
     }
 

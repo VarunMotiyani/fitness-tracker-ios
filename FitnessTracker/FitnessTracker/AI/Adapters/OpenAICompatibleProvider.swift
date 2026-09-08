@@ -17,7 +17,17 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
         self.additionalHeaders = additionalHeaders
     }
 
-    var capabilities: ProviderCapabilities { .openAICompatibleDefault(host: baseURL.host) }
+    var capabilities: ProviderCapabilities {
+        let defaults = ProviderCapabilities.openAICompatibleDefault(host: baseURL.host)
+        // Groq's GPT-OSS models are trained for Harmony/native function calls.
+        // The provider-neutral prompt envelope is not reliable for these
+        // models (they can return a valid but differently-shaped JSON object),
+        // so prefer the API's native tool lane. A stored profile override can
+        // still opt back into the prompt lane when needed.
+        return requiresGPTOSSNativeTools
+            ? defaults.overriding(toolCalling: .native)
+            : defaults
+    }
 
     /// POSTs `body` to `chat/completions`, applying auth + extra headers, and
     /// returns the response data or throws `LLMError.transport` on a non-2xx /
@@ -64,7 +74,7 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
         let systemPrompt = usesJSONMode
             ? system + "\n\nReturn a valid JSON object only."
             : system
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": modelID,
             "messages": [
                 ["role": "system", "content": systemPrompt],
@@ -72,6 +82,12 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
             ],
             "response_format": responseFormat,
         ]
+        if requiresGPTOSSReasoningExclusion {
+            // GPT-OSS does not support Groq's reasoning_format parameter. Its
+            // reasoning is included in a separate field by default; disable
+            // that field so JSON mode remains a clean decodable response.
+            body["include_reasoning"] = false
+        }
         let data = try await send(body: body)
 
         let envelope: Envelope
@@ -149,6 +165,11 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
             body["tools"] = wireTools
             body["tool_choice"] = "auto"
         }
+        if requiresGPTOSSReasoningExclusion {
+            // Keep native tool responses free of the separate reasoning field
+            // as well; the model's tool arguments/content remain unchanged.
+            body["include_reasoning"] = false
+        }
 
         let data = try await send(body: body)
 
@@ -183,6 +204,19 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
     static func redactSecrets(_ text: String) -> String {
         text.replacing(/sk-[A-Za-z0-9_-]{8,}/, with: "«redacted»")
             .replacing(/AIza[A-Za-z0-9_-]{8,}/, with: "«redacted»")
+    }
+
+    /// Groq GPT-OSS returns reasoning in a separate field by default. Keep
+    /// this vendor/model-specific so other OpenAI-compatible servers never
+    /// receive Groq-only request fields.
+    private var requiresGPTOSSReasoningExclusion: Bool {
+        guard baseURL.host?.caseInsensitiveCompare("api.groq.com") == .orderedSame else { return false }
+        let id = modelID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return id == "openai/gpt-oss-20b" || id == "openai/gpt-oss-120b"
+    }
+
+    private var requiresGPTOSSNativeTools: Bool {
+        requiresGPTOSSReasoningExclusion
     }
 
     private struct Envelope: Decodable {

@@ -57,6 +57,27 @@ struct OpenAICompatibleProviderTests {
         #expect(format["type"] as? String == "json_object")
     }
 
+    @Test func groqGPTOSSExcludesReasoningWithJSONMode() async throws {
+        let captured = Locked<URLRequest?>(nil)
+        let session = StubURLProtocol.session { req in
+            captured.set(req)
+            let body = #"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (resp, Data(body.utf8))
+        }
+
+        let p = OpenAICompatibleProvider(
+            baseURL: URL(string: "https://api.groq.com/openai/v1")!,
+            apiKey: "gsk-test", modelID: "openai/gpt-oss-120b", session: session)
+        let _: LLMResult<Dummy> = try await p.complete(
+            system: "Return only JSON.", user: "hi",
+            schema: JSONSchema(json: #"{"ok":"bool"}"#), as: Dummy.self)
+
+        let requestBody = try #require(captured.get()?.capturedBody)
+        let object = try #require(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+        #expect(object["include_reasoning"] as? Bool == false)
+    }
+
     @Test func usesJSONModeWhenPromptSchemaIsDescriptiveJSON() async throws {
         let captured = Locked<URLRequest?>(nil)
         let session = StubURLProtocol.session { req in
@@ -151,5 +172,8 @@ struct OpenAICompatibleProviderTests {
         let groq = OpenAICompatibleProvider(baseURL: URL(string: "https://api.groq.com/openai/v1")!,
                                             apiKey: "sk", modelID: "qwen", session: .shared)
         #expect(groq.capabilities.toolCalling == .viaPrompt)
+        let groqGPTOSS = OpenAICompatibleProvider(baseURL: URL(string: "https://api.groq.com/openai/v1")!,
+                                                  apiKey: "gsk", modelID: "openai/gpt-oss-120b", session: .shared)
+        #expect(groqGPTOSS.capabilities.toolCalling == .native)
     }
 }

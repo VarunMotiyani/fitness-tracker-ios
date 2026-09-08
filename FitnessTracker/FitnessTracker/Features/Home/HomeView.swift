@@ -35,12 +35,16 @@ struct HomeView: View {
     let costSummary: CostSummary
     var onStartSession: (PlannedSession) -> Void
     var onOpenSettings: () -> Void
+    var onOpenPlan: () -> Void
 
     @Query(sort: \CompletedSessionModel.startedAt, order: .reverse)
     private var completedSessions: [CompletedSessionModel]
     
     @Query(sort: \BodyweightEntryModel.date, order: .reverse)
     private var bodyweightEntries: [BodyweightEntryModel]
+
+    @Query(sort: \DailyCheckinModel.date, order: .reverse)
+    private var dailyCheckins: [DailyCheckinModel]
 
     // Plain @Query + Swift-side filter, not a boolean #Predicate on `confirmed`
     // — the same shape of predicate hung Settings/Root and Settings/Providers
@@ -80,6 +84,14 @@ struct HomeView: View {
     private var unreadCoachNotes: [CoachNoteModel] {
         allCoachNotes.filter { $0.readAt == nil }
     }
+    /// Home gets one current insight preview. The Coach screen remains the
+    /// inbox for older daily notes, weekly recaps, check-ins, and pattern nudges.
+    private var homeCoachNote: CoachNoteModel? {
+        let candidates = unreadCoachNotes.filter { $0.kindRaw != "weekly" }
+        // Keep Home focused on one current insight. The Coach screen remains
+        // the inbox for older daily notes and other proactive messages.
+        return candidates.first(where: { $0.kindRaw == "daily" }) ?? candidates.first
+    }
     private var chatProvider: (any LLMProvider)? {
         activeProviderProfile.flatMap {
             try? LLMProviderFactory.make(from: $0, fallback: $0.resolvedFallback(in: allProviderProfiles))
@@ -113,6 +125,8 @@ struct HomeView: View {
     }
 
     @State private var showChat = false
+    @State private var showCoachInbox = false
+    @State private var showProfile = false
 
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
@@ -138,7 +152,8 @@ struct HomeView: View {
         catalog: CatalogStore,
         costSummary: CostSummary,
         onStartSession: @escaping (PlannedSession) -> Void,
-        onOpenSettings: @escaping () -> Void
+        onOpenSettings: @escaping () -> Void,
+        onOpenPlan: @escaping () -> Void
     ) {
         self.profile = profile
         self.plan = plan
@@ -146,6 +161,7 @@ struct HomeView: View {
         self.costSummary = costSummary
         self.onStartSession = onStartSession
         self.onOpenSettings = onOpenSettings
+        self.onOpenPlan = onOpenPlan
     }
 
     private var todaySession: PlannedSession? {
@@ -172,6 +188,10 @@ struct HomeView: View {
 
     private var currentWeight: Double {
         bodyweightEntries.first?.kg ?? 78.7
+    }
+
+    private var todayCheckin: DailyCheckinModel? {
+        dailyCheckins.first { Calendar.isoUTC.isDate($0.date, inSameDayAs: .now) }
     }
 
     private var prevWeight: Double? {
@@ -258,16 +278,21 @@ struct HomeView: View {
                     )
                 }
 
-                // Unread proactive coach messages
-                ForEach(unreadCoachNotes) { note in
-                    CoachNoteCard(note: note, onDismiss: {
+                // Week Strip Card + Nested Today Routine
+                weekStripCard
+
+                dailyCheckinCard
+
+                // One compact coach preview keeps the workout action primary;
+                // the Coach screen owns the full note history.
+                if let note = homeCoachNote {
+                    CoachInsightPreview(note: note, onOpenCoach: {
+                        showCoachInbox = true
+                    }, onDismiss: {
                         note.readAt = .now
                         try? context.save()
                     })
                 }
-
-                // Week Strip Card + Nested Today Routine
-                weekStripCard
 
                 // This-week recap card (only once a WeeklySummaryModel exists)
                 if weeklySummaries.first != nil {
@@ -319,6 +344,12 @@ struct HomeView: View {
         .sheet(isPresented: $showChat) {
             ChatView(catalog: catalog, provider: chatProvider, activeProfile: activeProviderProfile, onClose: { showChat = false })
         }
+        .sheet(isPresented: $showCoachInbox) {
+            CoachInboxView(onClose: { showCoachInbox = false })
+        }
+        .fullScreenCover(isPresented: $showProfile) {
+            AthleteProfileView(profile: profile, catalog: catalog, onOpenPlan: onOpenPlan)
+        }
     }
 
     private func seedInitialDataIfNeeded() {
@@ -359,19 +390,22 @@ struct HomeView: View {
 
             Spacer()
 
-            // Daily Check-in Button (1-tap opens the check-in entry sheet)
+            // Profile keeps athlete-owned inputs reachable without adding a
+            // sixth bottom tab or crowding the page with a fourth icon.
             Button {
                 let generator = UIImpactFeedbackGenerator(style: .light)
                 generator.impactOccurred()
-                activeSheet = .dailyCheckin
+                showProfile = true
             } label: {
-                Image(systemName: "checklist")
+                Image(systemName: "person.crop.circle.fill")
                     .font(.system(size: 16))
-                    .foregroundStyle(Color(white: 0.70))
+                    .foregroundStyle(activeAccent)
                     .frame(width: 38, height: 38)
                     .background(GymTheme.surface, in: Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Profile")
+            .accessibilityHint("View and edit your training profile")
 
             // Ask Coach Button (1-tap opens the chat sheet)
             Button {
@@ -379,13 +413,27 @@ struct HomeView: View {
                 generator.impactOccurred()
                 showChat = true
             } label: {
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(Color(white: 0.70))
-                    .frame(width: 38, height: 38)
-                    .background(GymTheme.surface, in: Circle())
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Color(white: 0.70))
+                        .frame(width: 38, height: 38)
+                        .background(GymTheme.surface, in: Circle())
+
+                    if unreadCoachNotes.count > 0 {
+                        Text(unreadCoachNotes.count > 9 ? "9+" : "\(unreadCoachNotes.count)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 4)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background(GymTheme.lime, in: Capsule())
+                            .offset(x: 4, y: -4)
+                    }
+                }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Coach")
+            .accessibilityValue(unreadCoachNotes.isEmpty ? "No unread insights" : "\(unreadCoachNotes.count) unread insights")
 
             // Settings Button (1-tap opens Settings)
             Button {
@@ -403,6 +451,42 @@ struct HomeView: View {
         }
         .padding(.horizontal, 4)
         .padding(.top, 12)
+    }
+
+    @ViewBuilder
+    private var dailyCheckinCard: some View {
+        Button {
+            activeSheet = .dailyCheckin
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: todayCheckin == nil ? "heart.text.square.fill" : "checkmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(todayCheckin == nil ? GymTheme.violet : activeAccent)
+                    .frame(width: 42, height: 42)
+                    .background((todayCheckin == nil ? GymTheme.violet : activeAccent).opacity(0.15), in: RoundedRectangle(cornerRadius: 13))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(todayCheckin == nil ? "How are you feeling?" : "Today’s check-in")
+                        .font(.headline)
+                        .foregroundStyle(GymTheme.label)
+                    Text(todayCheckin == nil
+                         ? "Share sleep and soreness so your coach can adapt."
+                         : "Sleep and soreness saved — tap to update.")
+                        .font(.subheadline)
+                        .foregroundStyle(GymTheme.label2)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 8)
+                Text(todayCheckin == nil ? "Check in" : "Update")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(activeAccent)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(todayCheckin == nil ? "Daily check-in" : "Update today’s check-in")
     }
 
     // MARK: - Week Strip Card

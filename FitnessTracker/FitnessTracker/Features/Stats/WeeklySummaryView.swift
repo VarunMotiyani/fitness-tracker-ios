@@ -132,10 +132,20 @@ struct WeeklySummaryView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if !summary.summaryBody.isEmpty {
-                Text(summary.summaryBody)
+                HStack(alignment: .top, spacing: 10) {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(activeAccent.opacity(0.75))
+                        .frame(width: 3)
+
+                    CoachTextStyler.highlighted(
+                        summary.summaryBody,
+                        accent: activeAccent,
+                        base: Color(white: 0.70)
+                    )
                     .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(Color(white: 0.70))
+                    .lineSpacing(4)
                     .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             if !summary.nextWeekFocus.isEmpty {

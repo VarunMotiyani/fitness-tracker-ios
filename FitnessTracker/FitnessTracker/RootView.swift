@@ -245,7 +245,8 @@ struct RootView: View {
                         catalog: catalog,
                         costSummary: summary,
                         onStartSession: { session in activePlannedSession = session },
-                        onOpenSettings: { showSettings = true }
+                        onOpenSettings: { showSettings = true },
+                        onOpenPlan: { selectedTab = .plan }
                     )
                 case .plan:
                     PlanView(

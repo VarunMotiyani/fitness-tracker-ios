@@ -108,6 +108,22 @@ private struct DummyFinal: Codable, Sendable, Equatable { let value: Int }
         }
     }
 
+    @Test func providerDecodingFailurePreservesSafeDiagnostic() async throws {
+        let provider = StubLLMProvider(responses: [.failure(.decoding("content: keyNotFound"))])
+        let runner = ToolLoopRunner()
+
+        do {
+            let _: ToolLoopResult<DummyFinal> = try await runner.run(
+                system: "test", initialUser: "test",
+                finalSchema: JSONSchema(json: "{\"value\":\"number\"}"),
+                tools: ToolRegistry(tools: []), provider: provider)
+            Issue.record("expected provider failure to throw")
+        } catch let ToolLoopError.providerFailedWithMessage(calls, message) {
+            #expect(calls.count == 1)
+            #expect(message == "content: keyNotFound")
+        }
+    }
+
     @Test func returnsFinalImmediatelyWithNoToolCalls() async throws {
         let finalTurn = """
         {"decision":"final","final":{"value":7}}

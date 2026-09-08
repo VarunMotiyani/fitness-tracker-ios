@@ -120,12 +120,21 @@ struct ToolLoopRunner {
     }
 
     /// Records the failed attempt in `calls` and maps the provider error to the
-    /// right `ToolLoopError` — preserving a transport diagnostic for the
-    /// interactive coach screen.
+    /// right `ToolLoopError` — preserving a safe provider diagnostic for the
+    /// interactive coach screen. Decode failures are included too: a 2xx
+    /// response can still be unusable when a provider returns a different
+    /// envelope/content shape.
     private static func classify(_ error: Error, calls: inout [CallOutcome]) -> ToolLoopError {
         calls.append(CallOutcome(inputTokens: 0, outputTokens: 0, cachedTokens: 0, succeeded: false))
-        if case LLMError.transport(let message) = error {
-            return .providerFailedWithMessage(calls: calls, message: message)
+        if let llmError = error as? LLMError {
+            switch llmError {
+            case .transport(let message):
+                return .providerFailedWithMessage(calls: calls, message: message)
+            case .decoding(let message):
+                return .providerFailedWithMessage(calls: calls, message: message)
+            case .emptyResponse, .rateLimited, .unsupported, .visionUnsupported:
+                return .providerFailed(calls: calls)
+            }
         }
         return .providerFailed(calls: calls)
     }

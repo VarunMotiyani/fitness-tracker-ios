@@ -69,6 +69,27 @@ The adapter was changed to choose between:
 
 Qwen then returned a direct final DTO rather than the expected `ToolLoopTurn` envelope. The decoder was updated to treat a valid direct DTO as an implicit final turn. This is an important lesson: “OpenAI-compatible” describes a wire family, not identical structured-output or tool semantics.
 
+### Groq GPT-OSS JSON failure
+
+Groq's GPT-OSS models (`openai/gpt-oss-20b` and `openai/gpt-oss-120b`) support
+JSON mode and tool calling. Unlike Groq's Qwen reasoning models, GPT-OSS does
+not support the `reasoning_format` parameter; it includes reasoning in a
+separate response field by default. The app's OpenAI-compatible adapter now
+sends `include_reasoning: false` only for those exact models on
+`api.groq.com`, keeping the JSON content clean for local decoding. Other
+OpenAI-compatible servers are not sent the vendor-specific field. GPT-OSS
+model IDs must include the `openai/` namespace. Because Groq documents native
+tool use for GPT-OSS and the model returned a valid but incompatible object in
+the app's prompt-envelope lane, those exact Groq profiles now default to the
+native tool lane; the stored capability override can still select the prompt
+lane for comparison.
+
+Groq's strict JSON Schema mode is supported for GPT-OSS, but the app's manual
+prompt tool loop intentionally uses JSON Object Mode so it can carry the
+provider-neutral envelope and local DTO validation. If native Groq tool calls
+are enabled for a profile, the same reasoning-exclusion field is included on
+that wire path too.
+
 ### Apple adapter limitations
 
 The current Apple adapter manually embeds a JSON schema in the prompt and decodes the returned text. It does not yet use Foundation Models’ native guided generation or native `Tool` API. `completeWithImage` currently reports vision unsupported.
@@ -84,6 +105,13 @@ The model ID is the provider’s routing identifier, not an arbitrary name. For 
 - the provider’s exact model ID;
 - the endpoint/base URL;
 - capability metadata.
+
+There is no official Google model named “Gemini 2.7 Flash” in the model
+catalog. If that label refers to Gemini 3.7 Flash, Google documents it as a
+multimodal model with text, image, audio, and video input, configurable
+reasoning, structured output, and function calling. Adding its model ID alone
+does not add vision to this app: `GeminiProvider.completeWithImage` must still
+implement the image request path.
 
 ### Direct app calls versus a backend
 
@@ -441,3 +469,7 @@ For Fitness Tracker today:
 - [LocalLLMClient](https://github.com/tattn/LocalLLMClient)
 - [LLMProviderKit](https://github.com/ayman3000/LLMProviderKit)
 - [MCP Swift SDK](https://github.com/modelcontextprotocol/swift-sdk)
+- [Groq GPT-OSS model](https://console.groq.com/docs/model/openai/gpt-oss-120b)
+- [Groq structured outputs](https://console.groq.com/docs/structured-outputs)
+- [Groq reasoning](https://console.groq.com/docs/reasoning)
+- [Gemini 3.7 Flash model card](https://deepmind.google/models/model-cards/gemini-3-7-flash/)
