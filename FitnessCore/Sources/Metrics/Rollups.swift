@@ -49,7 +49,7 @@ public struct RollupComputer: Sendable {
     /// are skipped.
     /// Output is sorted by `(weekStart ascending, MuscleGroup.allCases order)`.
     public func weeklyMuscleVolume(from sessions: [CompletedSessionSnapshot],
-                                   calendar: Calendar = .isoUTC) -> [WeeklyMuscleVolume] {
+                                   calendar: Calendar = .appWeek) -> [WeeklyMuscleVolume] {
         var counts: [Date: [MuscleGroup: Int]] = [:]
 
         for session in sessions {

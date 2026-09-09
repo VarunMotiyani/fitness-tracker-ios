@@ -8,3 +8,4 @@ nonisolated struct WeeklySummaryDTO: Codable, Sendable {
 }
 nonisolated struct CheckinReactionDTO: Codable, Sendable { let message: String }
 nonisolated struct PatternNudgeDTO: Codable, Sendable { let nudge: String }
+nonisolated struct MissedWeekTauntDTO: Codable, Sendable { let taunt: String }

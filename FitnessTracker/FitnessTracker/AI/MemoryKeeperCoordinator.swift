@@ -31,7 +31,7 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
         let existingMemories = ((try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []).map { $0.toDomain() }
 
         let checkin = (try? context.fetch(FetchDescriptor<DailyCheckinModel>()))?
-            .first { Calendar.isoUTC.isDate($0.date, inSameDayAs: session.date) }
+            .first { Calendar.appWeek.isDate($0.date, inSameDayAs: session.date) }
             .map { DailyCheckinSnapshot(date: $0.date, sleepQuality: $0.sleepQuality, soreness: $0.soreness, note: $0.note) }
 
         let recalled = MemoryRecall.select(
@@ -41,8 +41,18 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
         )
 
         let system = MemoryKeeperPromptBuilder.system()
-        let user = MemoryKeeperPromptBuilder.user(session: session, checkin: checkin, memoryDigest: memoryDigestWithIDs(from: recalled.selected))
+        let scheduleContext = scheduleContext(for: session.date)
+        let user = MemoryKeeperPromptBuilder.user(session: session, checkin: checkin,
+                                                  memoryDigest: memoryDigestWithIDs(from: recalled.selected),
+                                                  scheduleContext: scheduleContext)
         await runToolLoopAndApply(system: system, user: user, existingMemories: existingMemories, sessionID: session.id)
+    }
+
+    private func scheduleContext(for date: Date) -> String? {
+        guard let stored = (try? context.fetch(FetchDescriptor<StoredPlan>(sortBy: [SortDescriptor(\.generatedAt, order: .reverse)])))?.first,
+              (try? stored.decodedPlan()) != nil else { return nil }
+        let state = WorkoutScheduleStore.isRescheduled(for: date) ? "rescheduled catch-up" : (WorkoutScheduleStore.effectiveRoutineID(for: date) == nil ? "rest" : "scheduled")
+        return "Schedule context for \(WorkoutScheduleStore.calendar.startOfDay(for: date)): \(state). Use this only to understand whether the completed session filled a moved slot."
     }
 
     /// Second trigger for the same pipeline (design spec §5.2's "run in two
@@ -57,7 +67,9 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
         let existingMemories = ((try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []).map { $0.toDomain() }
         let recalled = MemoryRecall.select(from: existingMemories, context: RecallContext(), now: .now)
         let system = ChatMemoryPromptBuilder.system()
-        let user = ChatMemoryPromptBuilder.user(userMessage: userMessage, assistantReply: assistantReply, memoryDigest: memoryDigestWithIDs(from: recalled.selected))
+        let user = ChatMemoryPromptBuilder.user(userMessage: userMessage, assistantReply: assistantReply,
+                                                memoryDigest: memoryDigestWithIDs(from: recalled.selected),
+                                                scheduleContext: WorkoutScheduleStore.scheduleDescription())
         await runToolLoopAndApply(system: system, user: user, existingMemories: existingMemories, sessionID: nil)
     }
 

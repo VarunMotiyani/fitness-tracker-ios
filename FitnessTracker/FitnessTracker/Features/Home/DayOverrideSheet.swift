@@ -2,11 +2,28 @@ import SwiftUI
 import SwiftData
 import FitnessDomain
 import Metrics
+import RuleEngine
+
+enum WorkoutDayPresentation {
+    static func title(for session: PlannedSession) -> String {
+        switch session.order {
+        case 0: "Push Day"
+        case 1: "Pull Day"
+        case 2: "Legs Day"
+        default: session.focusMuscles.map(\.label).joined(separator: ", ")
+        }
+    }
+
+    static func planLabel(for session: PlannedSession) -> String {
+        "Planned workout"
+    }
+}
 
 struct DayOverrideSheet: View {
     let date: Date
     let plan: WeeklyPlan
     var onSelectSession: (PlannedSession?) -> Void
+    var onSaveOverride: ((String?) -> Void)?
     var onSavedCheckin: ((DailyCheckinModel) -> Void)?
     @Environment(\.dismiss) private var dismiss
 
@@ -16,52 +33,45 @@ struct DayOverrideSheet: View {
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
 
-    @State private var selectedSessionID: UUID?
     @State private var showCheckinSheet = false
+    @State private var showChangeOptions = false
+    @State private var sheetDetent: PresentationDetent = .height(500)
 
     init(
         date: Date,
         plan: WeeklyPlan,
-        currentSession: PlannedSession? = nil,
         onSavedCheckin: ((DailyCheckinModel) -> Void)? = nil,
+        onSaveOverride: ((String?) -> Void)? = nil,
         onSelectSession: @escaping (PlannedSession?) -> Void
     ) {
         self.date = date
         self.plan = plan
         self.onSavedCheckin = onSavedCheckin
+        self.onSaveOverride = onSaveOverride
         self.onSelectSession = onSelectSession
-        _selectedSessionID = State(initialValue: currentSession?.id)
     }
 
-    private var weeklyPlanName: String {
-        let cal = Calendar.isoUTC
-        let weekday = cal.component(.weekday, from: date)
-        // Monday = 2 in Gregorian, 1 in ISO
-        let dayIdx = (weekday + 5) % 7
-        let orderedSessions = plan.sessions.sorted { $0.order < $1.order }
-        if dayIdx < orderedSessions.count {
-            let s = orderedSessions[dayIdx]
-            if s.order == 0 { return "Push Day" }
-            if s.order == 1 { return "Pull Day" }
-            if s.order == 2 { return "Legs Day" }
-            return s.focusMuscles.map(\.label).joined(separator: ", ")
-        }
-        return "Rest"
+    private var plannedSession: PlannedSession? {
+        WorkoutScheduleStore.plannedSession(for: date, in: plan)
+    }
+
+    private var hasDayOverride: Bool {
+        WorkoutScheduleStore.dayPlan[Scheduling.isoDateKey(date, calendar: .appWeek)] != nil
     }
 
     private var isToday: Bool {
-        Calendar.isoUTC.isDate(date, inSameDayAs: .now)
+        Calendar.appWeek.isDate(date, inSameDayAs: .now)
     }
 
     private var isPast: Bool {
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let startOfDate = cal.startOfDay(for: date)
         let startOfToday = cal.startOfDay(for: .now)
         return startOfDate < startOfToday
     }
 
     private var dayCheckin: DailyCheckinModel? {
-        dailyCheckins.first { Calendar.isoUTC.isDate($0.date, inSameDayAs: date) }
+        dailyCheckins.first { Calendar.appWeek.isDate($0.date, inSameDayAs: date) }
     }
 
     private var checkinSummaryText: String {
@@ -129,6 +139,197 @@ struct DayOverrideSheet: View {
         .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 12))
     }
 
+    @ViewBuilder
+    private var plannedWorkoutSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("YOUR PLAN")
+                .font(.system(size: 12, weight: .bold))
+                .tracking(0.7)
+                .foregroundStyle(GymTheme.label3)
+
+            if let session = plannedSession {
+                HStack(spacing: 14) {
+                    Image(systemName: "dumbbell.fill")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .frame(width: 48, height: 48)
+                        .background(activeAccent, in: RoundedRectangle(cornerRadius: 14))
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(WorkoutDayPresentation.planLabel(for: session).uppercased())
+                            .font(.system(size: 11, weight: .bold))
+                            .tracking(0.6)
+                            .foregroundStyle(activeAccent)
+                        Text(WorkoutDayPresentation.title(for: session))
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(GymTheme.label)
+                        Text("\(session.items.count) exercises")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(GymTheme.label2)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 16))
+            } else {
+                HStack(spacing: 14) {
+                    Image(systemName: "moon.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(GymTheme.label2)
+                        .frame(width: 48, height: 48)
+                        .background(GymTheme.surface3, in: RoundedRectangle(cornerRadius: 14))
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("PLANNED DAY")
+                            .font(.system(size: 11, weight: .bold))
+                            .tracking(0.6)
+                            .foregroundStyle(GymTheme.label3)
+                        Text("Rest day")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(GymTheme.label)
+                        Text("Recovery is part of the plan")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(GymTheme.label2)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 16))
+            }
+
+            Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showChangeOptions.toggle()
+                    sheetDetent = showChangeOptions ? .large : .height(500)
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 16, weight: .semibold))
+                        .accessibilityHidden(true)
+                    Text(showChangeOptions ? "Hide workout choices" : (plannedSession == nil ? "Add a workout" : "Change workout"))
+                        .font(.system(size: 16, weight: .bold))
+                    Spacer()
+                    Image(systemName: showChangeOptions ? "chevron.up" : "chevron.right")
+                        .font(.system(size: 13, weight: .bold))
+                        .accessibilityHidden(true)
+                }
+                .foregroundStyle(activeAccent)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 52)
+                .background(activeAccent.opacity(0.13), in: RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(plannedSession == nil ? "Add a workout" : "Change workout")
+            .accessibilityValue(showChangeOptions ? "Workout choices shown" : "Workout choices hidden")
+
+            Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
+                onSaveOverride?("rest")
+                onSelectSession(nil)
+                dismiss()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "moon.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .accessibilityHidden(true)
+                    Text("Rest today")
+                        .font(.system(size: 15, weight: .bold))
+                    Spacer()
+                    Text("Skip this day")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(GymTheme.label3)
+                }
+                .foregroundStyle(GymTheme.label2)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 48)
+                .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Rest today, skip this day")
+        }
+    }
+
+    @ViewBuilder
+    private var changeWorkoutSection: some View {
+        if showChangeOptions {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("CHOOSE A DIFFERENT WORKOUT")
+                    .font(.system(size: 12, weight: .bold))
+                    .tracking(0.7)
+                    .foregroundStyle(GymTheme.label3)
+
+                Text("This replaces the plan for \(date.formatted(.dateTime.weekday(.wide))).")
+                    .font(.system(size: 13.5))
+                    .foregroundStyle(GymTheme.label2)
+
+                ForEach(plan.sessions.sorted { $0.order < $1.order }) { session in
+                    Button {
+                        let generator = UIImpactFeedbackGenerator(style: .light)
+                        generator.impactOccurred()
+                        onSaveOverride?(WorkoutScheduleStore.routineID(for: session, in: plan))
+                        onSelectSession(session)
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "dumbbell.fill")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.black)
+                                .frame(width: 40, height: 40)
+                                .background(activeAccent, in: RoundedRectangle(cornerRadius: 11))
+                                .accessibilityHidden(true)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(WorkoutDayPresentation.title(for: session))
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(GymTheme.label)
+                                Text("\(session.items.count) exercises")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(GymTheme.label2)
+                            }
+
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(GymTheme.label3)
+                                .accessibilityHidden(true)
+                        }
+                        .padding(12)
+                        .frame(minHeight: 64)
+                        .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Use \(WorkoutDayPresentation.title(for: session))")
+                }
+
+                if hasDayOverride {
+                    Button {
+                        let generator = UIImpactFeedbackGenerator(style: .light)
+                        generator.impactOccurred()
+                        onSaveOverride?(nil)
+                        onSelectSession(nil)
+                        dismiss()
+                    } label: {
+                        Label("Use weekly plan again", systemImage: "arrow.counterclockwise")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(GymTheme.label2)
+                            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -138,134 +339,23 @@ struct DayOverrideSheet: View {
                         .font(.system(size: 26, weight: .bold))
                         .foregroundStyle(GymTheme.label)
 
-                    Text("Weekly plan: \(weeklyPlanName)")
+                    Text(isToday ? "Today’s schedule" : "Your plan for this day")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Color(white: 0.60))
                 }
                 .padding(.top, 28)
 
+                plannedWorkoutSection
+
                 checkinSection
 
-                Text("Sick, missed a day or want a different session? Pick what to train instead.")
-                    .font(.system(size: 13.5, weight: .regular))
-                    .foregroundStyle(Color(white: 0.55))
-                    .lineSpacing(2)
-                    .padding(.bottom, 4)
-
-                // Split Routine Options
-                VStack(spacing: 8) {
-                    ForEach(plan.sessions.sorted { $0.order < $1.order }) { session in
-                        let sessionName: String = {
-                            if session.order == 0 { return "Session 1 · Push Day" }
-                            if session.order == 1 { return "Session 2 · Pull Day" }
-                            if session.order == 2 { return "Session 3 · Legs Day" }
-                            return "Session \(session.order + 1) · \(session.focusMuscles.map(\.label).joined(separator: ", "))"
-                        }()
-
-                        Button {
-                            let generator = UIImpactFeedbackGenerator(style: .light)
-                            generator.impactOccurred()
-                            selectedSessionID = session.id
-                            onSelectSession(session)
-                            dismiss()
-                        } label: {
-                            HStack(spacing: 12) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(activeAccent)
-                                        .frame(width: 38, height: 38)
-                                    Image(systemName: "dumbbell.fill")
-                                        .font(.system(size: 16))
-                                        .foregroundStyle(.black)
-                                }
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(sessionName)
-                                        .font(.system(size: 15, weight: .bold))
-                                        .foregroundStyle(GymTheme.label)
-                                    Text("\(session.items.count) exercises")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(Color(white: 0.60))
-                                }
-
-                                Spacer()
-
-                                if selectedSessionID == session.id {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 15, weight: .bold))
-                                        .foregroundStyle(activeAccent)
-                                }
-                            }
-                            .padding(12)
-                            .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 12))
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    // Rest / Skip Option
-                    Button {
-                        let generator = UIImpactFeedbackGenerator(style: .light)
-                        generator.impactOccurred()
-                        selectedSessionID = nil
-                        onSelectSession(nil)
-                        dismiss()
-                    } label: {
-                        HStack(spacing: 12) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color(white: 0.22))
-                                    .frame(width: 38, height: 38)
-                                Image(systemName: "moon.fill")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(.white)
-                            }
-
-                            Text("Rest / skip this day")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(GymTheme.label)
-
-                            Spacer()
-                        }
-                        .padding(12)
-                        .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 12))
-                    }
-                    .buttonStyle(.plain)
-
-                    // Reset / Back to Weekly Plan Option
-                    Button {
-                        let generator = UIImpactFeedbackGenerator(style: .light)
-                        generator.impactOccurred()
-                        onSelectSession(nil)
-                        dismiss()
-                    } label: {
-                        HStack(spacing: 12) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color(white: 0.22))
-                                    .frame(width: 38, height: 38)
-                                Image(systemName: "arrow.counterclockwise")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(.white)
-                            }
-
-                            Text("Back to weekly plan")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(GymTheme.label)
-
-                            Spacer()
-                        }
-                        .padding(12)
-                        .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 12))
-                    }
-                    .buttonStyle(.plain)
-                }
+                changeWorkoutSection
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 24)
         }
         .background(GymTheme.bgElevated.ignoresSafeArea())
-        .presentationDetents([.fraction(0.72), .large])
-        .presentationDetents([.fraction(0.78), .large])
+        .presentationDetents([.height(500), .large], selection: $sheetDetent)
         .presentationDragIndicator(.visible)
         .sheet(isPresented: $showCheckinSheet) {
             CheckinEntryView { checkin in

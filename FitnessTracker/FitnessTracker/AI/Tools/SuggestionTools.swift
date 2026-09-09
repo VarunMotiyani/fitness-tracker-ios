@@ -3,6 +3,7 @@ import SwiftData
 import FitnessDomain
 import ExerciseCatalog
 import LLMKit
+import RuleEngine
 
 private func mostRecentStoredPlan(in context: ModelContext) -> StoredPlan? {
     (try? context.fetch(FetchDescriptor<StoredPlan>(sortBy: [SortDescriptor(\.generatedAt, order: .reverse)])))?.first
@@ -127,13 +128,28 @@ struct GetUpcomingSessionsTool: CoachTool {
         guard let plan = mostRecentStoredPlan(in: context)?.decodedPlanOrNil() else {
             return "{\"error\": \"no plan\"}"
         }
+        let cal = WorkoutScheduleStore.calendar
+        let weekStart = cal.dateInterval(of: .weekOfYear, for: .now)?.start ?? cal.startOfDay(for: .now)
+        var scheduledDates: [UUID: (String, String)] = [:]
+        for offset in 0..<7 {
+            guard let date = cal.date(byAdding: .day, value: offset, to: weekStart),
+                  let session = WorkoutScheduleStore.plannedSession(for: date, in: plan) else { continue }
+            let key = Scheduling.isoDateKey(date, calendar: cal)
+            scheduledDates[session.id] = (key, WorkoutScheduleStore.isRescheduled(for: date) ? "rescheduled" : "scheduled")
+        }
         let payload = plan.sessions.map { session -> [String: Any] in
-            [
+            let schedule = scheduledDates[session.id]
+            var item: [String: Any] = [
                 "plannedSessionID": session.id.uuidString,
                 "order": session.order,
                 "focusMuscles": session.focusMuscles.map(\.rawValue),
                 "exercises": session.items.map { catalog.exercise(id: $0.exerciseID)?.name ?? $0.exerciseID }
             ]
+            if let schedule {
+                item["scheduledDate"] = schedule.0
+                item["scheduleState"] = schedule.1
+            }
+            return item
         }
         return encodeJSONObject(["sessions": payload])
     }

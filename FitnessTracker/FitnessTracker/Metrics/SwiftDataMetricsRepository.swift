@@ -32,7 +32,7 @@ struct SwiftDataMetricsRepository: MetricsRepository {
          catalog: CatalogStore,
          plannedSessionsPerWeek: Int,
          now: @escaping () -> Date = { .now },
-         calendar: Calendar = .isoUTC) {
+         calendar: Calendar = .appWeek) {
         self.context = context
         self.catalog = catalog
         self.plannedSessionsPerWeek = plannedSessionsPerWeek
@@ -79,7 +79,20 @@ struct SwiftDataMetricsRepository: MetricsRepository {
     }
 
     func adherence(weeks: Int, now: Date) -> Double {
-        inner().adherence(weeks: weeks, now: now)
+        guard weeks > 0,
+              let windowStart = calendar.date(byAdding: .day, value: -weeks * 7, to: now) else { return 0 }
+        let finished = ((try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? [])
+            .filter { $0.finishedAt != nil }
+        let completed = finished.filter { $0.startedAt >= windowStart && $0.startedAt <= now }.count
+        var planned = 0
+        for offset in 0..<weeks {
+            guard let start = calendar.date(byAdding: .day, value: offset * 7, to: windowStart),
+                  let end = calendar.date(byAdding: .day, value: 7, to: start) else { continue }
+            let slots = WorkoutScheduleStore.plannedSlotCount(in: DateInterval(start: start, end: end))
+            planned += slots > 0 ? slots : plannedSessionsPerWeek
+        }
+        guard planned > 0 else { return 0 }
+        return min(1, max(0, Double(completed) / Double(planned)))
     }
 
     func stalls() -> [String] {

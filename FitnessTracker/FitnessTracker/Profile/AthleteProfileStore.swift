@@ -51,7 +51,7 @@ enum AthleteProfileStore {
 
         if weightChanged {
             let entries = try context.fetch(FetchDescriptor<BodyweightEntryModel>())
-            if let entry = entries.first(where: { Calendar.isoUTC.isDate($0.date, inSameDayAs: now) }) {
+            if let entry = entries.first(where: { Calendar.appWeek.isDate($0.date, inSameDayAs: now) }) {
                 entry.kg = draft.weightKg
             } else {
                 context.insert(BodyweightEntryModel(date: now, kg: draft.weightKg))

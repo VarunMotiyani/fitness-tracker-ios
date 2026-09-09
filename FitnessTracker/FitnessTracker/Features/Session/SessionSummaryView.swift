@@ -227,7 +227,7 @@ struct SessionSummaryView: View {
     private var loggedByMuscle: [MuscleGroup: Int] {
         guard let snap = runner.session?.toSnapshot() else { return [:] }
         let rollup = RollupComputer(catalog: catalog)
-            .weeklyMuscleVolume(from: [snap], calendar: .isoUTC)
+            .weeklyMuscleVolume(from: [snap], calendar: .appWeek)
         return Dictionary(rollup.map { ($0.muscle, $0.sets) }, uniquingKeysWith: +)
     }
 

@@ -66,7 +66,7 @@ struct HistoryListView: View {
             }
         }
 
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let weekday = cal.component(.weekday, from: date)
         let hour = cal.component(.hour, from: date)
         let minute = cal.component(.minute, from: date)

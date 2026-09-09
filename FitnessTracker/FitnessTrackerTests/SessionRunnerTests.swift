@@ -218,7 +218,7 @@ import Metrics
         #expect(!runner.lastSessionPRs.isEmpty)
 
         let rollup = RollupComputer(catalog: catalog())
-            .weeklyMuscleVolume(from: [runner.session!.toSnapshot()], calendar: .isoUTC)
+            .weeklyMuscleVolume(from: [runner.session!.toSnapshot()], calendar: .appWeek)
         #expect(rollup.contains { $0.muscle == .chest && $0.sets >= 3 })
     }
 

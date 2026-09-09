@@ -32,7 +32,7 @@ struct WeeklySummaryView: View {
     /// *current* ISO week; that row would otherwise render under the "Last week"
     /// header for a week, so skip anything not strictly before this week's start.
     private var displayed: WeeklySummaryModel? {
-        guard let currentWeekStart = Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)?.start
+        guard let currentWeekStart = Calendar.appWeek.dateInterval(of: .weekOfYear, for: .now)?.start
         else { return summaries.first }
         return summaries.first { $0.weekStartDate < currentWeekStart }
     }
@@ -45,14 +45,14 @@ struct WeeklySummaryView: View {
     /// empty-state branch renders `emptyState` anyway, so it's moot).
     private var weekStart: Date {
         if let stamped = displayed?.weekStartDate { return stamped }
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         return cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())) ?? Date()
     }
 
     /// `[weekStart, weekEnd)` — the deterministic rows describe the same single
     /// week as the prose, not an open-ended "since Monday".
     private var weekEnd: Date {
-        Calendar.isoUTC.date(byAdding: .weekOfYear, value: 1, to: weekStart) ?? weekStart
+        Calendar.appWeek.date(byAdding: .weekOfYear, value: 1, to: weekStart) ?? weekStart
     }
 
     private var finishedSessions: [CompletedSessionModel] {
@@ -67,7 +67,11 @@ struct WeeklySummaryView: View {
         prRecords.filter { $0.date >= weekStart && $0.date < weekEnd }.count
     }
 
-    private var plannedSessions: Int { profiles.first?.sessionsPerWeek ?? 0 }
+    private var plannedSessions: Int {
+        let fallback = profiles.first?.sessionsPerWeek ?? 0
+        let count = WorkoutScheduleStore.plannedSlotCount(in: DateInterval(start: weekStart, end: weekEnd))
+        return count > 0 ? count : fallback
+    }
 
     private var currentStreakWeeks: Int {
         // `plannedPerWeek` only feeds adherence fields, not `currentStreakWeeks`.
@@ -75,8 +79,8 @@ struct WeeklySummaryView: View {
         // stat rows describe the same week, not "as of today".
         StreakCalculator.computeSummary(
             from: finishedSessions.map { $0.toSnapshot() },
-            plannedPerWeek: 3,
-            now: displayed.map { Calendar.isoUTC.date(byAdding: .day, value: 6, to: $0.weekStartDate) ?? .now } ?? .now
+            plannedPerWeek: max(1, plannedSessions),
+            now: displayed.map { Calendar.appWeek.date(byAdding: .day, value: 6, to: $0.weekStartDate) ?? .now } ?? .now
         ).currentStreakWeeks
     }
 

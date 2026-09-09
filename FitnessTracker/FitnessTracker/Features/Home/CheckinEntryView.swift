@@ -82,7 +82,7 @@ struct CheckinEntryView: View {
     /// Seed the sliders + note from today's existing check-in so reopening the
     /// sheet and hitting Save doesn't clobber real values with the 7/3 defaults.
     private func prefillFromToday() {
-        guard let today = allCheckins.first(where: { Calendar.isoUTC.isDate($0.date, inSameDayAs: .now) })
+        guard let today = allCheckins.first(where: { Calendar.appWeek.isDate($0.date, inSameDayAs: .now) })
         else { return }
         if let s = today.sleepQuality { sleepQuality = Double(s) }
         if let so = today.soreness { soreness = Double(so) }
@@ -113,7 +113,7 @@ struct CheckinEntryView: View {
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
 
-        let checkin = allCheckins.first { Calendar.isoUTC.isDate($0.date, inSameDayAs: .now) }
+        let checkin = allCheckins.first { Calendar.appWeek.isDate($0.date, inSameDayAs: .now) }
             ?? {
                 let fresh = DailyCheckinModel(date: .now)
                 context.insert(fresh)

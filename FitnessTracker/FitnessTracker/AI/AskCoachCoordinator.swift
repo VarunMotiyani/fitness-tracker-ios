@@ -54,7 +54,9 @@ struct AskCoachCoordinator {
         let user = AskCoachPromptBuilder.user(
             recentMessages: Array(recentMessages), summary: summary,
             memoryDigest: memoryDigestWithIDs(from: recalled.selected),
-            equipmentSummary: equipment, newMessage: text
+            equipmentSummary: equipment,
+            scheduleContext: WorkoutScheduleStore.scheduleDescription(),
+            newMessage: text
         )
 
         let tools = ToolRegistry(tools: buildTools())

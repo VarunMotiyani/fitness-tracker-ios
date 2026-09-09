@@ -4,6 +4,7 @@ import Foundation
 import FitnessDomain
 import ExerciseCatalog
 import Metrics
+import RuleEngine
 @testable import FitnessTracker
 
 @MainActor
@@ -16,6 +17,12 @@ import Metrics
         d.removeObject(forKey: "proactive.daily.lastGeneratedDay")
         d.removeObject(forKey: "proactive.weekly.lastWeekStart")
         d.removeObject(forKey: "proactive.checkin.lastReactedDay")
+        d.removeObject(forKey: "proactive.missedWeek.lastWeekStart")
+        // The coordinator calls WorkoutScheduleStore.refresh(); keep its keys
+        // out of the suite's shared UserDefaults.
+        d.removeObject(forKey: "gym_week_schedule_json")
+        d.removeObject(forKey: "gym_day_plan_json")
+        d.removeObject(forKey: "gym_day_plan_auto_json")
         for key in d.dictionaryRepresentation().keys where key.hasPrefix("proactive.patternNudge.") {
             d.removeObject(forKey: key)
         }
@@ -43,7 +50,7 @@ import Metrics
     static func todayString() -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
-        f.calendar = .isoUTC
+        f.calendar = .appWeek
         f.timeZone = TimeZone(identifier: "UTC")
         f.locale = Locale(identifier: "en_US_POSIX")
         return f.string(from: .now)
@@ -95,7 +102,7 @@ import Metrics
         #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).filter { $0.kindRaw == "daily" }.isEmpty)
     }
 
-    @Test func noProviderSkipsLLMItems() async throws {
+    @Test func noProviderMakesNoBilledAICalls() async throws {
         clearProactiveDefaults()
         defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
@@ -106,8 +113,63 @@ import Metrics
 
         await coord.runDueChecks()
 
-        #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).isEmpty)
+        // Offline data-backed fallback cards are allowed; a real LLM call is not.
         #expect(try ctx.fetch(FetchDescriptor<AICallRecord>()).isEmpty)
+        #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).allSatisfy {
+            ["daily", "weekly"].contains($0.kindRaw)
+        })
+    }
+
+    @Test func missedWeekScoldWritesANoteAndDedupsWithinTheWeek() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
+        let ctx = ModelContext(try container())
+        try seedPlan(in: ctx)
+        let final = #"{"decision":"final","final":{"taunt":"Two sessions gone and no day left. Chest and back untouched. Monday, no excuses."}}"#
+        let provider = StubLLMProvider(responses: [.success(final), .success(final)])
+        var s = settings(); s.dailyOn = false; s.patternOn = false; s.inbodyOn = false
+        UserDefaults.standard.set(Self.todayString(), forKey: "proactive.daily.lastGeneratedDay")
+        let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: provider,
+                                         activeProfile: nil, settings: s)
+
+        let unplaced = [Scheduling.MissedSessionReschedule.Unplaced(originalDateKey: "2026-09-07", routineID: "push")]
+        await coord.reactToMissedWeek(unplaced)
+        await coord.reactToMissedWeek(unplaced) // second call same week — must not add a second card
+
+        let notes = try ctx.fetch(FetchDescriptor<CoachNoteModel>()).filter { $0.kindRaw == "missedWeek" }
+        #expect(notes.count == 1)
+        #expect(!(notes.first?.text.isEmpty ?? true))
+    }
+
+    @Test func missedWeekScoldFallsBackToACannedTauntOffline() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
+        let ctx = ModelContext(try container())
+        try seedPlan(in: ctx)
+        let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: nil,
+                                         activeProfile: nil, settings: settings())
+
+        await coord.reactToMissedWeek([
+            .init(originalDateKey: "2026-09-07", routineID: "push"),
+            .init(originalDateKey: "2026-09-09", routineID: "pull"),
+        ])
+
+        let notes = try ctx.fetch(FetchDescriptor<CoachNoteModel>()).filter { $0.kindRaw == "missedWeek" }
+        #expect(notes.count == 1)
+        #expect(notes.first?.text.contains("2 session") == true)
+        #expect(try ctx.fetch(FetchDescriptor<AICallRecord>()).isEmpty)
+    }
+
+    @Test func missedWeekScoldSkippedWhenNothingUnrecoverable() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
+        let ctx = ModelContext(try container())
+        let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: nil,
+                                         activeProfile: nil, settings: settings())
+
+        await coord.reactToMissedWeek([])
+
+        #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).filter { $0.kindRaw == "missedWeek" }.isEmpty)
     }
 
     @Test func weeklySummaryWritesModelAndNoteWhenDue() async throws {
@@ -129,22 +191,40 @@ import Metrics
         #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).contains { $0.kindRaw == "weekly" })
     }
 
-    @Test func weeklySummarySkippedWhenAlreadyDoneThisWeek() async throws {
+    @Test func weeklySummarySkippedWhenAlreadyDoneForThisRecapWeek() async throws {
         clearProactiveDefaults()
         defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         try seedPlan(in: ctx)
-        let weekStart = Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)!.start
-        let iso = ISO8601DateFormatter().string(from: weekStart)
-        UserDefaults.standard.set(iso, forKey: "proactive.weekly.lastWeekStart")
         let provider = StubLLMProvider(responses: [])
         var s = settings(); s.dailyOn = false; s.patternOn = false
         let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: provider,
                                          activeProfile: nil, settings: s)
+        // Flag already carries the key for the week the recap currently targets.
+        if let key = coord.currentRecapWeekKey() {
+            UserDefaults.standard.set(key, forKey: "proactive.weekly.lastWeekStart")
+        }
 
         await coord.runDueChecks()
 
+        // Nothing written and no billed call — actually skipped, not run-then-fallback.
         #expect(try ctx.fetch(FetchDescriptor<WeeklySummaryModel>()).isEmpty)
+        #expect(try ctx.fetch(FetchDescriptor<CoachNoteModel>()).filter { $0.kindRaw == "weekly" }.isEmpty)
+        #expect(try ctx.fetch(FetchDescriptor<AICallRecord>()).isEmpty)
+    }
+
+    @Test func weeklyDueUntilItRunsThenNotAgainForTheSameWeek() async throws {
+        clearProactiveDefaults()
+        defer { clearProactiveDefaults() }
+        let ctx = ModelContext(try container())
+        let coord = ProactiveCoordinator(context: ctx, catalog: catalog(), provider: nil,
+                                         activeProfile: nil, settings: settings())
+
+        #expect(coord.isWeeklyDue())
+        if let key = coord.currentRecapWeekKey() {
+            UserDefaults.standard.set(key, forKey: "proactive.weekly.lastWeekStart")
+        }
+        #expect(!coord.isWeeklyDue())
     }
 
     @Test func dailyToggleOffSkipsIt() async throws {
@@ -168,7 +248,7 @@ import Metrics
         defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         UserDefaults.standard.set(Self.todayString(), forKey: "proactive.daily.lastGeneratedDay")
-        let weekIso = ISO8601DateFormatter().string(from: Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)!.start)
+        let weekIso = ISO8601DateFormatter().string(from: Calendar.appWeek.dateInterval(of: .weekOfYear, for: .now)!.start)
         UserDefaults.standard.set(weekIso, forKey: "proactive.weekly.lastWeekStart")
         let mem = CoachMemoryModel(kindRaw: "responsePattern", statement: "Skips pull day when the week is busy",
                                    confidence: 0.8, sourceKind: "agent", createdAt: .now, lastConfirmedAt: .now)
@@ -191,7 +271,7 @@ import Metrics
         defer { clearProactiveDefaults() }
         let ctx = ModelContext(try container())
         UserDefaults.standard.set(Self.todayString(), forKey: "proactive.daily.lastGeneratedDay")
-        UserDefaults.standard.set(ISO8601DateFormatter().string(from: Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)!.start),
+        UserDefaults.standard.set(ISO8601DateFormatter().string(from: Calendar.appWeek.dateInterval(of: .weekOfYear, for: .now)!.start),
                                   forKey: "proactive.weekly.lastWeekStart")
         let lowConf = CoachMemoryModel(kindRaw: "responsePattern", statement: "Weak", confidence: 0.4,
                                        sourceKind: "agent", createdAt: .now, lastConfirmedAt: .now)
@@ -338,7 +418,7 @@ import Metrics
                             targetLoadKg: nil, restSeconds: 90, coachNote: "")])
         ], weeklyVolumeTargets: [])
         ctx.insert(try StoredPlan(plan: plan, hadValidationIssues: false))
-        let tenDaysAgo = Calendar.isoUTC.date(byAdding: .day, value: -10, to: .now)!
+        let tenDaysAgo = Calendar.appWeek.date(byAdding: .day, value: -10, to: .now)!
         for sid in [s1, s2] {
             let done = CompletedSessionModel(startedAt: tenDaysAgo, weekdayRaw: 0, timeOfDayMinutes: 480,
                                              plannedDurationMin: 60, energyRaw: "ok", timeAvailableMin: 60,

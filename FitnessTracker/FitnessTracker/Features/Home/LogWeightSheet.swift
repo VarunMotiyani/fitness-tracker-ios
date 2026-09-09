@@ -118,7 +118,7 @@ struct LogWeightSheet: View {
 
     private func seedEntriesIfEmpty() {
         if entries.isEmpty {
-            let cal = Calendar.isoUTC
+            let cal = Calendar.appWeek
             let now = Date()
             let e1 = BodyweightEntryModel(date: cal.date(byAdding: .day, value: -3, to: now) ?? now, kg: 78.7)
             let e2 = BodyweightEntryModel(date: cal.date(byAdding: .day, value: -7, to: now) ?? now, kg: 78.3)

@@ -101,7 +101,7 @@ final class SessionRunner {
         self.coachSource = result.coachSource
 
         let ts = now()
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let weekdayRaw = cal.component(.weekday, from: ts)
         let timeOfDayMinutes = cal.component(.hour, from: ts) * 60 + cal.component(.minute, from: ts)
 

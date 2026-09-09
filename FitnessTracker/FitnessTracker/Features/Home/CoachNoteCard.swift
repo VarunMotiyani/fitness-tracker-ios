@@ -108,6 +108,7 @@ struct CoachNoteCard: View {
         case "checkin": return "Check-in"
         case "pattern": return "Pattern"
         case "analysis": return "Data insight"
+        case "missedWeek": return "Missed sessions"
         default: return note.kindRaw
         }
     }
@@ -119,6 +120,7 @@ struct CoachNoteCard: View {
         case "checkin": return "heart.text.square.fill"
         case "pattern": return "chart.line.uptrend.xyaxis"
         case "analysis": return "chart.bar.xaxis"
+        case "missedWeek": return "exclamationmark.triangle.fill"
         default: return "bubble.left.and.bubble.right.fill"
         }
     }
@@ -130,6 +132,7 @@ struct CoachNoteCard: View {
         case "checkin": return GymTheme.red
         case "pattern": return GymTheme.purple
         case "analysis": return GymTheme.lime
+        case "missedWeek": return GymTheme.red
         default: return GymTheme.label2
         }
     }

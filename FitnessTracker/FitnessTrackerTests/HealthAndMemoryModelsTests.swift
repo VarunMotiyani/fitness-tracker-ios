@@ -63,7 +63,7 @@ import Metrics
 
     @Test func dailyCheckinDateFilteringForTodayAndPast() throws {
         let ctx = ModelContext(try container())
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let now = Date()
         guard let yesterday = cal.date(byAdding: .day, value: -1, to: now) else { return }
 

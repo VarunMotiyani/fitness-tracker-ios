@@ -1,11 +1,14 @@
 import Foundation
 
 public extension Calendar {
-    /// ISO-8601 week semantics in UTC — the default bucketing calendar so
-    /// `weekStart` does not depend on the running device's locale or time zone.
-    static let isoUTC: Calendar = {
+    /// The app's day/week bucketing calendar. ISO-8601 week rules (weeks start
+    /// Monday, `minimumDaysInFirstWeek == 4`) but anchored to the **device's own
+    /// time zone**, so "today" and week boundaries follow the phone the user is
+    /// holding — travel and DST are picked up automatically via
+    /// `TimeZone.autoupdatingCurrent`.
+    static let appWeek: Calendar = {
         var c = Calendar(identifier: .iso8601)
-        c.timeZone = TimeZone(identifier: "UTC")!
+        c.timeZone = .autoupdatingCurrent
         return c
     }()
 }

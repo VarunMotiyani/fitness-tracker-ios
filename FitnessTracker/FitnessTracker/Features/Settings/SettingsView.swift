@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import FitnessDomain
 import ExerciseCatalog
 import Metrics
+import RuleEngine
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var context
@@ -120,6 +121,7 @@ struct SettingsView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
+            if reminderOn { scheduleWorkoutReminder() }
             Task { await refreshNotifAuthorized() }
         }
         .sheet(isPresented: $showEffortHelp) {
@@ -357,8 +359,7 @@ struct SettingsView: View {
                     if newValue {
                         requestNotificationPermissionAndSchedule()
                     } else {
-                        UNUserNotificationCenter.current()
-                            .removePendingNotificationRequests(withIdentifiers: ["gym_daily_reminder"])
+                        clearWorkoutReminders()
                     }
                 }
 
@@ -804,8 +805,7 @@ struct SettingsView: View {
     }
 
     private func scheduleWorkoutReminder() {
-        UNUserNotificationCenter.current()
-            .removePendingNotificationRequests(withIdentifiers: ["gym_daily_reminder"])
+        clearWorkoutReminders()
         guard reminderOn else { return }
 
         let content = UNMutableNotificationContent()
@@ -813,14 +813,30 @@ struct SettingsView: View {
         content.body = "Stay on track with your training goals today."
         content.sound = .default
 
-        var dateComponents = DateComponents()
-        dateComponents.hour = reminderHour
-        dateComponents.minute = reminderMinute
-
-        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
-        let request = UNNotificationRequest(identifier: "gym_daily_reminder", content: content, trigger: trigger)
-        UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+        let scheduleCalendar = WorkoutScheduleStore.calendar
+        let today = scheduleCalendar.startOfDay(for: .now)
+        for offset in 0..<7 {
+            guard let day = scheduleCalendar.date(byAdding: .day, value: offset, to: today),
+                  WorkoutScheduleStore.effectiveRoutineID(for: day) != nil,
+                  let fireDate = Calendar.current.date(bySettingHour: reminderHour, minute: reminderMinute, second: 0, of: day),
+                  fireDate > .now else { continue }
+            let dateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
+            let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
+            let id = "gym_daily_reminder_\(Scheduling.isoDateKey(day, calendar: scheduleCalendar))"
+            let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
+            UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+        }
         lastNote = "Workout reminder scheduled for \(String(format: "%02d:%02d", reminderHour, reminderMinute))"
+    }
+
+    private func clearWorkoutReminders() {
+        let cal = WorkoutScheduleStore.calendar
+        let base = cal.startOfDay(for: .now)
+        let ids = (-1...14).compactMap { offset -> String? in
+            guard let date = cal.date(byAdding: .day, value: offset, to: base) else { return nil }
+            return "gym_daily_reminder_\(Scheduling.isoDateKey(date, calendar: cal))"
+        } + ["gym_daily_reminder"]
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ids)
     }
 }
 

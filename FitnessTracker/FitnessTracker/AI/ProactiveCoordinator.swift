@@ -9,6 +9,7 @@ import ExerciseCatalog
 import Metrics
 import CoachMemory
 import LLMKit
+import RuleEngine
 
 nonisolated struct ProactiveSettings: Sendable {
     var dailyOn: Bool
@@ -36,8 +37,8 @@ struct ProactiveCoordinator {
     private static let dayFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
-        f.calendar = .isoUTC
-        f.timeZone = TimeZone(identifier: "UTC")
+        f.calendar = .appWeek
+        f.timeZone = .autoupdatingCurrent
         f.locale = Locale(identifier: "en_US_POSIX")
         return f
     }()
@@ -46,6 +47,10 @@ struct ProactiveCoordinator {
         guard !Self.isRunning else { return }
         Self.isRunning = true
         defer { Self.isRunning = false }
+
+        let completed = (try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? []
+        let reschedule = WorkoutScheduleStore.refresh(completedSessions: completed, plan: mostRecentPlan())
+        if settings.weeklyOn { await reactToMissedWeek(reschedule.unplaced) }
 
         if settings.inbodyOn { await scheduleInBodyReminderIfNeeded() }
         else { notificationCenter.removePendingNotificationRequests(withIdentifiers: ["proactive_inbody"]) }
@@ -69,11 +74,7 @@ struct ProactiveCoordinator {
     // MARK: - Daily narration (#6)
 
     private func isDailyDue() -> Bool {
-        let today = Self.dayFormatter.string(from: .now)
-        let markedGenerated = UserDefaults.standard.string(forKey: "proactive.daily.lastGeneratedDay") == today
-        guard markedGenerated else { return true }
-        return !((try? context.fetch(FetchDescriptor<CoachNoteModel>())) ?? [])
-            .contains { $0.kindRaw == "daily" && Calendar.current.isDateInToday($0.createdAt) }
+        UserDefaults.standard.string(forKey: "proactive.daily.lastGeneratedDay") != Self.dayFormatter.string(from: .now)
     }
 
     private func generateDailyNarration() async {
@@ -99,7 +100,8 @@ struct ProactiveCoordinator {
                 tools: ToolRegistry(tools: []), provider: provider)
             recordCalls(result.calls, callType: "dailyNarration")
             let text = result.value.narration
-            let reason = "Based on today’s \(sessionLabel) session, its planned exercises, and the latest recovery check-in available to the coach."
+            let scheduleContext = WorkoutScheduleStore.isRescheduled(for: .now) ? " It was moved here automatically to recover a missed weekday." : ""
+            let reason = "Based on today’s \(sessionLabel) session, its planned exercises, and the latest recovery check-in available to the coach.\(scheduleContext)"
             upsertCurrentCoachNote(kindRaw: "daily", text: text, reason: reason, period: .day)
             try? context.save()
             scheduleDaily(body: text)
@@ -174,30 +176,44 @@ struct ProactiveCoordinator {
 
     // MARK: - Weekly (#7) — Task 4 fills this
 
+    /// The Monday-anchored week the weekly recap should currently cover, and its
+    /// full Mon–Sun interval. On Sunday it's the week ending today; on Mon–Sat
+    /// it's the week that just finished — so a recap the athlete skipped on
+    /// Sunday is still delivered the next day, until the following Sunday
+    /// supersedes it. Uses the device's own calendar/time zone.
+    private func recapWeek() -> (start: Date, interval: DateInterval)? {
+        let cal = Calendar.appWeek
+        let today = cal.startOfDay(for: .now)
+        let daysFromMonday = (cal.component(.weekday, from: today) + 5) % 7 // Mon=0 … Sun=6
+        guard let thisMonday = cal.date(byAdding: .day, value: -daysFromMonday, to: today) else { return nil }
+        let start = daysFromMonday == 6
+            ? thisMonday
+            : (cal.date(byAdding: .day, value: -7, to: thisMonday) ?? thisMonday)
+        guard let end = cal.date(byAdding: .day, value: 7, to: start) else { return nil }
+        return (start, DateInterval(start: start, end: end))
+    }
+
+    private func recapWeekKey(_ start: Date) -> String { ISO8601DateFormatter().string(from: start) }
+
+    /// The dedup key the weekly recap currently targets — exposed for tests.
+    func currentRecapWeekKey() -> String? { recapWeek().map { recapWeekKey($0.start) } }
+
     func isWeeklyDue() -> Bool {
-        guard let weekStart = Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)?.start else { return false }
-        let iso = ISO8601DateFormatter().string(from: weekStart)
-        let markedGenerated = UserDefaults.standard.string(forKey: "proactive.weekly.lastWeekStart") == iso
-        guard markedGenerated else { return true }
-        return !((try? context.fetch(FetchDescriptor<CoachNoteModel>())) ?? [])
-            .contains {
-                $0.kindRaw == "weekly" && Calendar.current.isDate($0.createdAt, equalTo: .now, toGranularity: .weekOfYear)
-            }
+        guard let week = recapWeek() else { return false }
+        return UserDefaults.standard.string(forKey: "proactive.weekly.lastWeekStart") != recapWeekKey(week.start)
     }
 
     private func generateWeeklySummary() async {
-        guard let provider,
-              let weekStart = Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)?.start else { return }
-        let priorWeek = Calendar.isoUTC.date(byAdding: .weekOfYear, value: -1, to: weekStart)!
-        let priorInterval = DateInterval(start: priorWeek, end: weekStart)
+        guard let provider, let week = recapWeek() else { return }
+        let interval = week.interval
 
         let allSessions = (try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? []
-        let weekSessions = allSessions.filter { $0.finishedAt.map(priorInterval.contains) ?? false }
+        let weekSessions = allSessions.filter { $0.finishedAt.map(interval.contains) ?? false }
         let snapshots = allSessions.filter { $0.finishedAt != nil }.map { $0.toSnapshot() }
-        let plannedPerWeek = (try? context.fetch(FetchDescriptor<UserProfile>()))?.first?.sessionsPerWeek ?? 3
+        let plannedPerWeek = effectivePlannedPerWeek(in: interval, fallback: (try? context.fetch(FetchDescriptor<UserProfile>()))?.first?.sessionsPerWeek ?? 3)
         let streak = StreakCalculator.computeSummary(from: snapshots, plannedPerWeek: plannedPerWeek).currentStreakWeeks
         let prCount = ((try? context.fetch(FetchDescriptor<PersonalRecordModel>())) ?? [])
-            .filter { priorInterval.contains($0.date) }.count
+            .filter { interval.contains($0.date) }.count
 
         // Muscle coverage over the prior week — mirror the EffectiveSetItem loop
         // the other coordinators build.
@@ -227,29 +243,26 @@ struct ProactiveCoordinator {
             recordCalls(result.calls, callType: "weeklySummary")
             let dto = result.value
 
-            // One row per week — the recap describes the prior week, so stamp
-            // and dedup on `priorWeek`. (The `proactive.weekly.lastWeekStart`
-            // UserDefaults flag below stays keyed on `weekStart` — it answers
-            // "have I generated this week's recap yet".)
+            // One WeeklySummaryModel row per recap week, stamped and deduped on
+            // that week's Monday.
             let existing = ((try? context.fetch(FetchDescriptor<WeeklySummaryModel>())) ?? [])
-                .first { Calendar.isoUTC.isDate($0.weekStartDate, inSameDayAs: priorWeek) }
+                .first { Calendar.appWeek.isDate($0.weekStartDate, inSameDayAs: week.start) }
             if let existing {
                 existing.headline = dto.headline
                 existing.summaryBody = dto.body
                 existing.nextWeekFocus = dto.nextWeekFocus
                 existing.generatedAt = .now
             } else {
-                context.insert(WeeklySummaryModel(weekStartDate: priorWeek, headline: dto.headline,
+                context.insert(WeeklySummaryModel(weekStartDate: week.start, headline: dto.headline,
                     summaryBody: dto.body, nextWeekFocus: dto.nextWeekFocus))
             }
             // The Home `thisWeekCard` already surfaces `headline` persistently;
             // the CoachNote carries the complementary next-week focus instead.
-            let reason = "Based on \(weekSessions.count) completed sessions, a \(streak)-week streak, \(prCount) PRs, and this week’s muscle coverage (\(coverageDigest))."
+            let reason = "Based on \(weekSessions.count) completed sessions, a \(streak)-week streak, \(prCount) PRs, and the week’s muscle coverage (\(coverageDigest))."
             upsertCurrentCoachNote(kindRaw: "weekly", text: "Next week: \(dto.nextWeekFocus)", reason: reason, period: .weekOfYear)
             try? context.save()
             scheduleWeekly(body: dto.headline)
-            UserDefaults.standard.set(ISO8601DateFormatter().string(from: weekStart),
-                                     forKey: "proactive.weekly.lastWeekStart")
+            UserDefaults.standard.set(recapWeekKey(week.start), forKey: "proactive.weekly.lastWeekStart")
         } catch ToolLoopError.exceededMaxIterations(let calls) {
             recordCalls(calls, callType: "weeklySummary")
             generateFallbackWeekly()
@@ -282,20 +295,79 @@ struct ProactiveCoordinator {
     /// Provides a transparent, data-backed weekly card while an AI provider is
     /// unavailable. It is replaced by the richer generated recap when possible.
     private func generateFallbackWeekly() {
-        guard let weekStart = Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)?.start else { return }
-        let priorWeek = Calendar.isoUTC.date(byAdding: .weekOfYear, value: -1, to: weekStart)!
-        let interval = DateInterval(start: priorWeek, end: weekStart)
+        guard let week = recapWeek() else { return }
+        let interval = week.interval
         let sessions = ((try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? [])
             .filter { $0.finishedAt.map(interval.contains) ?? false }
         let prs = ((try? context.fetch(FetchDescriptor<PersonalRecordModel>())) ?? [])
             .filter { interval.contains($0.date) }.count
-        let planned = (try? context.fetch(FetchDescriptor<UserProfile>()))?.first?.sessionsPerWeek ?? 3
+        let planned = effectivePlannedPerWeek(in: interval, fallback: (try? context.fetch(FetchDescriptor<UserProfile>()))?.first?.sessionsPerWeek ?? 3)
         let focus = sessions.isEmpty ? "getting your next session on the calendar" : "keeping your working sets consistent"
         let text = "Last week: " + String(sessions.count) + " sessions and " + String(prs) + " new PRs. Next week, focus on " + focus + "."
         let reason = "Offline recap from " + String(sessions.count) + " completed sessions, " + String(prs) + " PRs, and a plan target of " + String(planned) + " sessions per week."
         upsertCurrentCoachNote(kindRaw: "weekly", text: text, reason: reason, period: .weekOfYear)
         try? context.save()
-        UserDefaults.standard.set(ISO8601DateFormatter().string(from: weekStart), forKey: "proactive.weekly.lastWeekStart")
+        UserDefaults.standard.set(recapWeekKey(week.start), forKey: "proactive.weekly.lastWeekStart")
+    }
+
+    // MARK: - Missed-week scold (#10)
+
+    /// The catch-up scheduler moves every missed session to a free day, but when
+    /// the week runs out of room some can't be placed — `unplaced`. Those don't
+    /// vanish quietly: the coach calls it out (a taunt + what got skipped), once
+    /// per week. Runs with or without a provider — a canned taunt when offline.
+    func reactToMissedWeek(_ unplaced: [Scheduling.MissedSessionReschedule.Unplaced]) async {
+        guard !unplaced.isEmpty,
+              let week = Calendar.appWeek.dateInterval(of: .weekOfYear, for: .now) else { return }
+
+        let weekKey = ISO8601DateFormatter().string(from: week.start)
+        guard UserDefaults.standard.string(forKey: "proactive.missedWeek.lastWeekStart") != weekKey else { return }
+
+        let weekSessions = ((try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? [])
+            .filter { $0.finishedAt.map(week.contains) ?? false }
+        let planned = effectivePlannedPerWeek(
+            in: week, fallback: (try? context.fetch(FetchDescriptor<UserProfile>()))?.first?.sessionsPerWeek ?? 3)
+
+        var items: [MuscleBalanceModel.EffectiveSetItem] = []
+        for s in weekSessions {
+            for e in s.entries where !e.skipped {
+                guard let ex = catalog.exercise(id: e.exerciseID) else { continue }
+                let doneSets = e.sets.filter { !$0.isWarmup }.count
+                if doneSets > 0 { items.append(.init(exercise: ex, sets: doneSets)) }
+            }
+        }
+        let (_, missedMuscles) = MuscleBalanceModel.rankOf(load: MuscleBalanceModel.loadOf(items: items))
+        let skippedDigest = missedMuscles.map { MuscleBalanceModel.displayName(for: $0) }.joined(separator: ", ")
+
+        let count = unplaced.count
+        let reason = "\(count) planned session\(count == 1 ? "" : "s") had no day left to reschedule into this week (\(weekSessions.count) of \(planned) completed)."
+
+        if let provider {
+            let user = ProactivePromptBuilder.userMissedWeekTaunt(
+                missedCount: count, completedThisWeek: weekSessions.count, plannedPerWeek: planned,
+                skippedMusclesDigest: skippedDigest, memoryDigest: memoryDigest())
+            do {
+                let result: ToolLoopResult<MissedWeekTauntDTO> = try await ToolLoopRunner().run(
+                    system: ProactivePromptBuilder.system(), initialUser: user,
+                    finalSchema: ProactivePromptBuilder.missedWeekTauntSchema,
+                    tools: ToolRegistry(tools: []), provider: provider)
+                recordCalls(result.calls, callType: "missedWeek")
+                upsertCurrentCoachNote(kindRaw: "missedWeek", text: result.value.taunt, reason: reason, period: .weekOfYear)
+                try? context.save()
+                UserDefaults.standard.set(weekKey, forKey: "proactive.missedWeek.lastWeekStart")
+                return
+            } catch ToolLoopError.exceededMaxIterations(let calls) {
+                recordCalls(calls, callType: "missedWeek")
+            } catch ToolLoopError.providerFailed(let calls), ToolLoopError.providerFailedWithMessage(let calls, _) {
+                recordCalls(calls, callType: "missedWeek")
+            } catch {}
+        }
+
+        let musclesLine = skippedDigest.isEmpty ? "" : " You left \(skippedDigest) untouched."
+        let text = "\(count) session\(count == 1 ? "" : "s") got away from you and there's no day left this week to make \(count == 1 ? "it" : "them") up — \(weekSessions.count) of \(planned) done.\(musclesLine) Next week starts Monday. Show up."
+        upsertCurrentCoachNote(kindRaw: "missedWeek", text: text, reason: reason, period: .weekOfYear)
+        try? context.save()
+        UserDefaults.standard.set(weekKey, forKey: "proactive.missedWeek.lastWeekStart")
     }
 
     private func scheduleWeekly(body: String) {
@@ -576,12 +648,22 @@ struct ProactiveCoordinator {
     /// not-yet-completed one in `order`.
     private func todaysOrNextSession(in plan: WeeklyPlan) -> PlannedSession? {
         let ordered = plan.sessions.sorted { $0.order < $1.order }
-        guard let weekStart = Calendar.isoUTC.dateInterval(of: .weekOfYear, for: .now)?.start
-        else { return ordered.first }
+        guard let weekStart = Calendar.appWeek.dateInterval(of: .weekOfYear, for: .now)?.start else { return ordered.first }
         let startedThisWeek = Set(((try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? [])
             .filter { $0.startedAt >= weekStart }
             .compactMap(\.plannedSessionID))
+        for offset in 0..<7 {
+            guard let date = Calendar.appWeek.date(byAdding: .day, value: offset, to: Calendar.appWeek.startOfDay(for: .now)),
+                  let session = WorkoutScheduleStore.plannedSession(for: date, in: plan),
+                  !startedThisWeek.contains(session.id) else { continue }
+            return session
+        }
         return ordered.first { !startedThisWeek.contains($0.id) } ?? ordered.first
+    }
+
+    private func effectivePlannedPerWeek(in interval: DateInterval, fallback: Int) -> Int {
+        let count = WorkoutScheduleStore.plannedSlotCount(in: interval)
+        return count > 0 ? count : fallback
     }
 
     private func recoveryDigest() -> String {

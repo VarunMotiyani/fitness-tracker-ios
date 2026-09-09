@@ -49,6 +49,7 @@ nonisolated enum AskCoachPromptBuilder {
         summary: String,
         memoryDigest: String,
         equipmentSummary: String = "",
+        scheduleContext: String = "",
         newMessage: String
     ) -> String {
         let summarySection = summary.isEmpty ? "" : "Earlier in this conversation:\n\(summary)"
@@ -60,7 +61,8 @@ nonisolated enum AskCoachPromptBuilder {
             ? ""
             : "Equipment the athlete has: \(equipmentSummary). Don't propose anything that needs equipment not on this list."
 
-        let sections = [summarySection, recentSection, memorySection, equipmentSection, "athlete: \(newMessage)"]
+        let scheduleSection = scheduleContext.isEmpty ? "" : "Current schedule context: \(scheduleContext)"
+        let sections = [summarySection, recentSection, memorySection, equipmentSection, scheduleSection, "athlete: \(newMessage)"]
             .filter { !$0.isEmpty }
         return sections.joined(separator: "\n\n")
     }

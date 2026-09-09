@@ -6,7 +6,7 @@ import Foundation
 @Suite("StreakCalculatorTests")
 struct StreakCalculatorTests {
 
-    private func makeSession(daysAgo: Int, calendar: Calendar = .isoUTC) -> CompletedSessionSnapshot {
+    private func makeSession(daysAgo: Int, calendar: Calendar = .appWeek) -> CompletedSessionSnapshot {
         let now = Date()
         let date = calendar.date(byAdding: .day, value: -daysAgo, to: now) ?? now
         let entry = CompletedEntrySnapshot(

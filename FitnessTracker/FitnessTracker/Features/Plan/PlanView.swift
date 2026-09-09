@@ -27,6 +27,8 @@ struct PlanView: View {
 
     @AppStorage("gym_custom_routines_json") private var routinesJSON: String = ""
     @AppStorage("gym_week_schedule_json") private var scheduleJSON: String = ""
+    @Query(sort: \CompletedSessionModel.startedAt, order: .reverse)
+    private var completedSessions: [CompletedSessionModel]
 
     @State private var routines: [RoutineDraft] = []
     @State private var weekSchedule: [Int: UUID] = [:] // 0=Mon .. 6=Sun
@@ -120,6 +122,7 @@ struct PlanView: View {
         .onAppear {
             loadRoutines()
             loadSchedule()
+            WorkoutScheduleStore.refresh(completedSessions: completedSessions, plan: plan)
         }
     }
 
@@ -407,6 +410,7 @@ struct PlanView: View {
         if let data = try? JSONEncoder().encode(weekSchedule),
            let str = String(data: data, encoding: .utf8) {
             scheduleJSON = str
+            WorkoutScheduleStore.saveWeekSchedule(weekSchedule)
         }
     }
 

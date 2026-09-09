@@ -80,7 +80,7 @@ struct StatsView: View {
     }
 
     private var monthWorkoutsCount: Int {
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let now = Date()
         return completedSessions.filter {
             $0.finishedAt != nil && cal.isDate($0.startedAt, equalTo: now, toGranularity: .month)
@@ -88,11 +88,14 @@ struct StatsView: View {
     }
 
     private var streakSummary: StreakCalculator.Summary {
-        StreakCalculator.computeSummary(from: sessionSnapshots, plannedPerWeek: plan.sessions.count, now: .now)
+        let fallback = plan.sessions.count
+        let interval = Calendar.appWeek.dateInterval(of: .weekOfYear, for: .now)
+        let planned = interval.map { WorkoutScheduleStore.plannedSlotCount(in: $0) } ?? 0
+        return StreakCalculator.computeSummary(from: sessionSnapshots, plannedPerWeek: planned > 0 ? planned : fallback, now: .now)
     }
 
     private var weightDelta30d: Double? {
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let thirtyDaysAgo = cal.date(byAdding: .day, value: -30, to: .now) ?? .now
         let recent = bodyweightEntries.filter { $0.date >= thirtyDaysAgo }
         guard let first = recent.last, let latest = recent.first, recent.count > 1 else {
@@ -103,7 +106,7 @@ struct StatsView: View {
 
     private var activityDays: [Date: (count: Int, volume: Double)] {
         var map: [Date: (count: Int, volume: Double)] = [:]
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
 
         for s in completedSessions where s.finishedAt != nil {
             let day = cal.startOfDay(for: s.startedAt)
@@ -120,7 +123,7 @@ struct StatsView: View {
     }
 
     private var muscleSetCountsInWindow: [String: Double] {
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let cutoff = balanceWindowDays > 0 ? cal.date(byAdding: .day, value: -balanceWindowDays, to: .now) : nil
         var items: [MuscleBalanceModel.EffectiveSetItem] = []
 
@@ -846,10 +849,10 @@ struct StatsView: View {
 
     @ViewBuilder
     private var bodyWeightCard: some View {
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let cutoff = weightRangeDays > 0 ? cal.date(byAdding: .day, value: -weightRangeDays, to: .now) : nil
         let filteredEntries = bodyweightEntries.filter { cutoff == nil || $0.date >= cutoff! }
-        let pts = filteredEntries.map { ChartDataPoint(date: $0.date, value: $0.kg) }
+        let pts = filteredEntries.sorted { $0.date < $1.date }.map { ChartDataPoint(date: $0.date, value: $0.kg) }
 
         VStack(alignment: .leading, spacing: 12) {
             HStack {

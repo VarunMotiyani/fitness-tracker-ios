@@ -19,11 +19,11 @@ struct WorkoutDetailSheet: View {
     @State private var showCheckinSheet = false
 
     private var isToday: Bool {
-        Calendar.isoUTC.isDate(session.startedAt, inSameDayAs: .now)
+        Calendar.appWeek.isDate(session.startedAt, inSameDayAs: .now)
     }
 
     private var dayCheckin: DailyCheckinModel? {
-        dailyCheckins.first { Calendar.isoUTC.isDate($0.date, inSameDayAs: session.startedAt) }
+        dailyCheckins.first { Calendar.appWeek.isDate($0.date, inSameDayAs: session.startedAt) }
     }
 
     private var checkinSummaryText: String {

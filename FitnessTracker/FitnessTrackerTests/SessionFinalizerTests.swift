@@ -13,7 +13,7 @@ import Metrics
 
     // MARK: - Fixtures
 
-    private static let cal: Calendar = .isoUTC
+    private static let cal: Calendar = .appWeek
 
     private func date(_ y: Int, _ m: Int, _ d: Int) -> Date {
         var c = DateComponents()

@@ -25,7 +25,7 @@ public struct ActivityHeatmapView: View {
     
     public init(
         activityDays: [Date: (count: Int, volume: Double)] = [:],
-        calendar: Calendar = .isoUTC,
+        calendar: Calendar = .appWeek,
         now: Date = .now,
         accentColor: Color = GymTheme.green
     ) {
