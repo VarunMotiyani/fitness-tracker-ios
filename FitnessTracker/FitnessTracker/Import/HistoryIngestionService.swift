@@ -113,9 +113,9 @@ public final class HistoryIngestionService {
     ) -> Int {
         var count = 0
         for b in bodyweights {
-            let model = BodyweightEntryModel(date: b.date, kg: b.weightKg)
-            context.insert(model)
-            count += 1
+            if (try? BodyweightLogStore.recordSingle(b.weightKg, on: b.date, in: context)) != nil {
+                count += 1
+            }
         }
         try? context.save()
         return count

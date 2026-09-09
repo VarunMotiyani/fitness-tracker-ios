@@ -50,12 +50,10 @@ enum AthleteProfileStore {
         profile.updatedAt = now
 
         if weightChanged {
-            let entries = try context.fetch(FetchDescriptor<BodyweightEntryModel>())
-            if let entry = entries.first(where: { Calendar.appWeek.isDate($0.date, inSameDayAs: now) }) {
-                entry.kg = draft.weightKg
-            } else {
-                context.insert(BodyweightEntryModel(date: now, kg: draft.weightKg))
-            }
+            // A profile edit is a generic daily value, rather than an AM or PM
+            // measurement. Keeping it in the same store prevents duplicate
+            // calendar-day records and keeps charts on their daily metric.
+            _ = try BodyweightLogStore.recordSingle(draft.weightKg, on: now, in: context)
         }
         try context.save()
     }

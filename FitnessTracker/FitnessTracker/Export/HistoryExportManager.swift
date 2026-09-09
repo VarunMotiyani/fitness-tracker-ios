@@ -106,6 +106,8 @@ public enum HistoryExportManager {
         for b in bws {
             bwList.append([
                 "weightKg": b.kg,
+                "morningKg": b.morningKg as Any,
+                "nightKg": b.nightKg as Any,
                 "loggedAt": df.string(from: b.date)
             ])
         }
