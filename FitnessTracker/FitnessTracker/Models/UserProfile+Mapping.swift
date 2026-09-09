@@ -10,6 +10,7 @@ extension UserProfile {
             goal: Goal(rawValue: goalRaw) ?? .generalFitness,
             experience: ExperienceLevel(rawValue: experienceRaw) ?? .beginner,
             sessionsPerWeek: sessionsPerWeek,
+            splitTemplateName: splitTemplateName,
             sessionLengthMinutes: sessionLengthMinutes,
             availableEquipment: Set(availableEquipmentRaws.compactMap(Equipment.init(rawValue:))),
             excludedExerciseIDs: Set(excludedExerciseIDs),

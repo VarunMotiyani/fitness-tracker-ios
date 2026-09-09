@@ -3,6 +3,7 @@ import SwiftData
 import Foundation
 import FitnessDomain
 import ExerciseCatalog
+import RuleEngine
 @testable import FitnessTracker
 
 @MainActor
@@ -130,5 +131,33 @@ import ExerciseCatalog
         let result = tool.run(argsJSON: "{}")
 
         #expect(result.contains("bench"))
+    }
+
+    @Test func getUpcomingSessionsReflectsAOneDayExerciseEdit() throws {
+        let d = UserDefaults.standard
+        let keys = [WorkoutScheduleStore.scheduleKey, WorkoutScheduleStore.dayPlanKey,
+                    WorkoutScheduleStore.autoPlanKey, WorkoutScheduleStore.dayWorkoutOverrideKey]
+        let saved = keys.map { d.string(forKey: $0) }
+        for k in keys { d.removeObject(forKey: k) }
+        defer { for (k, v) in zip(keys, saved) { d.set(v, forKey: k) } }
+
+        let ctx = ModelContext(try container())
+        _ = try seedPlan(in: ctx)
+        let plan = try #require(try ctx.fetch(FetchDescriptor<StoredPlan>()).first).decodedPlan()
+        let cal = WorkoutScheduleStore.calendar
+        let today = cal.startOfDay(for: .now)
+        // Recurring routine only on today's weekday, so the plan's one session
+        // is scheduled exactly once this week.
+        WorkoutScheduleStore.saveWeekSchedule([WorkoutScheduleStore.mondayFirstIndex(for: today): UUID()])
+        #expect(WorkoutScheduleStore.replaceExercise("bench", with: catalog().exercise(id: "incline_bench")!,
+            on: today, in: plan, catalog: catalog(), origin: .manual))
+
+        let result = GetUpcomingSessionsTool(context: ctx, catalog: catalog()).run(argsJSON: "{}")
+        let json = try JSONSerialization.jsonObject(with: Data(result.utf8)) as! [String: Any]
+        let sessions = json["sessions"] as! [[String: Any]]
+        let scheduled = try #require(sessions.first { $0["scheduledDate"] != nil })
+
+        // The AI sees the one-day edited list, not the recurring "bench".
+        #expect(scheduled["exercises"] as? [String] == ["incline_bench"])
     }
 }

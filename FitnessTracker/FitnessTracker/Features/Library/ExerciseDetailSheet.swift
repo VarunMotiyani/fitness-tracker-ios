@@ -4,8 +4,14 @@ import ExerciseCatalog
 
 struct ExerciseDetailSheet: View {
     let exercise: Exercise
+    var selectionTitle: String?
+    var onSelectForToday: (() -> Bool)?
+    var onReplaceForToday: (() -> Void)?
+    var onRemoveFromToday: (() -> Bool)?
     @Environment(\.dismiss) private var dismiss
     @State private var showAnimation = true
+    @State private var showRemoveConfirmation = false
+    @State private var selectionError: String?
 
     private var stillURL: URL? {
         if let first = exercise.imagePaths.first, first.hasSuffix(".jpg") || first.hasSuffix(".png") {
@@ -145,6 +151,44 @@ struct ExerciseDetailSheet: View {
                             }
                         }
                     }
+
+                    if let selectionTitle, let onSelectForToday {
+                        Button {
+                            if onSelectForToday() {
+                                dismiss()
+                            } else {
+                                selectionError = "That exercise is already in today’s workout."
+                            }
+                        } label: {
+                            Text(selectionTitle)
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.black)
+                                .frame(maxWidth: .infinity, minHeight: 52)
+                                .background(GymTheme.green, in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if let onReplaceForToday {
+                        Button {
+                            onReplaceForToday()
+                        } label: {
+                            Label("Replace exercise", systemImage: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(GymTheme.green)
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                                .background(GymTheme.green.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if onRemoveFromToday != nil {
+                        Button("Remove from today", role: .destructive) {
+                            showRemoveConfirmation = true
+                        }
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    }
                 }
                 .padding(20)
                 .padding(.bottom, 30)
@@ -162,6 +206,23 @@ struct ExerciseDetailSheet: View {
         }
         .presentationDetents([.fraction(0.85), .large])
         .presentationDragIndicator(.visible)
+        .alert("Couldn’t add exercise", isPresented: Binding(
+            get: { selectionError != nil },
+            set: { if !$0 { selectionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { selectionError = nil }
+        } message: {
+            Text(selectionError ?? "")
+        }
+        .confirmationDialog("Remove from today?", isPresented: $showRemoveConfirmation, titleVisibility: .visible) {
+            Button("Remove exercise", role: .destructive) {
+                if onRemoveFromToday?() == true {
+                    dismiss()
+                }
+            }
+        } message: {
+            Text("This changes only today’s workout. Your recurring plan stays the same.")
+        }
     }
 
     @ViewBuilder

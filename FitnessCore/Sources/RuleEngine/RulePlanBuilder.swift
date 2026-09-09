@@ -11,7 +11,8 @@ public struct RulePlanBuilder: Sendable {
 
     public func build(context: UserContext, weekStartDate: Date) -> WeeklyPlan {
         let template = TemplateSelector.select(sessionsPerWeek: context.sessionsPerWeek,
-                                               experience: context.experience)
+                                               experience: context.experience,
+                                               preferredTemplateName: context.splitTemplateName)
         let sessionCount = min(template.sessionCount, max(1, context.sessionsPerWeek))
         let activeFocuses = Array(template.sessionFocuses.prefix(sessionCount))
 

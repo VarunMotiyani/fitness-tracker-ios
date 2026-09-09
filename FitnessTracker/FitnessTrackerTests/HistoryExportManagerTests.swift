@@ -3,6 +3,7 @@ import SwiftData
 import Foundation
 import FitnessDomain
 import ExerciseCatalog
+import RuleEngine
 @testable import FitnessTracker
 
 @MainActor
@@ -118,5 +119,45 @@ import ExerciseCatalog
 
         #expect(observationsList.count == 1)
         #expect(observationsList[0]["kind"] as? String == "bodyweight")
+    }
+
+    @Test func exportIncludesManualDateScopedWorkoutOverrides() throws {
+        let d = UserDefaults.standard
+        let keys = [WorkoutScheduleStore.scheduleKey, WorkoutScheduleStore.dayPlanKey,
+                    WorkoutScheduleStore.autoPlanKey, WorkoutScheduleStore.dayWorkoutOverrideKey]
+        let saved = keys.map { d.string(forKey: $0) }
+        for k in keys { d.removeObject(forKey: k) }
+        defer { for (k, v) in zip(keys, saved) { d.set(v, forKey: k) } }
+
+        let ctx = ModelContext(try container())
+        let cal = WorkoutScheduleStore.calendar
+        let today = cal.startOfDay(for: .now)
+        let sessionID = UUID()
+        let plan = WeeklyPlan(weekStartDate: today, source: .ruleEngine, rationale: "t",
+            sessions: [PlannedSession(id: sessionID, order: 0, focusMuscles: [.chest, .triceps], items: [
+                PlannedItem(exerciseID: "bench", targetSets: 3, targetReps: RepRange(min: 6, max: 8),
+                            targetLoadKg: 60, restSeconds: 120, coachNote: "")
+            ])], weeklyVolumeTargets: [])
+        ctx.insert(try StoredPlan(plan: plan, hadValidationIssues: false))
+        try ctx.save()
+        WorkoutScheduleStore.saveDayPlan([Scheduling.isoDateKey(today, calendar: cal): sessionID.uuidString])
+
+        let cat = CatalogStore(exercises: [
+            exercise("bench"),
+            Exercise(id: "machine_press", name: "Machine Press", primaryMuscle: .chest, secondaryMuscles: [],
+                     equipment: .machine, mechanic: .compound, force: .push, difficulty: .intermediate,
+                     isUnilateral: false, instructions: [], imagePaths: [])
+        ])
+        #expect(WorkoutScheduleStore.replaceExercise("bench", with: cat.exercise(id: "machine_press")!,
+            on: today, in: plan, catalog: cat, origin: .manual))
+
+        let data = HistoryExportManager.exportFullJSONData(context: ctx, catalog: cat)!
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let schedule = json["schedule"] as! [String: Any]
+        let overrides = schedule["workoutOverrides"] as! [[String: Any]]
+
+        #expect(overrides.count == 1)
+        #expect(overrides[0]["origin"] as? String == "manual")
+        #expect((overrides[0]["items"] as? [[String: Any]])?.first?["exerciseID"] as? String == "machine_press")
     }
 }

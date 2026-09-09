@@ -37,6 +37,8 @@ struct HomeView: View {
     var onStartSession: (PlannedSession) -> Void
     var onOpenSettings: () -> Void
     var onOpenPlan: () -> Void
+    @Binding var reopenDayOverrideDate: Date?
+    var onEditExerciseList: (ExerciseLibraryIntent) -> Void
 
     @Query(sort: \CompletedSessionModel.startedAt, order: .reverse)
     private var completedSessions: [CompletedSessionModel]
@@ -169,7 +171,9 @@ struct HomeView: View {
         costSummary: CostSummary,
         onStartSession: @escaping (PlannedSession) -> Void,
         onOpenSettings: @escaping () -> Void,
-        onOpenPlan: @escaping () -> Void
+        onOpenPlan: @escaping () -> Void,
+        reopenDayOverrideDate: Binding<Date?> = .constant(nil),
+        onEditExerciseList: @escaping (ExerciseLibraryIntent) -> Void = { _ in }
     ) {
         self.profile = profile
         self.plan = plan
@@ -178,10 +182,12 @@ struct HomeView: View {
         self.onStartSession = onStartSession
         self.onOpenSettings = onOpenSettings
         self.onOpenPlan = onOpenPlan
+        self._reopenDayOverrideDate = reopenDayOverrideDate
+        self.onEditExerciseList = onEditExerciseList
     }
 
     private var todaySession: PlannedSession? {
-        WorkoutScheduleStore.plannedSession(for: .now, in: plan)
+        WorkoutScheduleStore.effectiveSession(for: .now, in: plan)
     }
 
     /// A finished session that happened today, if any — drives the TODAY row's
@@ -339,6 +345,10 @@ struct HomeView: View {
         .onAppear {
             seedInitialDataIfNeeded()
             refreshAutomaticReschedule()
+            reopenDayOverrideIfNeeded()
+        }
+        .onChange(of: reopenDayOverrideDate) { _, _ in
+            reopenDayOverrideIfNeeded()
         }
         .onChange(of: completedSessions.count) { _, _ in
             refreshAutomaticReschedule()
@@ -370,7 +380,7 @@ struct HomeView: View {
             case .weeklySummary:
                 WeeklySummaryView()
             case .dayOverride(let date):
-                DayOverrideSheet(date: date, plan: plan, onSavedCheckin: { checkin in
+                DayOverrideSheet(date: date, plan: plan, catalog: catalog, onSavedCheckin: { checkin in
                     Task { await proactiveCoordinator.reactToCheckin(checkin) }
                 }, onSaveOverride: { override in
                     var updated = WorkoutScheduleStore.userDayPlan
@@ -380,6 +390,9 @@ struct HomeView: View {
                     if let data = try? JSONEncoder().encode(updated), let encoded = String(data: data, encoding: .utf8) {
                         dayPlanJSON = encoded
                     }
+                }, onEditExerciseList: { intent in
+                    activeSheet = nil
+                    onEditExerciseList(intent)
                 }) { _ in
                     // The persisted override is the source of truth; the selected session is only the sheet's immediate UI result.
                 }
@@ -400,6 +413,12 @@ struct HomeView: View {
         .fullScreenCover(isPresented: $showProfile) {
             AthleteProfileView(profile: profile, catalog: catalog, onOpenPlan: onOpenPlan)
         }
+    }
+
+    private func reopenDayOverrideIfNeeded() {
+        guard let date = reopenDayOverrideDate else { return }
+        activeSheet = .dayOverride(date)
+        reopenDayOverrideDate = nil
     }
 
     private func seedInitialDataIfNeeded() {

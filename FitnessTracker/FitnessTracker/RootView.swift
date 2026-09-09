@@ -68,6 +68,8 @@ struct RootView: View {
     @State private var selectedTab: AppTab = .home
     @State private var activePlannedSession: PlannedSession?
     @State private var showSettings = false
+    @State private var exerciseLibraryIntent: ExerciseLibraryIntent?
+    @State private var reopenDayOverrideDate: Date?
 
     // Presents WeeklySummaryView when a `proactive_weekly` notification is tapped.
     // The instance is owned by `AppDelegate` (which installs it as the
@@ -109,7 +111,7 @@ struct RootView: View {
                     selectedTab: $selectedTab,
                     isWorkoutActive: activePlannedSession != nil,
                     onStartPressed: {
-                        if let session = WorkoutScheduleStore.plannedSession(for: .now, in: plan)
+                        if let session = WorkoutScheduleStore.effectiveSession(for: .now, in: plan)
                             ?? plan.sessions.sorted(by: { $0.order < $1.order }).first {
                             activePlannedSession = session
                         }
@@ -250,13 +252,26 @@ struct RootView: View {
                         costSummary: summary,
                         onStartSession: { session in activePlannedSession = session },
                         onOpenSettings: { showSettings = true },
-                        onOpenPlan: { selectedTab = .plan }
+                        onOpenPlan: { selectedTab = .plan },
+                        reopenDayOverrideDate: $reopenDayOverrideDate,
+                        onEditExerciseList: { intent in
+                            reopenDayOverrideDate = intent.date
+                            exerciseLibraryIntent = intent
+                            selectedTab = .exercises
+                        }
                     )
                 case .plan:
                     PlanView(
                         plan: plan,
                         catalog: catalog,
-                        onStartSession: { session in activePlannedSession = session }
+                        onStartSession: { session in activePlannedSession = session },
+                        onSplitChanged: { template in
+                            profile.splitTemplateName = template.name
+                            profile.sessionsPerWeek = template.sessionCount
+                            profile.updatedAt = .now
+                            try? context.save()
+                            regeneratePlan(for: profile)
+                        }
                     )
                 case .start:
                     WorkoutTabView(
@@ -271,7 +286,13 @@ struct RootView: View {
                     )
                 case .exercises:
                     LibraryView(
-                        catalog: catalog
+                        catalog: catalog,
+                        plan: plan,
+                        exerciseLibraryIntent: $exerciseLibraryIntent,
+                        onWorkoutSelectionCommitted: { date in
+                            reopenDayOverrideDate = date
+                            selectedTab = .home
+                        }
                     )
                 case .coach:
                     ChatView(catalog: catalog, provider: resolvedProvider, activeProfile: activeProfiles.first)

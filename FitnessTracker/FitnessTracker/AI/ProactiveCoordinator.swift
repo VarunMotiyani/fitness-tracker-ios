@@ -654,7 +654,7 @@ struct ProactiveCoordinator {
             .compactMap(\.plannedSessionID))
         for offset in 0..<7 {
             guard let date = Calendar.appWeek.date(byAdding: .day, value: offset, to: Calendar.appWeek.startOfDay(for: .now)),
-                  let session = WorkoutScheduleStore.plannedSession(for: date, in: plan),
+                  let session = WorkoutScheduleStore.effectiveSession(for: date, in: plan),
                   !startedThisWeek.contains(session.id) else { continue }
             return session
         }

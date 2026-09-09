@@ -4,6 +4,9 @@ import ExerciseCatalog
 
 struct LibraryView: View {
     let catalog: CatalogStore
+    var plan: WeeklyPlan?
+    @Binding var exerciseLibraryIntent: ExerciseLibraryIntent?
+    var onWorkoutSelectionCommitted: (Date) -> Void
 
     @State private var searchText = ""
     @State private var selectedMuscle: MuscleGroup? = nil
@@ -25,6 +28,18 @@ struct LibraryView: View {
     @AppStorage("gym_media_source") private var mediaSourceRaw: String = ExerciseMediaSource.gymVisual.rawValue
     @State private var freeCatalog: CatalogStore?
 
+    init(
+        catalog: CatalogStore,
+        plan: WeeklyPlan? = nil,
+        exerciseLibraryIntent: Binding<ExerciseLibraryIntent?> = .constant(nil),
+        onWorkoutSelectionCommitted: @escaping (Date) -> Void = { _ in }
+    ) {
+        self.catalog = catalog
+        self.plan = plan
+        self._exerciseLibraryIntent = exerciseLibraryIntent
+        self.onWorkoutSelectionCommitted = onWorkoutSelectionCommitted
+    }
+
     private var mediaSource: ExerciseMediaSource {
         ExerciseMediaSource(rawValue: mediaSourceRaw) ?? .gymVisual
     }
@@ -35,10 +50,14 @@ struct LibraryView: View {
         mediaSource == .freeStatic ? (freeCatalog ?? catalog) : catalog
     }
 
+    private var visibleCatalog: CatalogStore {
+        exerciseLibraryIntent == nil ? displayCatalog : catalog
+    }
+
     /// Exercises matching search + muscle + the active equipment profile — the pool the
     /// equipment chips describe.
     private var searchAndMuscleMatches: [Exercise] {
-        displayCatalog.all.filter { ex in
+        visibleCatalog.all.filter { ex in
             let matchesSearch = searchText.isEmpty || ex.name.localizedCaseInsensitiveContains(searchText)
             let matchesMuscle = selectedMuscle == nil || ex.primaryMuscle == selectedMuscle! || ex.secondaryMuscles.contains(selectedMuscle!)
             let matchesEquipmentProfile = EquipmentFilter.isAvailable(
@@ -52,7 +71,17 @@ struct LibraryView: View {
     }
 
     private var filteredExercises: [Exercise] {
-        searchAndMuscleMatches.filter { selectedEquipment == nil || $0.equipment == selectedEquipment! }
+        searchAndMuscleMatches.filter { exercise in
+            let equipmentMatches = selectedEquipment == nil || exercise.equipment == selectedEquipment!
+            guard let intent = exerciseLibraryIntent else { return equipmentMatches }
+            let isCurrentExercise: Bool
+            if case let .replace(existingExerciseID) = intent.action {
+                isCurrentExercise = exercise.id == existingExerciseID
+            } else {
+                isCurrentExercise = false
+            }
+            return equipmentMatches && intent.acceptsForToday(exercise) && !isCurrentExercise
+        }
     }
 
     /// Equipment values actually present in the current search/muscle pool, most common
@@ -71,10 +100,12 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: 14) {
                 // Header (Exercises | N exercises with animations / with photos)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Exercises")
+                    Text(exerciseLibraryIntent == nil ? "Exercises" : "Editing today’s \(WorkoutDayPresentation.title(for: exerciseLibraryIntent!.session))")
                         .font(.system(size: 32, weight: .bold))
                         .foregroundStyle(GymTheme.label)
-                    Text("\(displayCatalog.all.count) exercises \(mediaSource == .freeStatic ? "with photos & instructions" : "with animations")")
+                    Text(exerciseLibraryIntent == nil
+                         ? "\(visibleCatalog.all.count) exercises \(mediaSource == .freeStatic ? "with photos & instructions" : "with animations")"
+                         : "Choose a push-compatible exercise. It changes today only.")
                         .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(Color(white: 0.60))
                 }
@@ -83,8 +114,10 @@ struct LibraryView: View {
 
                 // Media-source flag: lets you compare the animated (hotlinked, unlicensed
                 // for redistribution) source against the public-domain static one.
-                mediaSourcePicker
-                    .padding(.horizontal, 16)
+                if exerciseLibraryIntent == nil {
+                    mediaSourcePicker
+                        .padding(.horizontal, 16)
+                }
 
                 // Search Bar
                 HStack(spacing: 8) {
@@ -148,8 +181,9 @@ struct LibraryView: View {
 
                 // Exercise Cards List
                 LazyVStack(spacing: 8) {
-                    // Custom Exercise Creation Card
-                    customExerciseCard
+                    if exerciseLibraryIntent == nil {
+                        customExerciseCard
+                    }
 
                     // Filtered Exercises up to shownCount
                     ForEach(filteredExercises.prefix(shownCount), id: \.id) { ex in
@@ -180,7 +214,15 @@ struct LibraryView: View {
         }
         .background(GymTheme.bg.ignoresSafeArea())
         .sheet(item: $selectedExerciseForDetail) { ex in
-            ExerciseDetailSheet(exercise: ex)
+            if let intent = exerciseLibraryIntent {
+                ExerciseDetailSheet(
+                    exercise: ex,
+                    selectionTitle: selectionTitle(for: intent),
+                    onSelectForToday: { commit(exercise: ex, for: intent) }
+                )
+            } else {
+                ExerciseDetailSheet(exercise: ex)
+            }
         }
         .task(id: mediaSourceRaw) {
             guard mediaSource == .freeStatic, freeCatalog == nil else { return }
@@ -283,26 +325,57 @@ struct LibraryView: View {
 
                 Spacer()
 
-                // + Plan Button
-                Button {
-                    selectedExerciseForDetail = ex
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 11, weight: .bold))
-                        Text("Plan")
-                            .font(.system(size: 13, weight: .bold))
+                if exerciseLibraryIntent == nil {
+                    Button {
+                        selectedExerciseForDetail = ex
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("Plan")
+                                .font(.system(size: 13, weight: .bold))
+                        }
+                        .foregroundStyle(GymTheme.green)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(GymTheme.green.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
                     }
-                    .foregroundStyle(GymTheme.green)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(GymTheme.green.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(12)
             .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
+    }
+
+    private func selectionTitle(for intent: ExerciseLibraryIntent) -> String {
+        switch intent.action {
+        case .add:
+            return intent.actionTitle()
+        case let .replace(existingExerciseID):
+            return intent.actionTitle(existingName: catalog.exercise(id: existingExerciseID)?.name)
+        }
+    }
+
+    private func commit(exercise: Exercise, for intent: ExerciseLibraryIntent) -> Bool {
+        guard let plan else { return false }
+        let changed: Bool
+        switch intent.action {
+        case .add:
+            changed = WorkoutScheduleStore.addExercise(
+                exercise, on: intent.date, in: plan, catalog: catalog, origin: .manual
+            )
+        case let .replace(existingExerciseID):
+            changed = WorkoutScheduleStore.replaceExercise(
+                existingExerciseID, with: exercise, on: intent.date, in: plan,
+                catalog: catalog, origin: .manual
+            )
+        }
+
+        guard changed else { return false }
+        exerciseLibraryIntent = nil
+        onWorkoutSelectionCommitted(intent.date)
+        return true
     }
 }

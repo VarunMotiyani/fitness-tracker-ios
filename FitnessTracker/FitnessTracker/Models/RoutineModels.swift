@@ -1,6 +1,7 @@
 import Foundation
 import FitnessDomain
 import ExerciseCatalog
+import RuleEngine
 
 public struct ExerciseConfig: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
@@ -89,6 +90,15 @@ public struct RoutineDraft: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+public enum RoutineCardAction: Equatable {
+    case edit
+    case start
+
+    public static func action(for routine: RoutineDraft) -> Self {
+        routine.exercises.isEmpty ? .edit : .start
+    }
+}
+
 public enum StarterRoutines {
     public static func ppl() -> [RoutineDraft] {
         [
@@ -123,5 +133,18 @@ public enum StarterRoutines {
                 ]
             )
         ]
+    }
+}
+
+/// The split catalog exposed by the Plan screen. Keeping search and ordering in
+/// one small value-type makes the UI discoverable without coupling it to the
+/// rule-engine's selection policy.
+public enum SplitTemplateBrowser {
+    public static func templates(matching query: String) -> [SplitTemplate] {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return SplitTemplateLibrary.all }
+        return SplitTemplateLibrary.all.filter { template in
+            template.name.lowercased().contains(normalized)
+        }
     }
 }

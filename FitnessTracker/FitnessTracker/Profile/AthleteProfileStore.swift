@@ -31,6 +31,7 @@ enum AthleteProfileStore {
         profile.birthYear = draft.birthYear
         profile.sexRaw = draft.sexRaw
         profile.sessionsPerWeek = draft.sessionsPerWeek
+        profile.splitTemplateName = draft.splitTemplateName == "Auto" ? nil : draft.splitTemplateName
         profile.sessionLengthMinutes = draft.sessionLengthMinutes
         profile.availableEquipmentRaws = draft.availableEquipmentRaws
         profile.excludedMuscleRaws = draft.excludedMuscleRaws

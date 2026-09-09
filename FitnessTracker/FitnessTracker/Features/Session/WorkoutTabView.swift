@@ -19,7 +19,7 @@ struct WorkoutTabView: View {
     }
 
     private var todaySession: PlannedSession? {
-        return WorkoutScheduleStore.plannedSession(for: .now, in: plan)
+        return WorkoutScheduleStore.effectiveSession(for: .now, in: plan)
     }
 
     private var otherSessions: [PlannedSession] {

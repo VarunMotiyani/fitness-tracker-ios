@@ -18,5 +18,7 @@ import FitnessDomain
 }
 
 @Test func libraryListsAllTemplates() {
-    #expect(SplitTemplateLibrary.all.count == 3)
+    #expect(SplitTemplateLibrary.all.count >= 15)
+    #expect(SplitTemplateLibrary.all.contains { $0.name.contains("Arnold") })
+    #expect(SplitTemplateLibrary.all.contains { $0.name.contains("PHAT") })
 }
