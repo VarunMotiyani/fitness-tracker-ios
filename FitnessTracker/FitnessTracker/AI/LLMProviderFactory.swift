@@ -18,6 +18,8 @@ nonisolated enum LLMProviderFactory {
                   url.host != nil
             else { throw FactoryError.invalidBaseURL }
             return OpenAICompatibleProvider(baseURL: url, apiKey: apiKey, modelID: modelID, session: session)
+        case .openRouter:
+            return OpenRouterProvider(apiKey: apiKey, modelID: modelID, session: session)
         case .gemini:
             guard let apiKey, !apiKey.isEmpty else { throw FactoryError.missingAPIKey }
             return GeminiProvider(apiKey: apiKey, modelID: modelID, session: session)
@@ -45,7 +47,23 @@ nonisolated enum LLMProviderFactory {
     }
 
     @MainActor
-    static func make(from profile: ProviderProfile, session: URLSession? = nil) throws -> any LLMProvider {
+    static func make(from profile: ProviderProfile,
+                     fallback: ProviderProfile? = nil,
+                     session: URLSession? = nil) throws -> any LLMProvider {
+        let base = try makeRaw(from: profile, session: session)
+        // A fallback that itself can't be built (bad config) is dropped, not fatal.
+        let fb = fallback.flatMap { try? makeRaw(from: $0, session: session) }
+        // Per-profile override of the tool-calling lane, on top of the adapter default.
+        let override = profile.capToolCallingRaw
+            .flatMap(ProviderCapabilities.ToolCalling.init(rawValue:))
+            .map { base.capabilities.overriding(toolCalling: $0) }
+        // Every production provider gets bounded retry on transient failures,
+        // plus one-shot failover when a fallback profile is configured.
+        return ResilientProvider(wrapped: base, fallback: fb, capabilitiesOverride: override)
+    }
+
+    @MainActor
+    private static func makeRaw(from profile: ProviderProfile, session: URLSession?) throws -> any LLMProvider {
         let key = profile.apiKeyRef.flatMap { try? KeychainStore.get(account: $0) } ?? nil
         return try make(kind: profile.adapterKind, baseURL: profile.baseURL,
                         apiKey: key, modelID: profile.modelID, session: session)

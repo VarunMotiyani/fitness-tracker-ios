@@ -10,6 +10,9 @@ nonisolated struct CallOutcome: Sendable, Equatable {
     let outputTokens: Int
     let cachedTokens: Int
     let succeeded: Bool
+    /// True when this call was served by the profile's fallback provider
+    /// rather than the primary (`ResilientProvider` failover).
+    var usedFallback: Bool = false
 }
 
 nonisolated struct CoordinatorResult: Sendable {

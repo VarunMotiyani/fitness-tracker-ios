@@ -1,6 +1,7 @@
 import Testing
 import SwiftData
 import Foundation
+import Metrics
 @testable import FitnessTracker
 
 @MainActor
@@ -58,5 +59,43 @@ import Foundation
     @Test func observationConfirmedDefaultsTrue() {
         let obs = ObservationModel(kind: "bodyweight", value: 80, unit: "kg", timestamp: Date())
         #expect(obs.confirmed)
+    }
+
+    @Test func dailyCheckinDateFilteringForTodayAndPast() throws {
+        let ctx = ModelContext(try container())
+        let cal = Calendar.appWeek
+        let now = Date()
+        guard let yesterday = cal.date(byAdding: .day, value: -1, to: now) else { return }
+
+        let pastCheckin = DailyCheckinModel(date: yesterday)
+        pastCheckin.sleepQuality = 6
+        pastCheckin.soreness = 5
+        ctx.insert(pastCheckin)
+        try ctx.save()
+
+        let all = try ctx.fetch(FetchDescriptor<DailyCheckinModel>())
+        // Today's checkin should be nil before today is logged
+        let todayCheckinBefore = all.first { cal.isDate($0.date, inSameDayAs: now) }
+        #expect(todayCheckinBefore == nil)
+
+        // Yesterday's checkin should be found by yesterday's date
+        let yesterdayCheckin = all.first { cal.isDate($0.date, inSameDayAs: yesterday) }
+        #expect(yesterdayCheckin != nil)
+        #expect(yesterdayCheckin?.sleepQuality == 6)
+
+        // Log today's checkin
+        let todayCheckin = DailyCheckinModel(date: now)
+        todayCheckin.sleepQuality = 8
+        todayCheckin.soreness = 2
+        todayCheckin.note = "Feeling great"
+        ctx.insert(todayCheckin)
+        try ctx.save()
+
+        let allAfter = try ctx.fetch(FetchDescriptor<DailyCheckinModel>())
+        let todayCheckinAfter = allAfter.first { cal.isDate($0.date, inSameDayAs: now) }
+        #expect(todayCheckinAfter != nil)
+        #expect(todayCheckinAfter?.sleepQuality == 8)
+        #expect(todayCheckinAfter?.soreness == 2)
+        #expect(todayCheckinAfter?.note == "Feeling great")
     }
 }

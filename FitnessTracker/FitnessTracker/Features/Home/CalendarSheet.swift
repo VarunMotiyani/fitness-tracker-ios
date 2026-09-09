@@ -3,6 +3,7 @@ import SwiftData
 import FitnessDomain
 import ExerciseCatalog
 import Metrics
+import RuleEngine
 
 struct CalendarSheet: View {
     let plan: WeeklyPlan
@@ -22,7 +23,7 @@ struct CalendarSheet: View {
     private let dayHeaders = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
 
     private var calculatedHeight: CGFloat {
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let startOfMonth = cal.date(from: cal.dateComponents([.year, .month], from: currentMonth)) ?? currentMonth
         let range = cal.range(of: .day, in: .month, for: startOfMonth) ?? 1..<31
         let firstWeekday = cal.component(.weekday, from: startOfMonth)
@@ -61,7 +62,12 @@ struct CalendarSheet: View {
                 set: { if !$0 { selectedDateForOverride = nil } }
             )) {
                 if let date = selectedDateForOverride {
-                    DayOverrideSheet(date: date, plan: plan) { _ in
+                    DayOverrideSheet(date: date, plan: plan, onSaveOverride: { override in
+                        var updated = WorkoutScheduleStore.userDayPlan
+                        let key = Scheduling.isoDateKey(date, calendar: .appWeek)
+                        if let override { updated[key] = override } else { updated.removeValue(forKey: key) }
+                        WorkoutScheduleStore.saveDayPlan(updated)
+                    }) { _ in
                         selectedDateForOverride = nil
                     }
                 }
@@ -75,7 +81,7 @@ struct CalendarSheet: View {
 
     @ViewBuilder
     private var headerView: some View {
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let monthName = currentMonth.formatted(.dateTime.month(.wide).year())
         let monthSessions = completedSessions.filter {
             $0.finishedAt != nil && cal.isDate($0.startedAt, equalTo: currentMonth, toGranularity: .month)
@@ -134,7 +140,7 @@ struct CalendarSheet: View {
 
     @ViewBuilder
     private var calendarGridView: some View {
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let startOfMonth = cal.date(from: cal.dateComponents([.year, .month], from: currentMonth)) ?? currentMonth
         let range = cal.range(of: .day, in: .month, for: startOfMonth) ?? 1..<31
         let numDays = range.count
@@ -175,7 +181,8 @@ struct CalendarSheet: View {
                                 let isToday = cal.isDateInToday(dayDate)
                                 let trainedSessions = daysByDate[dayStart] ?? []
                                 let isTrained = !trainedSessions.isEmpty
-                                let isPlanned = col == 0 || col == 2 || col == 4
+                                let isPlanned = WorkoutScheduleStore.effectiveRoutineID(for: dayDate) != nil
+                                let isRescheduled = WorkoutScheduleStore.isRescheduled(for: dayDate)
 
                                 Button {
                                     if let first = trainedSessions.first {
@@ -190,7 +197,7 @@ struct CalendarSheet: View {
                                             .foregroundStyle(isTrained ? activeAccent : GymTheme.label)
 
                                         Circle()
-                                            .fill(isTrained ? activeAccent : (isPlanned ? Color(white: 0.40) : Color.clear))
+                                            .fill(isTrained ? activeAccent : (isRescheduled ? GymTheme.orange : (isPlanned ? Color(white: 0.40) : Color.clear)))
                                             .frame(width: 4.5, height: 4.5)
                                     }
                                     .frame(maxWidth: .infinity)

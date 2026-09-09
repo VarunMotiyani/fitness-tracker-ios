@@ -24,7 +24,7 @@ public struct StreakCalculator: Sendable {
         plannedPerWeek: Int,
         now: Date = .now,
         weekStart: WeekStart = .monday,
-        calendar: Calendar = .isoUTC
+        calendar: Calendar = .appWeek
     ) -> Summary {
         var cal = calendar
         cal.firstWeekday = (weekStart == .sunday) ? 1 : 2

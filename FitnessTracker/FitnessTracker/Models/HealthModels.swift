@@ -1,15 +1,20 @@
 import Foundation
 import SwiftData
 
-/// A single bodyweight measurement.
+/// One calendar day's bodyweight. `kg` is always the metric used by charts and
+/// analytics: a single reading when only one exists, or the AM/PM average.
 @Model
 final class BodyweightEntryModel {
     var date: Date
     var kg: Double
+    var morningKg: Double?
+    var nightKg: Double?
 
-    init(date: Date, kg: Double) {
+    init(date: Date, kg: Double, morningKg: Double? = nil, nightKg: Double? = nil) {
         self.date = date
         self.kg = kg
+        self.morningKg = morningKg
+        self.nightKg = nightKg
     }
 }
 

@@ -11,7 +11,7 @@ public struct DemoSeedGenerator {
     }
 
     public static func seedDemoHistory(into context: ModelContext, catalog: CatalogStore) {
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let now = Date()
 
         // 1. Seed Bodyweight Entries (12 weeks, trending from 82.4 kg to 78.3 kg)
@@ -100,7 +100,7 @@ public struct DemoSeedGenerator {
         weightDelta: Double,
         week: Int
     ) -> CompletedSessionModel {
-        let weekday = Calendar.isoUTC.component(.weekday, from: date)
+        let weekday = Calendar.appWeek.component(.weekday, from: date)
         let session = CompletedSessionModel(
             startedAt: date,
             weekdayRaw: weekday,

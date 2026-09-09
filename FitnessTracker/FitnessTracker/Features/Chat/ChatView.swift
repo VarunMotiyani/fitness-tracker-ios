@@ -13,6 +13,10 @@ struct ChatView: View {
     let provider: (any LLMProvider)?
     let activeProfile: ProviderProfile?
     var onClose: (() -> Void)? = nil
+    var showsHeader: Bool = true
+    /// Sheet/tab presentations reserve the bottom tab-bar inset; embedded
+    /// Coach hub chat should use the full sheet height instead.
+    var reservesTabBarSpace: Bool = true
 
     @Environment(\.modelContext) private var context
     @Query(sort: \ChatMessageModel.timestamp) private var messages: [ChatMessageModel]
@@ -25,7 +29,9 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            headerSection
+            if showsHeader {
+                headerSection
+            }
 
             if provider == nil {
                 ContentUnavailableView(
@@ -163,7 +169,7 @@ struct ChatView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .padding(.bottom, onClose == nil ? 90 : 0)
+        .padding(.bottom, reservesTabBarSpace && onClose == nil ? 90 : 0)
         .background(GymTheme.bgElevated)
     }
 

@@ -44,10 +44,19 @@ struct AskCoachCoordinator {
             .map { (role: $0.role, text: $0.text) }
         let summary = (try? context.fetch(FetchDescriptor<ChatSummaryModel>()))?.first?.text ?? ""
 
+        // Equipment goes in the prompt rather than a `get_equipment_profile`
+        // tool round trip — it's a small static list and every swap proposal
+        // needs it.
+        let equipment = (try? context.fetch(FetchDescriptor<UserProfile>()))?.first?
+            .makeUserContext().availableEquipment.map(\.rawValue).sorted().joined(separator: ", ") ?? ""
+
         let system = AskCoachPromptBuilder.system()
         let user = AskCoachPromptBuilder.user(
             recentMessages: Array(recentMessages), summary: summary,
-            memoryDigest: memoryDigestWithIDs(from: recalled.selected), newMessage: text
+            memoryDigest: memoryDigestWithIDs(from: recalled.selected),
+            equipmentSummary: equipment,
+            scheduleContext: WorkoutScheduleStore.scheduleDescription(),
+            newMessage: text
         )
 
         let tools = ToolRegistry(tools: buildTools())
@@ -107,12 +116,10 @@ struct AskCoachCoordinator {
         }
         let load = MuscleBalanceModel.loadOf(items: effectiveSetItems)
 
-        let exportJSON = HistoryExportManager.exportFullJSONData(context: context, catalog: catalog) ?? Data("{}".utf8)
-
         return [
             GetRecoveryStatusTool(statuses: recoveryStatuses),
             GetMuscleBalanceTool(load: load),
-            QueryTrainingDataTool(exportJSON: exportJSON),
+            QueryTrainingDataTool(context: context, catalog: catalog),
             ProposeExerciseSwapTool(context: context, catalog: catalog),
             ProposeSetChangeTool(context: context),
             GetUpcomingSessionsTool(context: context, catalog: catalog),
@@ -138,7 +145,7 @@ struct AskCoachCoordinator {
                                       modelID: activeProfile?.modelID ?? "—",
                                       inputTokens: call.inputTokens, outputTokens: call.outputTokens,
                                       cachedTokens: call.cachedTokens, costUSD: costUSD,
-                                      success: call.succeeded, usedFallback: false)
+                                      success: call.succeeded, usedFallback: call.usedFallback)
             context.insert(record)
         }
         try? context.save()

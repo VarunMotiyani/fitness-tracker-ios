@@ -2,9 +2,14 @@ import Foundation
 import SwiftData
 import FitnessDomain
 import CoachMemory
+import os
 
 enum SuggestionApplierError: Error {
     case sessionNotFound
+    /// The target session exists but doesn't contain `suggestion.exerciseID` —
+    /// without this the accept used to mark the suggestion `accepted` and
+    /// re-encode the plan *unchanged*, so the card vanished with no effect.
+    case itemNotFound
 }
 
 /// Applies (or skips) a `PendingCoachSuggestion` against a `StoredPlan`'s
@@ -14,9 +19,12 @@ enum SuggestionApplierError: Error {
 /// accepted suggestions (design spec §3).
 @MainActor
 enum SuggestionApplier {
+    private static let log = Logger(subsystem: "PulseAI", category: "SuggestionApplier")
+
     static func apply(_ suggestion: PendingCoachSuggestion, storedPlan: StoredPlan, context: ModelContext) throws {
         let plan = try storedPlan.decodedPlan()
         guard let sessionIndex = plan.sessions.firstIndex(where: { $0.id == suggestion.plannedSessionID }) else {
+            log.error("accept \(suggestion.kind, privacy: .public) failed: session \(suggestion.plannedSessionID.uuidString, privacy: .public) not in current plan")
             throw SuggestionApplierError.sessionNotFound
         }
         let session = plan.sessions[sessionIndex]
@@ -24,26 +32,28 @@ enum SuggestionApplier {
 
         switch suggestion.kind {
         case "exerciseSwap":
-            if let idx = items.firstIndex(where: { $0.exerciseID == suggestion.exerciseID }),
-               let replacement = suggestion.replacementExerciseID {
-                let old = items[idx]
-                items[idx] = PlannedItem(exerciseID: replacement, targetSets: old.targetSets,
-                                         targetReps: old.targetReps, targetLoadKg: old.targetLoadKg,
-                                         restSeconds: old.restSeconds, coachNote: old.coachNote)
-            }
+            guard let idx = items.firstIndex(where: { $0.exerciseID == suggestion.exerciseID }),
+                  let replacement = suggestion.replacementExerciseID
+            else { throw SuggestionApplierError.itemNotFound }
+            let old = items[idx]
+            items[idx] = PlannedItem(exerciseID: replacement, targetSets: old.targetSets,
+                                     targetReps: old.targetReps, targetLoadKg: old.targetLoadKg,
+                                     restSeconds: old.restSeconds, coachNote: old.coachNote)
+            log.debug("accept swap: \(old.exerciseID, privacy: .public) -> \(replacement, privacy: .public) in session order \(session.order)")
         case "setChange":
-            if let idx = items.firstIndex(where: { $0.exerciseID == suggestion.exerciseID }) {
-                let old = items[idx]
-                let repRange = (suggestion.targetRepsMin != nil || suggestion.targetRepsMax != nil)
-                    ? RepRange(min: suggestion.targetRepsMin ?? old.targetReps.min,
-                              max: suggestion.targetRepsMax ?? old.targetReps.max)
-                    : old.targetReps
-                items[idx] = PlannedItem(exerciseID: old.exerciseID,
-                                         targetSets: suggestion.targetSets ?? old.targetSets,
-                                         targetReps: repRange,
-                                         targetLoadKg: suggestion.targetLoadKg ?? old.targetLoadKg,
-                                         restSeconds: old.restSeconds, coachNote: old.coachNote)
-            }
+            guard let idx = items.firstIndex(where: { $0.exerciseID == suggestion.exerciseID })
+            else { throw SuggestionApplierError.itemNotFound }
+            let old = items[idx]
+            let repRange = (suggestion.targetRepsMin != nil || suggestion.targetRepsMax != nil)
+                ? RepRange(min: suggestion.targetRepsMin ?? old.targetReps.min,
+                          max: suggestion.targetRepsMax ?? old.targetReps.max)
+                : old.targetReps
+            items[idx] = PlannedItem(exerciseID: old.exerciseID,
+                                     targetSets: suggestion.targetSets ?? old.targetSets,
+                                     targetReps: repRange,
+                                     targetLoadKg: suggestion.targetLoadKg ?? old.targetLoadKg,
+                                     restSeconds: old.restSeconds, coachNote: old.coachNote)
+            log.debug("accept setChange \(old.exerciseID, privacy: .public): sets \(old.targetSets)->\(items[idx].targetSets), reps \(old.targetReps.min)-\(old.targetReps.max)->\(items[idx].targetReps.min)-\(items[idx].targetReps.max), load \(old.targetLoadKg ?? -1)->\(items[idx].targetLoadKg ?? -1)")
         case "addExercise":
             items.append(PlannedItem(exerciseID: suggestion.exerciseID,
                                      targetSets: suggestion.targetSets ?? 3,

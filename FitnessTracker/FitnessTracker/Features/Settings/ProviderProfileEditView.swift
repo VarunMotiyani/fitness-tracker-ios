@@ -1,10 +1,12 @@
 import SwiftUI
 import SwiftData
+import LLMKit
 
 extension AdapterKind {
     var label: String {
         switch self {
         case .openAICompatible: "OpenAI-compatible"
+        case .openRouter: "OpenRouter"
         case .gemini: "Gemini"
         case .appleOnDevice: "On-device (Apple)"
         case .vertexAI: "Vertex AI (GCP)"
@@ -35,6 +37,10 @@ struct ProviderProfileEditView: View {
     @State private var priceOut: Double
     @State private var priceCached: Double
     @State private var keychainError: String?
+    @State private var openRouterModels: [OpenRouterProvider.Model] = []
+    @State private var showingOpenRouterModelPicker = false
+    @State private var fallbackProfileID: UUID?
+    @State private var toolCallingOverride: ProviderCapabilities.ToolCalling?
 
     init(profile: ProviderProfile?) {
         self.profile = profile
@@ -46,6 +52,9 @@ struct ProviderProfileEditView: View {
         _priceIn = State(initialValue: profile?.pricePerMTokIn ?? 0)
         _priceOut = State(initialValue: profile?.pricePerMTokOut ?? 0)
         _priceCached = State(initialValue: profile?.pricePerMTokCached ?? 0)
+        _fallbackProfileID = State(initialValue: profile?.fallbackProfileID)
+        _toolCallingOverride = State(initialValue: profile?.capToolCallingRaw
+            .flatMap(ProviderCapabilities.ToolCalling.init(rawValue:)))
     }
 
     private var isEditing: Bool { profile != nil }
@@ -83,7 +92,26 @@ struct ProviderProfileEditView: View {
                         Text(k.label).tag(k)
                     }
                 }
-                if showsModelIDField {
+                if kind == .openRouter {
+                    Button {
+                        showingOpenRouterModelPicker = true
+                    } label: {
+                        LabeledContent("Model") {
+                            Text(openRouterModels.first(where: { $0.id == modelID })?.name ?? modelID)
+                                .foregroundStyle(modelID.isEmpty ? .secondary : .primary)
+                                .lineLimit(1)
+                        }
+                    }
+                    if openRouterModels.isEmpty {
+                        TextField("Model ID (offline fallback)", text: $modelID)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    } else if !modelID.isEmpty {
+                        Text("\(openRouterModels.first(where: { $0.id == modelID })?.contextLength.map(String.init) ?? "unknown") token context")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if showsModelIDField {
                     TextField("Model ID", text: $modelID)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -137,6 +165,30 @@ struct ProviderProfileEditView: View {
                     }
                     Toggle("Supports vision", isOn: $supportsVision)
                 }
+
+                let others = allProfiles.filter { $0.id != profile?.id }
+                if !others.isEmpty {
+                    Section {
+                        Picker("Fallback provider", selection: $fallbackProfileID) {
+                            Text("None").tag(UUID?.none)
+                            ForEach(others) { p in
+                                Text(p.displayName).tag(UUID?.some(p.id))
+                            }
+                        }
+                    } footer: {
+                        Text("Used automatically when this provider fails after retries — e.g. an on-device profile when the network is down.")
+                    }
+                }
+
+                Section {
+                    Picker("Tool calling", selection: $toolCallingOverride) {
+                        Text("Auto").tag(ProviderCapabilities.ToolCalling?.none)
+                        Text("Native (function calling)").tag(ProviderCapabilities.ToolCalling?.some(.native))
+                        Text("Prompt loop").tag(ProviderCapabilities.ToolCalling?.some(.viaPrompt))
+                    }
+                } footer: {
+                    Text("Auto uses the adapter default. Set Native for a model that supports function calling (most OpenAI/Anthropic/Gemini models on OpenRouter); Prompt loop for smaller models.")
+                }
             }
 
             if isEditing {
@@ -148,6 +200,21 @@ struct ProviderProfileEditView: View {
         }
         .navigationTitle(isEditing ? "Edit Provider" : "New Provider")
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: kind) {
+            guard kind == .openRouter else {
+                openRouterModels = []
+                return
+            }
+            do {
+                openRouterModels = try await OpenRouterProvider.fetchModels()
+            } catch {
+                // The picker remains usable with the offline free-text field.
+                openRouterModels = []
+            }
+        }
+        .sheet(isPresented: $showingOpenRouterModelPicker) {
+            OpenRouterModelPicker(models: openRouterModels, selection: $modelID)
+        }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: CGFloat(ProviderProfileEditLayoutMetrics.persistentBottomBarClearance))
         }
@@ -207,6 +274,9 @@ struct ProviderProfileEditView: View {
             }
         }
 
+        target.fallbackProfileID = fallbackProfileID
+        target.capToolCallingRaw = toolCallingOverride?.rawValue
+
         // Insert only after the key write has succeeded, so a failed write
         // can't leave a key-less new profile behind via SwiftData autosave.
         if profile == nil {
@@ -223,5 +293,47 @@ struct ProviderProfileEditView: View {
         }
         profile.isActive = true
         try? context.save()
+    }
+}
+
+private struct OpenRouterModelPicker: View {
+    @Environment(\.dismiss) private var dismiss
+    let models: [OpenRouterProvider.Model]
+    @Binding var selection: String
+    @State private var searchText = ""
+
+    private var filteredModels: [OpenRouterProvider.Model] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return models }
+        return models.filter { $0.id.localizedCaseInsensitiveContains(query) || $0.name.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(filteredModels) { model in
+                Button {
+                    selection = model.id
+                    dismiss()
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(model.name)
+                            .foregroundStyle(.primary)
+                        Text(model.id)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Text("Context \(model.contextLength.map(String.init) ?? "unknown") · $\(model.promptPrice, format: .number.precision(.fractionLength(0...8)))/$1M in")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .searchable(text: $searchText, prompt: "Search OpenRouter models")
+            .navigationTitle("Choose model")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
     }
 }

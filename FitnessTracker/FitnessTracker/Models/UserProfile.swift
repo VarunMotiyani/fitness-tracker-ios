@@ -19,6 +19,21 @@ final class UserProfile {
     var availableEquipmentRaws: [String]
     var excludedMuscleRaws: [String]
     var excludedExerciseIDs: [String]
+    // Current body-composition snapshot. All fields are optional because an
+    // athlete can build their profile before they have an InBody reading. A
+    // later confirmed scan will update these same values.
+    var bodyFatPercent: Double?
+    var skeletalMuscleMassKg: Double?
+    var bodyFatMassKg: Double?
+    var fatFreeMassKg: Double?
+    var totalBodyWaterL: Double?
+    var proteinKg: Double?
+    var mineralKg: Double?
+    var basalMetabolicRateKcal: Double?
+    var visceralFatLevel: Double?
+    var inBodyScore: Double?
+    var waistHipRatio: Double?
+    var phaseAngleDegrees: Double?
     var createdAt: Date
     var updatedAt: Date
 
@@ -44,6 +59,18 @@ final class UserProfile {
         self.availableEquipmentRaws = availableEquipmentRaws
         self.excludedMuscleRaws = excludedMuscleRaws
         self.excludedExerciseIDs = excludedExerciseIDs
+        self.bodyFatPercent = nil
+        self.skeletalMuscleMassKg = nil
+        self.bodyFatMassKg = nil
+        self.fatFreeMassKg = nil
+        self.totalBodyWaterL = nil
+        self.proteinKg = nil
+        self.mineralKg = nil
+        self.basalMetabolicRateKcal = nil
+        self.visceralFatLevel = nil
+        self.inBodyScore = nil
+        self.waistHipRatio = nil
+        self.phaseAngleDegrees = nil
         self.createdAt = .now
         self.updatedAt = .now
     }

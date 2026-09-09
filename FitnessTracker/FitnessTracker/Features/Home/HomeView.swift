@@ -4,6 +4,7 @@ import FitnessDomain
 import ExerciseCatalog
 import Metrics
 import LLMKit
+import RuleEngine
 
 enum HomeSheetType: Identifiable {
     case logWeight
@@ -35,12 +36,16 @@ struct HomeView: View {
     let costSummary: CostSummary
     var onStartSession: (PlannedSession) -> Void
     var onOpenSettings: () -> Void
+    var onOpenPlan: () -> Void
 
     @Query(sort: \CompletedSessionModel.startedAt, order: .reverse)
     private var completedSessions: [CompletedSessionModel]
     
     @Query(sort: \BodyweightEntryModel.date, order: .reverse)
     private var bodyweightEntries: [BodyweightEntryModel]
+
+    @Query(sort: \DailyCheckinModel.date, order: .reverse)
+    private var dailyCheckins: [DailyCheckinModel]
 
     // Plain @Query + Swift-side filter, not a boolean #Predicate on `confirmed`
     // — the same shape of predicate hung Settings/Root and Settings/Providers
@@ -80,8 +85,18 @@ struct HomeView: View {
     private var unreadCoachNotes: [CoachNoteModel] {
         allCoachNotes.filter { $0.readAt == nil }
     }
+    /// Home gets one current insight preview. The Coach screen remains the
+    /// inbox for older daily notes, weekly recaps, check-ins, and pattern nudges.
+    private var homeCoachNote: CoachNoteModel? {
+        let candidates = unreadCoachNotes.filter { $0.kindRaw != "weekly" }
+        // Keep Home focused on one current insight. The Coach screen remains
+        // the inbox for older daily notes and other proactive messages.
+        return candidates.first(where: { $0.kindRaw == "daily" }) ?? candidates.first
+    }
     private var chatProvider: (any LLMProvider)? {
-        activeProviderProfile.flatMap { try? LLMProviderFactory.make(from: $0) }
+        activeProviderProfile.flatMap {
+            try? LLMProviderFactory.make(from: $0, fallback: $0.resolvedFallback(in: allProviderProfiles))
+        }
     }
 
     // Proactive-notification toggles (design spec §7). Same `proactive.settings.*`
@@ -110,20 +125,37 @@ struct HomeView: View {
             activeProfile: activeProviderProfile, settings: proactiveSettings)
     }
 
-    @State private var showChat = false
+    @State private var showCoachInbox = false
+    @State private var showProfile = false
 
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
 
-    /// The same day→routine map `PlanView` writes (`0`=Monday…`6`=Sunday). Reading it here
-    /// is what lets the week strip tell a real rest day from a scheduled one that just
-    /// hasn't been trained yet, instead of guessing from weekday position.
+    /// The same day→routine map `PlanView` writes (`0`=Monday…`6`=Sunday). The
+    /// actual translation and reconciliation live in `WorkoutScheduleStore`.
     @AppStorage("gym_week_schedule_json") private var scheduleJSON: String = ""
+    @AppStorage("gym_day_plan_json") private var dayPlanJSON: String = ""
+    // The auto-reschedule writes only this key; observing it re-renders the week
+    // strip when a missed session moves.
+    @AppStorage("gym_day_plan_auto_json") private var autoPlanJSON: String = ""
     private var weekSchedule: [Int: UUID] {
-        guard let data = scheduleJSON.data(using: .utf8),
-              let decoded = try? JSONDecoder().decode([Int: UUID].self, from: data)
-        else { return [:] }
-        return decoded
+        WorkoutScheduleStore.weekSchedule
+    }
+
+    private var dayPlan: [String: String] {
+        WorkoutScheduleStore.dayPlan
+    }
+
+    private func refreshAutomaticReschedule() {
+        WorkoutScheduleStore.refresh(completedSessions: completedSessions, plan: plan)
+    }
+
+    private func effectiveRoutineID(for dayIndex: Int, date: Date) -> UUID? {
+        WorkoutScheduleStore.effectiveRoutineID(for: date)
+    }
+
+    private func isAutomaticallyRescheduled(dayIndex: Int, date: Date) -> Bool {
+        WorkoutScheduleStore.isRescheduled(for: date)
     }
 
     @State private var weekOffset: Int = 0
@@ -136,7 +168,8 @@ struct HomeView: View {
         catalog: CatalogStore,
         costSummary: CostSummary,
         onStartSession: @escaping (PlannedSession) -> Void,
-        onOpenSettings: @escaping () -> Void
+        onOpenSettings: @escaping () -> Void,
+        onOpenPlan: @escaping () -> Void
     ) {
         self.profile = profile
         self.plan = plan
@@ -144,16 +177,17 @@ struct HomeView: View {
         self.costSummary = costSummary
         self.onStartSession = onStartSession
         self.onOpenSettings = onOpenSettings
+        self.onOpenPlan = onOpenPlan
     }
 
     private var todaySession: PlannedSession? {
-        plan.sessions.sorted { $0.order < $1.order }.first
+        WorkoutScheduleStore.plannedSession(for: .now, in: plan)
     }
 
     /// A finished session that happened today, if any — drives the TODAY row's
     /// completed/not-yet-done state.
     private var todayCompletedSession: CompletedSessionModel? {
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         return completedSessions.first { session in
             guard session.finishedAt != nil else { return false }
             return cal.isDateInToday(session.startedAt)
@@ -162,14 +196,26 @@ struct HomeView: View {
 
     private var sessionDisplayName: String {
         guard let today = todaySession else { return "Rest day" }
-        if today.order == 0 { return "Push Day" }
-        if today.order == 1 { return "Pull Day" }
-        if today.order == 2 { return "Legs Day" }
-        return today.focusMuscles.isEmpty ? "Workout" : today.focusMuscles.map(\.label).joined(separator: ", ")
+        let name: String
+        switch today.order {
+        case 0: name = "Push Day"
+        case 1: name = "Pull Day"
+        case 2: name = "Legs Day"
+        default: name = today.focusMuscles.isEmpty ? "Workout" : today.focusMuscles.map(\.label).joined(separator: ", ")
+        }
+        let cal = Calendar.appWeek
+        let now = Date.now
+        let monday = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)) ?? now
+        let dayIndex = cal.dateComponents([.day], from: monday, to: cal.startOfDay(for: now)).day ?? 0
+        return isAutomaticallyRescheduled(dayIndex: max(0, min(6, dayIndex)), date: now) ? "\(name) · Rescheduled" : name
     }
 
     private var currentWeight: Double {
         bodyweightEntries.first?.kg ?? 78.7
+    }
+
+    private var todayCheckin: DailyCheckinModel? {
+        dailyCheckins.first { Calendar.appWeek.isDate($0.date, inSameDayAs: .now) }
     }
 
     private var prevWeight: Double? {
@@ -186,12 +232,15 @@ struct HomeView: View {
     }
 
     private var streakSummary: StreakCalculator.Summary {
-        StreakCalculator.computeSummary(from: sessionSnapshots, plannedPerWeek: plan.sessions.count, now: .now)
+        let fallback = plan.sessions.count
+        let interval = Calendar.appWeek.dateInterval(of: .weekOfYear, for: .now)
+        let planned = interval.map { WorkoutScheduleStore.plannedSlotCount(in: $0) } ?? 0
+        return StreakCalculator.computeSummary(from: sessionSnapshots, plannedPerWeek: planned > 0 ? planned : fallback, now: .now)
     }
 
     private var chartPoints: [ChartDataPoint] {
         if !bodyweightEntries.isEmpty {
-            return bodyweightEntries.suffix(30).map {
+            return bodyweightEntries.prefix(30).sorted { $0.date < $1.date }.map {
                 ChartDataPoint(date: $0.date, value: $0.kg)
             }
         }
@@ -256,16 +305,20 @@ struct HomeView: View {
                     )
                 }
 
-                // Unread proactive coach messages
-                ForEach(unreadCoachNotes) { note in
-                    CoachNoteCard(note: note, onDismiss: {
-                        note.readAt = .now
-                        try? context.save()
-                    })
-                }
-
                 // Week Strip Card + Nested Today Routine
                 weekStripCard
+
+                if todayCheckin == nil {
+                    dailyCheckinCard
+                }
+
+                // One compact coach preview keeps the workout action primary;
+                // the Coach screen owns the full note history.
+                if let note = homeCoachNote {
+                    CoachInsightPreview(note: note, onOpenCoach: {
+                        showCoachInbox = true
+                    })
+                }
 
                 // This-week recap card (only once a WeeklySummaryModel exists)
                 if weeklySummaries.first != nil {
@@ -285,6 +338,16 @@ struct HomeView: View {
         .background(GymTheme.bg.ignoresSafeArea())
         .onAppear {
             seedInitialDataIfNeeded()
+            refreshAutomaticReschedule()
+        }
+        .onChange(of: completedSessions.count) { _, _ in
+            refreshAutomaticReschedule()
+        }
+        .onChange(of: scheduleJSON) { _, _ in
+            refreshAutomaticReschedule()
+        }
+        .onChange(of: dayPlanJSON) { _, _ in
+            refreshAutomaticReschedule()
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
@@ -307,22 +370,42 @@ struct HomeView: View {
             case .weeklySummary:
                 WeeklySummaryView()
             case .dayOverride(let date):
-                DayOverrideSheet(date: date, plan: plan) { _ in
-                    // Override selected
+                DayOverrideSheet(date: date, plan: plan, onSavedCheckin: { checkin in
+                    Task { await proactiveCoordinator.reactToCheckin(checkin) }
+                }, onSaveOverride: { override in
+                    var updated = WorkoutScheduleStore.userDayPlan
+                    let key = Scheduling.isoDateKey(date, calendar: .appWeek)
+                    if let override { updated[key] = override } else { updated.removeValue(forKey: key) }
+                    WorkoutScheduleStore.saveDayPlan(updated)
+                    if let data = try? JSONEncoder().encode(updated), let encoded = String(data: data, encoding: .utf8) {
+                        dayPlanJSON = encoded
+                    }
+                }) { _ in
+                    // The persisted override is the source of truth; the selected session is only the sheet's immediate UI result.
                 }
             case .workoutDetail(let session):
-                WorkoutDetailSheet(session: session, catalog: catalog)
+                WorkoutDetailSheet(session: session, catalog: catalog, onSavedCheckin: { checkin in
+                    Task { await proactiveCoordinator.reactToCheckin(checkin) }
+                })
             }
         }
-        .sheet(isPresented: $showChat) {
-            ChatView(catalog: catalog, provider: chatProvider, activeProfile: activeProviderProfile, onClose: { showChat = false })
+        .sheet(isPresented: $showCoachInbox) {
+            CoachInboxView(
+                catalog: catalog,
+                provider: chatProvider,
+                activeProfile: activeProviderProfile,
+                onClose: { showCoachInbox = false }
+            )
+        }
+        .fullScreenCover(isPresented: $showProfile) {
+            AthleteProfileView(profile: profile, catalog: catalog, onOpenPlan: onOpenPlan)
         }
     }
 
     private func seedInitialDataIfNeeded() {
         if bodyweightEntries.isEmpty {
             let now = Date()
-            let cal = Calendar.isoUTC
+            let cal = Calendar.appWeek
             let entriesData: [(daysAgo: Int, kg: Double)] = [
                 (0, 78.7),
                 (4, 78.3),
@@ -357,33 +440,50 @@ struct HomeView: View {
 
             Spacer()
 
-            // Daily Check-in Button (1-tap opens the check-in entry sheet)
+            // Profile keeps athlete-owned inputs reachable without adding a
+            // sixth bottom tab or crowding the page with a fourth icon.
             Button {
                 let generator = UIImpactFeedbackGenerator(style: .light)
                 generator.impactOccurred()
-                activeSheet = .dailyCheckin
+                showProfile = true
             } label: {
-                Image(systemName: "checklist")
+                Image(systemName: "person.crop.circle.fill")
                     .font(.system(size: 16))
-                    .foregroundStyle(Color(white: 0.70))
+                    .foregroundStyle(activeAccent)
                     .frame(width: 38, height: 38)
                     .background(GymTheme.surface, in: Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Profile")
+            .accessibilityHint("View and edit your training profile")
 
-            // Ask Coach Button (1-tap opens the chat sheet)
+            // Coach hub: unread badge opens Insights first; Chat is a separate section.
             Button {
                 let generator = UIImpactFeedbackGenerator(style: .light)
                 generator.impactOccurred()
-                showChat = true
+                showCoachInbox = true
             } label: {
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(Color(white: 0.70))
-                    .frame(width: 38, height: 38)
-                    .background(GymTheme.surface, in: Circle())
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Color(white: 0.70))
+                        .frame(width: 38, height: 38)
+                        .background(GymTheme.surface, in: Circle())
+
+                    if unreadCoachNotes.count > 0 {
+                        Text(unreadCoachNotes.count > 9 ? "9+" : "\(unreadCoachNotes.count)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 4)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background(GymTheme.lime, in: Capsule())
+                            .offset(x: 4, y: -4)
+                    }
+                }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Coach insights")
+            .accessibilityValue(unreadCoachNotes.isEmpty ? "No unread insights" : "\(unreadCoachNotes.count) unread insights")
 
             // Settings Button (1-tap opens Settings)
             Button {
@@ -403,11 +503,53 @@ struct HomeView: View {
         .padding(.top, 12)
     }
 
+    @ViewBuilder
+    private var dailyCheckinCard: some View {
+        Button {
+            activeSheet = .dailyCheckin
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: todayCheckin == nil ? "heart.text.square.fill" : "checkmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(todayCheckin == nil ? GymTheme.violet : activeAccent)
+                    .frame(width: 42, height: 42)
+                    .background((todayCheckin == nil ? GymTheme.violet : activeAccent).opacity(0.15), in: RoundedRectangle(cornerRadius: 13))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(todayCheckin == nil ? "How are you feeling?" : "Today’s check-in")
+                        .font(.headline)
+                        .foregroundStyle(GymTheme.label)
+                    Text(todayCheckin == nil
+                         ? "Share sleep and soreness so your coach can adapt."
+                         : "Sleep and soreness saved — tap to update.")
+                        .font(.subheadline)
+                        .foregroundStyle(GymTheme.label2)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 8)
+                Text(todayCheckin == nil ? "Check in" : "Update")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(activeAccent)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(todayCheckin == nil ? "Daily check-in" : "Update today’s check-in")
+    }
+
     // MARK: - Week Strip Card
 
     @ViewBuilder
     private var weekStripCard: some View {
-        let cal = Calendar.isoUTC
+        // Establish a SwiftUI dependency on the schedule keys so the dots
+        // re-render when the athlete edits an override or the auto-reschedule
+        // moves a missed session.
+        let _ = scheduleJSON
+        let _ = dayPlanJSON
+        let _ = autoPlanJSON
+        let cal = Calendar.appWeek
         let now = Date()
         let baseMonday = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)) ?? now
         let startOfWeek = cal.date(byAdding: .day, value: weekOffset * 7, to: baseMonday) ?? now
@@ -463,7 +605,9 @@ struct HomeView: View {
                     let isToday = cal.isDateInToday(dayDate)
                     let trainedSessions = sessionsByDate[cal.startOfDay(for: dayDate)] ?? []
                     let isTrained = !trainedSessions.isEmpty
-                    let isScheduledTrainingDay = weekSchedule[dayIndex] != nil
+                    let effectiveRoutine = effectiveRoutineID(for: dayIndex, date: dayDate)
+                    let isScheduledTrainingDay = effectiveRoutine != nil
+                    let isRescheduled = isAutomaticallyRescheduled(dayIndex: dayIndex, date: dayDate)
 
                     Button {
                         let generator = UIImpactFeedbackGenerator(style: .light)
@@ -496,15 +640,22 @@ struct HomeView: View {
                             .frame(height: 32)
 
                             // Status dot, derived from real state: accent = trained,
-                            // gray = a scheduled training day not trained yet, clear = rest day.
+                            // orange = an automatic catch-up day, gray = scheduled,
+                            // clear = rest day.
                             Circle()
-                                .fill(isTrained ? activeAccent : (isScheduledTrainingDay ? Color(white: 0.40) : Color.clear))
+                                .fill(isTrained ? activeAccent : (isRescheduled ? GymTheme.orange : (isScheduledTrainingDay ? Color(white: 0.40) : Color.clear)))
                                 .frame(width: 4, height: 4)
                         }
                         .frame(maxWidth: .infinity)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("\(dayName) \(dayNum)")
+                    .accessibilityValue(
+                        isTrained ? "Completed" :
+                        (isRescheduled ? "Rescheduled workout" :
+                         (isScheduledTrainingDay ? "Scheduled workout" : "Rest day"))
+                    )
                 }
             }
 
@@ -669,9 +820,21 @@ struct HomeView: View {
 
                 Spacer()
 
-                Text("Mon 31 Aug")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(Color(white: 0.50))
+                if let latest = bodyweightEntries.first {
+                    let cal = Calendar.appWeek
+                    let dateStr: String = {
+                        if cal.isDateInToday(latest.date) {
+                            return "Today"
+                        } else if cal.isDateInYesterday(latest.date) {
+                            return "Yesterday"
+                        } else {
+                            return latest.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+                        }
+                    }()
+                    Text(dateStr)
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(Color(white: 0.50))
+                }
             }
 
             // Target Subtitle

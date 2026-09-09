@@ -50,7 +50,7 @@ public struct OpenGymLineChart: View {
             let padT: CGFloat = 18
             let padB: CGFloat = 24
 
-            let safePoints = points.isEmpty ? [
+            let rawPoints = points.isEmpty ? [
                 ChartDataPoint(date: Date().addingTimeInterval(-60*86400), value: 82.5),
                 ChartDataPoint(date: Date().addingTimeInterval(-45*86400), value: 81.8),
                 ChartDataPoint(date: Date().addingTimeInterval(-30*86400), value: 80.4),
@@ -58,6 +58,7 @@ public struct OpenGymLineChart: View {
                 ChartDataPoint(date: Date().addingTimeInterval(-5*86400), value: 79.1),
                 ChartDataPoint(date: Date(), value: 78.7)
             ] : points
+            let safePoints = rawPoints.sorted { $0.date < $1.date }
 
             let values = safePoints.map(\.value)
             let allVals = goal != nil ? values + [goal!] : values
@@ -171,16 +172,26 @@ public struct OpenGymLineChart: View {
                     .position(x: xFor(activePt.date) + 36, y: yFor(activePt.value) - 22)
                 }
 
-                // 7. X-axis month labels
-                HStack {
-                    Text("Jul")
-                    Spacer()
-                    Text("Aug")
+                // 7. X-axis month/date labels
+                if let first = safePoints.first, let last = safePoints.last {
+                    let firstMonth = first.date.formatted(.dateTime.month(.abbreviated))
+                    let lastMonth = last.date.formatted(.dateTime.month(.abbreviated))
+                    HStack {
+                        if firstMonth == lastMonth {
+                            Text(first.date.formatted(.dateTime.day().month(.abbreviated)))
+                            Spacer()
+                            Text(last.date.formatted(.dateTime.day().month(.abbreviated)))
+                        } else {
+                            Text(firstMonth)
+                            Spacer()
+                            Text(lastMonth)
+                        }
+                    }
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundStyle(Color(white: 0.50))
+                    .padding(.horizontal, padL + 12)
+                    .position(x: w / 2, y: h - 8)
                 }
-                .font(.system(size: 10, weight: .regular))
-                .foregroundStyle(Color(white: 0.50))
-                .padding(.horizontal, padL + 20)
-                .position(x: w / 2, y: h - 8)
             }
         }
         .frame(height: height)

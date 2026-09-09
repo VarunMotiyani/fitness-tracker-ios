@@ -27,6 +27,8 @@ struct PlanView: View {
 
     @AppStorage("gym_custom_routines_json") private var routinesJSON: String = ""
     @AppStorage("gym_week_schedule_json") private var scheduleJSON: String = ""
+    @Query(sort: \CompletedSessionModel.startedAt, order: .reverse)
+    private var completedSessions: [CompletedSessionModel]
 
     @State private var routines: [RoutineDraft] = []
     @State private var weekSchedule: [Int: UUID] = [:] // 0=Mon .. 6=Sun
@@ -39,7 +41,7 @@ struct PlanView: View {
     @Query private var allProviderProfiles: [ProviderProfile]
     private var activeProviderProfile: ProviderProfile? { allProviderProfiles.first { $0.isActive } }
     private var chatProvider: (any LLMProvider)? {
-        activeProviderProfile.flatMap { try? LLMProviderFactory.make(from: $0) }
+        activeProviderProfile.flatMap { try? LLMProviderFactory.make(from: $0, fallback: $0.resolvedFallback(in: allProviderProfiles)) }
     }
 
     private let dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -120,6 +122,7 @@ struct PlanView: View {
         .onAppear {
             loadRoutines()
             loadSchedule()
+            WorkoutScheduleStore.refresh(completedSessions: completedSessions, plan: plan)
         }
     }
 
@@ -407,6 +410,7 @@ struct PlanView: View {
         if let data = try? JSONEncoder().encode(weekSchedule),
            let str = String(data: data, encoding: .utf8) {
             scheduleJSON = str
+            WorkoutScheduleStore.saveWeekSchedule(weekSchedule)
         }
     }
 

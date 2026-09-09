@@ -45,16 +45,28 @@ enum CoverageGapDetector {
         let existingSuggestions = (try? context.fetch(FetchDescriptor<PendingCoachSuggestion>())) ?? []
         let unresolvedExerciseIDs = Set(existingSuggestions.filter { $0.resolvedAt == nil }.map(\.exerciseID))
 
+        // Design spec §5.2(2): honour the memory layer here too — never propose
+        // a muscle or exercise the athlete has a live `constraint` memory
+        // against (e.g. "avoid overhead pressing — shoulder impingement").
+        // Plain @Query-style fetch + Swift filter, no boolean #Predicate.
+        let constraints = ((try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? [])
+            .filter { $0.kindRaw == "constraint" && $0.supersededBy == nil && !$0.retiredByCap }
+        let blockedMuscles = Set(constraints.compactMap { $0.tagMuscleRaw.flatMap(MuscleGroup.init(rawValue:)) })
+        let blockedExerciseIDs = Set(constraints.compactMap(\.tagExerciseID))
+
         var insertedCount = 0
         for slug in missed {
             guard insertedCount < maxSuggestionsPerRun else { break }
             guard let muscle = slugToMuscle[slug] else { continue }
+            guard !blockedMuscles.contains(muscle) else { continue }
             // NOTE (adaptation): CatalogStore has no public `exercises` iteration
             // property — it exposes `all: [Exercise]`, `exercise(id:)` lookup, and
             // `exercises(primaryMuscle:availableEquipment:)` (which requires an
             // equipment filter we don't have here). We iterate `catalog.all`
             // directly instead of adding a new API surface.
-            guard let candidate = catalog.all.first(where: { $0.primaryMuscle == muscle }) else { continue }
+            guard let candidate = catalog.all.first(where: {
+                $0.primaryMuscle == muscle && !blockedExerciseIDs.contains($0.id)
+            }) else { continue }
             guard !unresolvedExerciseIDs.contains(candidate.id) else { continue }
 
             // Prefer an upcoming session that already focuses this exact muscle

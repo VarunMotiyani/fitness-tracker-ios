@@ -1,5 +1,6 @@
 import Foundation
 import LLMKit
+import os
 
 enum ToolLoopError: Error, Sendable, Equatable {
     /// Carries the calls made before the cap was hit so the caller can still
@@ -33,6 +34,15 @@ struct ToolLoopResult<Final: Codable & Sendable>: Sendable {
 /// exactly this kind of multi-step tool use.
 @MainActor
 struct ToolLoopRunner {
+    /// So "did the coach actually look at anything, or just talk?" is answerable
+    /// from Console: every tool the model invokes, its args, and a snippet of
+    /// what the tool returned. Filter `subsystem:PulseAI category:ToolLoop`.
+    private static let log = Logger(subsystem: "PulseAI", category: "ToolLoop")
+
+    private static func logTool(_ name: String, args: String, result: String) {
+        log.debug("tool \(name, privacy: .public) args=\(args, privacy: .public) -> \(result.prefix(200), privacy: .public)")
+    }
+
     func run<Final: Codable & Sendable>(
         system: String,
         initialUser: String,
@@ -40,6 +50,20 @@ struct ToolLoopRunner {
         tools: ToolRegistry,
         provider: any LLMProvider,
         maxIterations: Int = 4
+    ) async throws -> ToolLoopResult<Final> {
+        if provider.capabilities.toolCalling == .native {
+            return try await runNative(system: system, initialUser: initialUser, finalSchema: finalSchema,
+                                       tools: tools, provider: provider, maxIterations: maxIterations)
+        }
+        return try await runPrompt(system: system, initialUser: initialUser, finalSchema: finalSchema,
+                                   tools: tools, provider: provider, maxIterations: maxIterations)
+    }
+
+    // MARK: - Prompt lane (any provider): the model emits a JSON envelope.
+
+    private func runPrompt<Final: Codable & Sendable>(
+        system: String, initialUser: String, finalSchema: JSONSchema,
+        tools: ToolRegistry, provider: any LLMProvider, maxIterations: Int
     ) async throws -> ToolLoopResult<Final> {
         let schema = ToolLoopTurn<Final>.schema(finalSchema: finalSchema, tools: tools.descriptors())
         var user = initialUser
@@ -51,23 +75,81 @@ struct ToolLoopRunner {
                 result = try await provider.complete(
                     system: system, user: user, schema: schema, as: ToolLoopTurn<Final>.self)
             } catch {
-                calls.append(CallOutcome(inputTokens: 0, outputTokens: 0, cachedTokens: 0, succeeded: false))
-                if case LLMError.transport(let message) = error {
-                    throw ToolLoopError.providerFailedWithMessage(calls: calls, message: message)
-                }
-                throw ToolLoopError.providerFailed(calls: calls)
+                throw Self.classify(error, calls: &calls)
             }
             calls.append(CallOutcome(inputTokens: result.inputTokens, outputTokens: result.outputTokens,
-                                     cachedTokens: result.cachedTokens, succeeded: true))
+                                     cachedTokens: result.cachedTokens, succeeded: true,
+                                     usedFallback: result.usedFallback))
 
             switch result.value {
             case .final(let value):
+                Self.log.debug("prompt lane: final answer after \(calls.count) call(s)")
                 return ToolLoopResult(value: value, calls: calls)
             case .toolCall(let request):
                 let toolResult = tools.execute(request)
+                Self.logTool(request.name, args: request.argsJSON, result: toolResult)
                 user += "\n\nTool '\(request.name)' returned: \(toolResult)\n\nContinue: call another tool, or give your final answer."
             }
         }
         throw ToolLoopError.exceededMaxIterations(calls: calls)
+    }
+
+    // MARK: - Native lane: the provider's real function-calling API.
+
+    private func runNative<Final: Codable & Sendable>(
+        system: String, initialUser: String, finalSchema: JSONSchema,
+        tools: ToolRegistry, provider: any LLMProvider, maxIterations: Int
+    ) async throws -> ToolLoopResult<Final> {
+        var messages: [ToolChatMessage] = [ToolChatMessage(role: .user, content: initialUser)]
+        let descriptors = tools.descriptors()
+        var calls: [CallOutcome] = []
+
+        for _ in 0..<maxIterations {
+            let result: NativeToolTurnResult<Final>
+            do {
+                result = try await provider.completeToolTurn(
+                    system: system, messages: messages, tools: descriptors,
+                    finalSchema: finalSchema, as: Final.self)
+            } catch {
+                throw Self.classify(error, calls: &calls)
+            }
+            calls.append(CallOutcome(inputTokens: result.inputTokens, outputTokens: result.outputTokens,
+                                     cachedTokens: result.cachedTokens, succeeded: true,
+                                     usedFallback: result.usedFallback))
+
+            switch result.turn {
+            case .final(let value):
+                Self.log.debug("native lane: final answer after \(calls.count) call(s)")
+                return ToolLoopResult(value: value, calls: calls)
+            case .toolCalls(let toolCalls):
+                messages.append(ToolChatMessage(role: .assistant, toolCalls: toolCalls))
+                for call in toolCalls {
+                    let output = tools.execute(ToolCallRequest(name: call.name, argsJSON: call.argumentsJSON))
+                    Self.logTool(call.name, args: call.argumentsJSON, result: output)
+                    messages.append(ToolChatMessage(role: .tool, content: output, toolCallID: call.id))
+                }
+            }
+        }
+        throw ToolLoopError.exceededMaxIterations(calls: calls)
+    }
+
+    /// Records the failed attempt in `calls` and maps the provider error to the
+    /// right `ToolLoopError` — preserving a safe provider diagnostic for the
+    /// interactive coach screen. Decode failures are included too: a 2xx
+    /// response can still be unusable when a provider returns a different
+    /// envelope/content shape.
+    private static func classify(_ error: Error, calls: inout [CallOutcome]) -> ToolLoopError {
+        calls.append(CallOutcome(inputTokens: 0, outputTokens: 0, cachedTokens: 0, succeeded: false))
+        if let llmError = error as? LLMError {
+            switch llmError {
+            case .transport(let message):
+                return .providerFailedWithMessage(calls: calls, message: message)
+            case .decoding(let message):
+                return .providerFailedWithMessage(calls: calls, message: message)
+            case .emptyResponse, .rateLimited, .unsupported, .visionUnsupported:
+                return .providerFailed(calls: calls)
+            }
+        }
+        return .providerFailed(calls: calls)
     }
 }

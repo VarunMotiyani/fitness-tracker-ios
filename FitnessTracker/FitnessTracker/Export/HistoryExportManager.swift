@@ -3,6 +3,7 @@ import SwiftData
 import FitnessDomain
 import ExerciseCatalog
 import Metrics
+import RuleEngine
 
 public enum HistoryExportManager {
     @MainActor
@@ -93,6 +94,7 @@ public enum HistoryExportManager {
                 "id": s.id.uuidString,
                 "startedAt": df.string(from: s.startedAt),
                 "finishedAt": s.finishedAt != nil ? df.string(from: s.finishedAt!) : "",
+                "plannedSessionID": s.plannedSessionID?.uuidString as Any,
                 "durationMin": s.actualDurationMin,
                 "outcome": s.outcomeRaw ?? "completed",
                 "notes": s.overallNote as Any,
@@ -104,6 +106,8 @@ public enum HistoryExportManager {
         for b in bws {
             bwList.append([
                 "weightKg": b.kg,
+                "morningKg": b.morningKg as Any,
+                "nightKg": b.nightKg as Any,
                 "loggedAt": df.string(from: b.date)
             ])
         }
@@ -145,6 +149,23 @@ public enum HistoryExportManager {
             ])
         }
 
+        var scheduleList: [[String: Any]] = []
+        if let weekStart = WorkoutScheduleStore.calendar.dateInterval(of: .weekOfYear, for: .now)?.start {
+            let plan = (try? context.fetch(FetchDescriptor<StoredPlan>(sortBy: [SortDescriptor(\.generatedAt, order: .reverse)])))?.first.flatMap { try? $0.decodedPlan() }
+            for offset in 0..<7 {
+                guard let date = WorkoutScheduleStore.calendar.date(byAdding: .day, value: offset, to: weekStart) else { continue }
+                let key = Scheduling.isoDateKey(date, calendar: WorkoutScheduleStore.calendar)
+                var row: [String: Any] = [
+                    "date": key,
+                    "state": WorkoutScheduleStore.effectiveRoutineID(for: date) == nil ? "rest" : (WorkoutScheduleStore.isRescheduled(for: date) ? "rescheduled" : "scheduled")
+                ]
+                if let plannedID = plan.flatMap({ WorkoutScheduleStore.plannedSession(for: date, in: $0)?.id.uuidString }) {
+                    row["plannedSessionID"] = plannedID
+                }
+                scheduleList.append(row)
+            }
+        }
+
         let fullBackup: [String: Any] = [
             "appName": "PulseAI",
             "version": 3,
@@ -153,7 +174,12 @@ public enum HistoryExportManager {
             "bodyweight": bwList,
             "personalRecords": prList,
             "observations": observationsList,
-            "dailyCheckins": checkinsList
+            "dailyCheckins": checkinsList,
+            "schedule": [
+                "recurringWeek": Dictionary(uniqueKeysWithValues: WorkoutScheduleStore.weekSchedule.map { (String($0.key), $0.value.uuidString) }),
+                "dateOverrides": WorkoutScheduleStore.dayPlan,
+                "currentWeek": scheduleList
+            ]
         ]
 
         return try? JSONSerialization.data(withJSONObject: fullBackup, options: .prettyPrinted)

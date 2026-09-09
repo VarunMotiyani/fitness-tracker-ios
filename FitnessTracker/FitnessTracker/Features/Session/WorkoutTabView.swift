@@ -1,11 +1,16 @@
 import SwiftUI
+import SwiftData
 import FitnessDomain
 import ExerciseCatalog
+import RuleEngine
 
 struct WorkoutTabView: View {
     let plan: WeeklyPlan
     let catalog: CatalogStore
     var onStartSession: (PlannedSession) -> Void
+
+    @Query(sort: \CompletedSessionModel.startedAt, order: .reverse)
+    private var completedSessions: [CompletedSessionModel]
 
     init(plan: WeeklyPlan, catalog: CatalogStore, onStartSession: @escaping (PlannedSession) -> Void) {
         self.plan = plan
@@ -14,7 +19,7 @@ struct WorkoutTabView: View {
     }
 
     private var todaySession: PlannedSession? {
-        plan.sessions.sorted { $0.order < $1.order }.first
+        return WorkoutScheduleStore.plannedSession(for: .now, in: plan)
     }
 
     private var otherSessions: [PlannedSession] {
@@ -138,6 +143,7 @@ struct WorkoutTabView: View {
             .padding(.bottom, 24)
         }
         .background(Color.black.ignoresSafeArea())
+        .onAppear { WorkoutScheduleStore.refresh(completedSessions: completedSessions, plan: plan) }
     }
 
     private func focusText(_ session: PlannedSession) -> String {

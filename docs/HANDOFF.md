@@ -1,6 +1,6 @@
 # HANDOFF — Read This First
 
-_Living document. Last updated: 2026-09-07 (Session progress: navigation polish, Apple Foundation Models validation, and Groq/Qwen integration fixes on branch `fitness-engine-v2`)._
+_Living document. Last updated: 2026-09-08 (Session progress: navigation polish, AI-provider validation, and Athlete Profile slice on branch `fitness-engine-v2`)._
 
 **Purpose:** One read = full context. If you're a new agent/session on any device, read this top to bottom before doing anything. It captures the project, every decision, current state, how to work here, and what's next. Deep detail lives in the numbered docs; this is the index + digest.
 
@@ -25,6 +25,12 @@ This session focused on stabilizing the app’s navigation and AI-provider path.
 
 ### Completed
 
+- Added a dedicated **Athlete Profile** destination from Home and Settings. It owns editable identity, goal, experience, schedule, equipment, areas to avoid, and the current manual body-composition snapshot.
+- Added optional current-composition fields to `UserProfile`: PBF, skeletal muscle mass, body-fat mass, fat-free mass, total body water, protein, minerals, BMR, visceral-fat level, InBody score, waist–hip ratio, and phase angle. BMI is derived, never stored.
+- Saving a changed manual weight now upserts one same-day `BodyweightEntryModel`, preserving the existing bodyweight trend without duplicate readings.
+- Kept plan updates explicit: Profile changes planner inputs, but only **Regenerate weekly plan** replaces the saved plan. Individual routines and the weekly schedule remain in the Plan tab.
+- Moved daily check-in from the crowded Home header to a visible Home card; Home now exposes Profile, Coach, and Settings as three equal top actions.
+- InBody scan camera/photo upload, scan history, and AI extraction remain deliberately deferred. The next scan slice will review values before it updates these same Profile fields.
 - Reworked the persistent bottom navigation to five equal slots: Home, Plan, centered Start, Stats, and Exercises. Coach remains available from Home’s top conversation control.
 - Added shared bottom-tab safe-area clearance to provider settings so the “Set as active” action is visible above the persistent bar.
 - Removed the manual Model ID input for Apple on-device profiles; Apple profiles now persist the OS-selected `"system"` model identifier.
@@ -40,7 +46,17 @@ This session focused on stabilizing the app’s navigation and AI-provider path.
 
 - `swift test --package-path FitnessCore --filter ToolLoopSchemaTests` — 6 tests passed.
 - Focused iOS tests for `AskCoachDTOTests`, `OpenAICompatibleProviderTests`, `ToolLoopRunnerTests`, and `ProviderProfileTests` passed.
+- Focused iOS tests for `UserProfilePersistenceTests`, `UserProfileMappingTests`, and `AthleteProfileDraftTests` passed; the Profile Home and editor flows were also reviewed in the iPhone 17 Pro simulator.
 - The full repository test suite was not rerun in this session; verification stayed scoped to the changed paths.
+
+### Review guardrails to carry forward
+
+- Trace every user-visible path end to end: the data source, filtering predicate, tap target, and destination screen must use the same eligibility rules. Shared display helpers are preferred over duplicated filters.
+- Keep cancellation separate from provider failure. A cancelled task must not create a failed-provider billing or reliability record.
+- Treat deduplication as a state transition: preserve the most authoritative provenance, prevent duplicate IDs in one batch, and reject empty or whitespace-only durable statements.
+- Do not call safety/validation logic with placeholder context. Thread the real profile, equipment, exclusions, and historical performance data through the coordinator.
+- For platform integrations, test the actual wire representation (URL canonicalization, date/time zone semantics, response envelopes, aliases, and strict-schema requirements), not only happy-path fixtures.
+- Before calling a change complete, run focused tests for the changed paths and verify any UI change in the simulator with a screenshot or live interaction.
 
 ## 2. Current Implementation State & Task Ledger
 

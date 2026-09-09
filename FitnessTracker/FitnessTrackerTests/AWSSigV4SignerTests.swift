@@ -6,6 +6,22 @@ import Foundation
 /// differential tests rather than assertions against a memorized AWS
 /// "golden" signature constant.
 struct AWSSigV4SignerTests {
+    @Test func canonicalURIEncodesReservedCharactersPerPathSegment() {
+        let url = URL(string: "https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-3-5-sonnet-20241022-v2:0/invoke")!
+        let canonical = AWSSigV4Signer.canonicalURI(from: url)
+
+        #expect(canonical == "/model/us.anthropic.claude-3-5-sonnet-20241022-v2%3A0/invoke")
+        #expect(!canonical.contains(":"))
+    }
+
+    @Test func canonicalURILeavesSafePathsAndRootPathStable() {
+        let safeURL = URL(string: "https://bedrock-runtime.us-east-1.amazonaws.com/model/test-model/invoke")!
+        let rootURL = URL(string: "https://bedrock-runtime.us-east-1.amazonaws.com")!
+
+        #expect(AWSSigV4Signer.canonicalURI(from: safeURL) == "/model/test-model/invoke")
+        #expect(AWSSigV4Signer.canonicalURI(from: rootURL) == "/")
+    }
+
     private func makeRequest() -> (URLRequest, Data) {
         var request = URLRequest(url: URL(string: "https://bedrock-runtime.us-east-1.amazonaws.com/model/test-model/converse")!)
         request.httpMethod = "POST"

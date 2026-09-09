@@ -87,6 +87,30 @@ import ExerciseCatalog
         #expect(pending[0].sourceMemoryID == memID)
     }
 
+    @Test func proposeSetChangeRejectsHallucinatedSession() throws {
+        let ctx = ModelContext(try container())
+        _ = try seedPlan(in: ctx)
+        let tool = ProposeSetChangeTool(context: ctx)
+
+        let args = "{\"plannedSessionID\": \"\(UUID().uuidString)\", \"exerciseID\": \"bench\", \"targetSets\": 4, \"rationale\": \"test\"}"
+        let result = tool.run(argsJSON: args)
+
+        #expect(result.contains("error"))
+        #expect(try ctx.fetch(FetchDescriptor<PendingCoachSuggestion>()).isEmpty)
+    }
+
+    @Test func proposeSetChangeRejectsExerciseNotInSession() throws {
+        let ctx = ModelContext(try container())
+        let sessionID = try seedPlan(in: ctx)
+        let tool = ProposeSetChangeTool(context: ctx)
+
+        let args = "{\"plannedSessionID\": \"\(sessionID.uuidString)\", \"exerciseID\": \"incline_bench\", \"targetSets\": 4, \"rationale\": \"test\"}"
+        let result = tool.run(argsJSON: args)
+
+        #expect(result.contains("error"))
+        #expect(try ctx.fetch(FetchDescriptor<PendingCoachSuggestion>()).isEmpty)
+    }
+
     @Test func proposeSetChangeRejectsImplausibleSets() throws {
         let ctx = ModelContext(try container())
         let sessionID = try seedPlan(in: ctx)

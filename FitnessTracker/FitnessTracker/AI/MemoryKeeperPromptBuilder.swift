@@ -61,7 +61,8 @@ nonisolated enum MemoryKeeperPromptBuilder {
     static func user(
         session: CompletedSessionSnapshot,
         checkin: DailyCheckinSnapshot?,
-        memoryDigest: String
+        memoryDigest: String,
+        scheduleContext: String? = nil
     ) -> String {
         let noteSection = session.overallNote.map { "Athlete's note on today's session: \($0)" }
             ?? "No note left on today's session."
@@ -98,6 +99,7 @@ nonisolated enum MemoryKeeperPromptBuilder {
             noteSection,
             entriesSection,
             checkinSection,
+            scheduleContext ?? "",
             memorySection,
             "Decide what, if anything, is worth remembering from this session."
         ].filter { !$0.isEmpty }

@@ -31,17 +31,18 @@ nonisolated enum ChatMemoryPromptBuilder {
         """
     }
 
-    static func user(userMessage: String, assistantReply: String, memoryDigest: String) -> String {
+    static func user(userMessage: String, assistantReply: String, memoryDigest: String, scheduleContext: String = "") -> String {
         let memorySection = memoryDigest.isEmpty
             ? "No standing memory yet for this athlete."
             : "What you already know about this athlete:\n\(memoryDigest)"
 
+        let scheduleSection = scheduleContext.isEmpty ? "" : "\nCurrent schedule context: \(scheduleContext)"
         return """
         The athlete said: \(userMessage)
 
         The coach replied: \(assistantReply)
 
-        \(memorySection)
+        \(memorySection)\(scheduleSection)
 
         Decide what, if anything, is worth remembering from this exchange.
         """

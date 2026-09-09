@@ -46,7 +46,10 @@ func generateAndStore(context: UserContext,
     var providerErrorReason: String?
     if let activeProfile {
         do {
-            provider = try LLMProviderFactory.make(from: activeProfile)
+            let allProfiles = (try? modelContext.fetch(FetchDescriptor<ProviderProfile>())) ?? []
+            provider = try LLMProviderFactory.make(
+                from: activeProfile,
+                fallback: activeProfile.resolvedFallback(in: allProfiles))
         } catch {
             provider = nil
             providerErrorReason = factoryErrorReason(error)
@@ -97,7 +100,7 @@ func generateAndStore(context: UserContext,
                                   cachedTokens: call.cachedTokens,
                                   costUSD: costUSD,
                                   success: call.succeeded,
-                                  usedFallback: result.source == .fallback && isLast)
+                                  usedFallback: (result.source == .fallback && isLast) || call.usedFallback)
         modelContext.insert(record)
     }
 

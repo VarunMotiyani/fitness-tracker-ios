@@ -11,6 +11,7 @@ import FitnessDomain
 import ExerciseCatalog
 import Metrics
 import LLMKit
+import RuleEngine
 import UserNotifications
 import Combine
 
@@ -92,7 +93,9 @@ struct RootView: View {
     /// — kept in one place here rather than duplicated a third time.
     private var resolvedProvider: (any LLMProvider)? {
         guard let activeProfile = activeProfiles.first else { return nil }
-        return try? LLMProviderFactory.make(from: activeProfile)
+        return try? LLMProviderFactory.make(
+            from: activeProfile,
+            fallback: activeProfile.resolvedFallback(in: allProviderProfiles))
     }
 
     var body: some View {
@@ -106,8 +109,9 @@ struct RootView: View {
                     selectedTab: $selectedTab,
                     isWorkoutActive: activePlannedSession != nil,
                     onStartPressed: {
-                        if let firstSession = plan.sessions.sorted(by: { $0.order < $1.order }).first {
-                            activePlannedSession = firstSession
+                        if let session = WorkoutScheduleStore.plannedSession(for: .now, in: plan)
+                            ?? plan.sessions.sorted(by: { $0.order < $1.order }).first {
+                            activePlannedSession = session
                         }
                     }
                 )
@@ -131,6 +135,7 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, let catalog else { return }
+            WorkoutScheduleStore.refresh(completedSessions: completedSessions)
             runProactive(catalog: catalog)
         }
         .overlay(alignment: .top) {
@@ -160,6 +165,7 @@ struct RootView: View {
         }
         .task {
             SessionRunner.resolveAbandoned(in: context, now: .now)
+            WorkoutScheduleStore.refresh(completedSessions: completedSessions)
             if catalog == nil {
                 do { catalog = try BundledCatalog.load() }
                 catch { loadFailed = true }
@@ -243,7 +249,8 @@ struct RootView: View {
                         catalog: catalog,
                         costSummary: summary,
                         onStartSession: { session in activePlannedSession = session },
-                        onOpenSettings: { showSettings = true }
+                        onOpenSettings: { showSettings = true },
+                        onOpenPlan: { selectedTab = .plan }
                     )
                 case .plan:
                     PlanView(

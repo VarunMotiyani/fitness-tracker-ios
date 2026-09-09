@@ -3,8 +3,25 @@ import Foundation
 import LLMKit
 @testable import FitnessTracker
 
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
+
 struct FoundationModelsProviderTests {
     private struct Dummy: Codable, Sendable, Equatable { let ok: Bool }
+
+    @Test func advertisesNativeGuidedJSONSchema() {
+        let capabilities = FoundationModelsProvider().capabilities
+        #expect(capabilities.structuredOutput == .nativeJSONSchema)
+        #expect(capabilities.toolCalling == .viaPrompt)
+    }
+
+    #if canImport(FoundationModels)
+    @Test func convertsObjectSchemaToFoundationModelsGenerationSchema() throws {
+        let schema = JSONSchema(json: #"{"type":"object","properties":{"ok":{"type":"boolean"},"name":{"type":"string"}},"required":["ok"]}"#)
+        _ = try FoundationModelsProvider.generationSchema(from: schema)
+    }
+    #endif
 
     // Deliberately dual-outcome: on-device model availability varies by machine /
     // simulator. This passes if `complete` EITHER returns the decoded value OR

@@ -70,7 +70,7 @@ public enum EffortAnalyticsEngine {
     public static let hardRIRThreshold: Double = 3.0
 
     public static func computeSummary(from sessions: [CompletedSessionSnapshot], windowDays: Int = 90, now: Date = .now) -> EffortSummary {
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let cutoff = windowDays > 0 ? cal.date(byAdding: .day, value: -windowDays, to: now) : nil
 
         var ratedCount = 0
@@ -107,7 +107,7 @@ public enum EffortAnalyticsEngine {
     }
 
     public static func computeWeeklyTrends(from sessions: [CompletedSessionSnapshot], windowDays: Int = 90, now: Date = .now) -> [WeeklyEffortTrend] {
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let cutoff = windowDays > 0 ? cal.date(byAdding: .day, value: -windowDays, to: now) : nil
 
         var weeklyBuckets: [Date: (sumRIR: Double, count: Int, totalSets: Int)] = [:]
@@ -140,7 +140,7 @@ public enum EffortAnalyticsEngine {
     }
 
     public static func computeHistogram(from sessions: [CompletedSessionSnapshot], windowDays: Int = 90, now: Date = .now) -> [EffortHistogramBin] {
-        let cal = Calendar.isoUTC
+        let cal = Calendar.appWeek
         let cutoff = windowDays > 0 ? cal.date(byAdding: .day, value: -windowDays, to: now) : nil
 
         var bins = [0: 0, 1: 0, 2: 0, 3: 0, 4: 0]

@@ -62,7 +62,7 @@ public struct InMemoryMetricsRepository: MetricsRepository {
                 observations: [ObservationSnapshot],
                 plannedSessionsPerWeek: Int,
                 catalog: CatalogStore,
-                calendar: Calendar = .isoUTC) {
+                calendar: Calendar = .appWeek) {
         // Total order: same-timestamp sessions tie-break on id so PR accumulation
         // order is reproducible.
         let ordered = sessions.sorted {

@@ -54,13 +54,17 @@ struct SessionContainerView: View {
 
                     var provider: (any LLMProvider)?
                     if let activeProviderProfile {
-                        provider = try? LLMProviderFactory.make(from: activeProviderProfile)
+                        provider = try? LLMProviderFactory.make(
+                            from: activeProviderProfile,
+                            fallback: activeProviderProfile.resolvedFallback(in: allProviderProfiles))
                     }
                     let fin: any SessionFinalizing = SessionFinalizeCoordinator(
                         catalog: cat, context: context, provider: provider,
                         activeProfile: activeProviderProfile,
                         memories: allMemories.map { $0.toDomain() },
-                        ruleEngineFallback: ruleEngineFallback
+                        ruleEngineFallback: ruleEngineFallback,
+                        userContext: profiles.first?.makeUserContext(),
+                        repository: repo
                     )
                     let keeper: (any MemoryKeeperRunning)? = provider.map {
                         MemoryKeeperCoordinator(catalog: cat, context: context, provider: $0,

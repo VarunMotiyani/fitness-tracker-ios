@@ -121,7 +121,7 @@ import ExerciseCatalog
         sundayFirst.timeZone = TimeZone(identifier: "UTC")!
         let sessions = [session(date(2026, 1, 11), [("bench", [set(5, 100)])])]
 
-        let iso = RollupComputer(catalog: catalog()).weeklyMuscleVolume(from: sessions, calendar: .isoUTC)
+        let iso = RollupComputer(catalog: catalog()).weeklyMuscleVolume(from: sessions, calendar: .appWeek)
         let sun = RollupComputer(catalog: catalog()).weeklyMuscleVolume(from: sessions, calendar: sundayFirst)
 
         #expect(iso.count == 1 && sun.count == 1)

@@ -55,4 +55,14 @@ struct LLMProviderFactoryTests {
                 baseURL: "api.openai.com/v1", apiKey: "k", modelID: "m")
         }
     }
+
+    @MainActor
+    @Test func profileToolCallingOverrideFlowsThrough() throws {
+        let p = ProviderProfile(displayName: "x", adapterKind: .openAICompatible,
+            baseURL: "https://api.example.com/v1", modelID: "m", apiKeyRef: nil,
+            supportsVision: false, pricePerMTokIn: 0, pricePerMTokOut: 0, pricePerMTokCached: 0)
+        #expect(try LLMProviderFactory.make(from: p).capabilities.toolCalling == .viaPrompt)
+        p.capToolCallingRaw = "native"
+        #expect(try LLMProviderFactory.make(from: p).capabilities.toolCalling == .native)
+    }
 }

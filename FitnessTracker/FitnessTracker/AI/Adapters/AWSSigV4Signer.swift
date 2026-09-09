@@ -47,7 +47,7 @@ nonisolated enum AWSSigV4Signer {
         let canonicalHeaders = canonicalHeaderPairs.map { "\($0.key):\($0.value)\n" }.joined()
         let signedHeaders = canonicalHeaderPairs.map(\.key).joined(separator: ";")
 
-        let canonicalURI = (request.url?.path.isEmpty ?? true) ? "/" : (request.url?.path ?? "/")
+        let canonicalURI = canonicalURI(from: request.url)
         let canonicalQuery = canonicalQueryString(from: request.url)
         let hashedPayload = sha256Hex(body)
 
@@ -78,6 +78,27 @@ nonisolated enum AWSSigV4Signer {
     }
 
     // MARK: - Steps
+
+    /// Returns the AWS SigV4 canonical URI for a request URL.
+    ///
+    /// Bedrock model identifiers commonly contain a colon (for example,
+    /// `claude-3-5-sonnet:0`). AWS requires reserved characters in each path
+    /// segment to be percent-encoded before hashing the canonical request.
+    /// Encoding segments independently keeps `/` as the path separator while
+    /// preserving the exact path structure.
+    static func canonicalURI(from url: URL?) -> String {
+        guard let path = url?.path, !path.isEmpty else { return "/" }
+
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        let encodedPath = path
+            .split(separator: "/", omittingEmptySubsequences: false)
+            .map { String($0).addingPercentEncoding(withAllowedCharacters: allowed) ?? String($0) }
+            .joined(separator: "/")
+
+        // URL paths are normally absolute, but retain a leading slash for
+        // defensive handling of manually constructed relative URLs.
+        return encodedPath.hasPrefix("/") ? encodedPath : "/" + encodedPath
+    }
 
     private static func timestamps(for date: Date) -> (dateStamp: String, amzDate: String) {
         let formatter = DateFormatter()

@@ -3,6 +3,7 @@ import SwiftData
 
 nonisolated enum AdapterKind: String, Codable, Sendable, CaseIterable {
     case openAICompatible
+    case openRouter
     case gemini
     case appleOnDevice
     /// Google Cloud Vertex AI — Gemini models via a GCP project/location
@@ -21,6 +22,9 @@ nonisolated enum AdapterKind: String, Codable, Sendable, CaseIterable {
 
 @Model
 final class ProviderProfile {
+    /// Stable identity for cross-profile references (`fallbackProfileID`).
+    /// Property default keeps this an additive migration for existing rows.
+    var id: UUID = UUID()
     var displayName: String
     var adapterKindRaw: String
     var baseURL: String?
@@ -32,6 +36,15 @@ final class ProviderProfile {
     var pricePerMTokCached: Double
     var isActive: Bool
     var createdAt: Date
+
+    /// When set, `ResilientProvider` (Unit 4) fails over to this profile's
+    /// provider after the primary exhausts its retries.
+    var fallbackProfileID: UUID?
+
+    /// Optional override of the adapter's default tool-calling lane
+    /// (`ProviderCapabilities.ToolCalling` raw value). nil = use the adapter
+    /// default. Lets a specific OpenRouter/Groq model opt into native tools.
+    var capToolCallingRaw: String?
 
     var adapterKind: AdapterKind { AdapterKind(rawValue: adapterKindRaw) ?? .appleOnDevice }
 
@@ -55,5 +68,15 @@ final class ProviderProfile {
         self.pricePerMTokCached = pricePerMTokCached
         self.isActive = false
         self.createdAt = .now
+        self.fallbackProfileID = nil
+        self.capToolCallingRaw = nil
+    }
+}
+
+extension ProviderProfile {
+    /// The configured fallback profile, looked up in `profiles`, excluding self.
+    func resolvedFallback(in profiles: [ProviderProfile]) -> ProviderProfile? {
+        guard let fallbackProfileID, fallbackProfileID != id else { return nil }
+        return profiles.first { $0.id == fallbackProfileID }
     }
 }
