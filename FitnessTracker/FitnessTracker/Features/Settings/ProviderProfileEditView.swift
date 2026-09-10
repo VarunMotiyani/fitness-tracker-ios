@@ -37,6 +37,7 @@ struct ProviderProfileEditView: View {
     @State private var priceOut: Double
     @State private var priceCached: Double
     @State private var keychainError: String?
+    @State private var saveError: String?
     @State private var openRouterModels: [OpenRouterProvider.Model] = []
     @State private var showingOpenRouterModelPicker = false
     @State private var fallbackProfileID: UUID?
@@ -225,6 +226,13 @@ struct ProviderProfileEditView: View {
         } message: {
             Text(keychainError ?? "")
         }
+        .alert("Couldn't save provider", isPresented: Binding(
+            get: { saveError != nil },
+            set: { if !$0 { saveError = nil } })) {
+            Button("OK", role: .cancel) { saveError = nil }
+        } message: {
+            Text(saveError ?? "")
+        }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") { save() }
@@ -282,8 +290,12 @@ struct ProviderProfileEditView: View {
         if profile == nil {
             context.insert(target)
         }
-        try? context.save()
-        dismiss()
+        do {
+            try context.save()
+            dismiss()
+        } catch {
+            saveError = "Could not save provider: \(error.localizedDescription)"
+        }
     }
 
     private func setActive() {
@@ -292,7 +304,7 @@ struct ProviderProfileEditView: View {
             other.isActive = false
         }
         profile.isActive = true
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "activate provider")
     }
 }
 

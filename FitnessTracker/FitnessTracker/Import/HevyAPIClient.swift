@@ -69,6 +69,7 @@ public final class HevyAPIClient: Sendable {
         let isoFormatter = ISO8601DateFormatter()
 
         for w in workoutDicts {
+            let sourceID = w["id"] as? String
             let title = (w["title"] as? String) ?? "Workout"
             let startTimeStr = (w["start_time"] as? String) ?? ""
             let parsedDate = isoFormatter.date(from: startTimeStr) ?? Date()
@@ -107,6 +108,8 @@ public final class HevyAPIClient: Sendable {
             }
 
             importedSessions.append(ImportedWorkoutSession(
+                sourceID: sourceID,
+                source: "hevy",
                 title: title,
                 date: parsedDate,
                 durationSeconds: 3600,

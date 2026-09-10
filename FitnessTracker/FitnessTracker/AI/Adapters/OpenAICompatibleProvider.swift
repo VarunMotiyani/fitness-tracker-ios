@@ -13,7 +13,7 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
     /// banner. Log the outgoing shape and the *full* error body (the
     /// `LLMError.transport` string is truncated for the UI) so provider-specific
     /// 400s are diagnosable from Console without a debugger.
-    private static let log = Logger(subsystem: "PulseAI", category: "LLMProvider")
+    private static let log = Logger(subsystem: "com.varunmotiyani.TrainSage", category: "LLMProvider")
 
     let baseURL: URL
     let apiKey: String?

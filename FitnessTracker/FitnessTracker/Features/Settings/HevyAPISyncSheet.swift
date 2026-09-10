@@ -8,7 +8,7 @@ struct HevyAPISyncSheet: View {
     @Environment(\.modelContext) private var context
     let catalog: CatalogStore
 
-    @AppStorage("hevy_api_key") private var savedApiKey: String = ""
+    private static let keychainAccount = "hevy-api-key"
     @State private var apiKey: String = ""
     @State private var isSyncing: Bool = false
     @State private var progressMessage: String = ""
@@ -94,7 +94,14 @@ struct HevyAPISyncSheet: View {
                 }
             }
             .onAppear {
-                apiKey = savedApiKey
+                if let existing = try? KeychainStore.get(account: Self.keychainAccount), !existing.isEmpty {
+                    apiKey = existing
+                } else if let legacy = UserDefaults.standard.string(forKey: "hevy_api_key"), !legacy.isEmpty {
+                    // One-time migration off the pre-Keychain UserDefaults slot.
+                    apiKey = legacy
+                    try? KeychainStore.set(legacy, account: Self.keychainAccount)
+                    UserDefaults.standard.removeObject(forKey: "hevy_api_key")
+                }
             }
         }
     }
@@ -102,7 +109,12 @@ struct HevyAPISyncSheet: View {
     private func startSync() {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
-        savedApiKey = key
+        do {
+            try KeychainStore.set(key, account: Self.keychainAccount)
+        } catch {
+            errorMessage = "Could not save the Hevy API key securely. Please try again."
+            return
+        }
         isSyncing = true
         errorMessage = nil
         successSummary = nil
@@ -122,12 +134,17 @@ struct HevyAPISyncSheet: View {
 
                 await MainActor.run {
                     progressMessage = "Ingesting workouts into database..."
-                    let (importedWorkouts, _) = HistoryIngestionService.ingestSessions(workouts, catalog: catalog, into: context)
-                    let importedWeights = HistoryIngestionService.ingestBodyweights(bodyweights, into: context)
+                    do {
+                        let (importedWorkouts, skipped) = try HistoryIngestionService.ingestSessions(workouts, catalog: catalog, into: context)
+                        let importedWeights = try HistoryIngestionService.ingestBodyweights(bodyweights, into: context)
 
-                    progressPercent = 1.0
-                    isSyncing = false
-                    successSummary = "Successfully imported \(importedWorkouts) workouts and \(importedWeights) weight entries!"
+                        progressPercent = 1.0
+                        isSyncing = false
+                        successSummary = "Imported \(importedWorkouts) new workouts and \(importedWeights) weight entries (\(skipped) already present)."
+                    } catch {
+                        isSyncing = false
+                        errorMessage = error.localizedDescription
+                    }
                 }
             } catch {
                 await MainActor.run {

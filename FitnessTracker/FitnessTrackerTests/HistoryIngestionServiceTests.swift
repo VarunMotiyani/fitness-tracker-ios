@@ -72,4 +72,26 @@ import ExerciseCatalog
         #expect(fetchedBW.count == 1)
         #expect(fetchedBW[0].kg == 74.2)
     }
+
+    @Test func importingSameExternalSessionTwiceIsIdempotent() throws {
+        let cont = try container()
+        let ctx = ModelContext(cont)
+        let service = HistoryIngestionService(modelContext: ctx, catalog: catalog())
+        let stableID = UUID()
+        let session = ImportedWorkoutSession(
+            id: stableID,
+            title: "Chest Day",
+            date: Date(timeIntervalSince1970: 1700000000),
+            entries: [ImportedExerciseEntry(exerciseName: "Bench Press", sets: [
+                ImportedSet(weightKg: 80, reps: 8)
+            ])]
+        )
+
+        let first = try service.ingest(sessions: [session], bodyweights: [])
+        let second = try service.ingest(sessions: [session], bodyweights: [])
+
+        #expect(first.sessions == 1)
+        #expect(second.sessions == 0)
+        #expect(try ctx.fetch(FetchDescriptor<CompletedSessionModel>()).count == 1)
+    }
 }

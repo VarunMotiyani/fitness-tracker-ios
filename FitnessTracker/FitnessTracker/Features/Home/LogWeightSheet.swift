@@ -18,6 +18,7 @@ struct LogWeightSheet: View {
     @State private var weight: Double
     @State private var selectedSlot: BodyweightReadingSlot
     @State private var savedSummary: String?
+    @State private var saveError: String?
     var onSaved: ((Double) -> Void)? = nil
 
     init(initialWeight: Double = 78.7, onSaved: ((Double) -> Void)? = nil) {
@@ -153,25 +154,17 @@ struct LogWeightSheet: View {
         .padding(.bottom, 24)
         .background(GymTheme.bgElevated.ignoresSafeArea())
         .onAppear {
-            seedEntriesIfEmpty()
             loadSelectedReading()
         }
         .onChange(of: selectedSlot) { _, _ in loadSelectedReading() }
         .presentationDetents([.height(calculatedHeight)])
         .presentationDragIndicator(.visible)
-    }
-
-    private func seedEntriesIfEmpty() {
-        if entries.isEmpty {
-            let cal = Calendar.appWeek
-            let now = Date()
-            let e1 = BodyweightEntryModel(date: cal.date(byAdding: .day, value: -3, to: now) ?? now, kg: 78.7)
-            let e2 = BodyweightEntryModel(date: cal.date(byAdding: .day, value: -7, to: now) ?? now, kg: 78.3)
-            let e3 = BodyweightEntryModel(date: cal.date(byAdding: .day, value: -10, to: now) ?? now, kg: 78.8)
-            context.insert(e1)
-            context.insert(e2)
-            context.insert(e3)
-            try? context.save()
+        .alert("Couldn't save weight", isPresented: Binding(
+            get: { saveError != nil },
+            set: { if !$0 { saveError = nil } })) {
+            Button("OK", role: .cancel) { saveError = nil }
+        } message: {
+            Text(saveError ?? "")
         }
     }
 
@@ -179,16 +172,20 @@ struct LogWeightSheet: View {
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
 
-        guard let entry = try? BodyweightLogStore.record(weight, for: selectedSlot, in: context) else { return }
-        profiles.first?.weightKg = entry.kg
-        try? context.save()
-        onSaved?(entry.kg)
-        savedSummary = "\(selectedSlot.title) saved · daily average \(String(format: "%.1f", entry.kg)) kg"
+        do {
+            let entry = try BodyweightLogStore.record(weight, for: selectedSlot, in: context)
+            profiles.first?.weightKg = entry.kg
+            try context.save()
+            onSaved?(entry.kg)
+            savedSummary = "\(selectedSlot.title) saved · daily average \(String(format: "%.1f", entry.kg)) kg"
 
-        let nextSlot: BodyweightReadingSlot = selectedSlot == .morning ? .night : .morning
-        if (nextSlot == .morning ? entry.morningKg : entry.nightKg) == nil {
-            selectedSlot = nextSlot
-            weight = entry.kg
+            let nextSlot: BodyweightReadingSlot = selectedSlot == .morning ? .night : .morning
+            if (nextSlot == .morning ? entry.morningKg : entry.nightKg) == nil {
+                selectedSlot = nextSlot
+                weight = entry.kg
+            }
+        } catch {
+            saveError = "Could not save weight: \(error.localizedDescription)"
         }
     }
 
@@ -249,6 +246,6 @@ struct LogWeightSheet: View {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
         context.delete(entry)
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "delete bodyweight")
     }
 }

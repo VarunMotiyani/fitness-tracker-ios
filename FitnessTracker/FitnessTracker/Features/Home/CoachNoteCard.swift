@@ -416,7 +416,7 @@ struct CoachInboxView: View {
         let unread = visibleNotes.filter { $0.readAt == nil }
         guard !unread.isEmpty else { return }
         unread.forEach { $0.readAt = .now }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 
     var body: some View {

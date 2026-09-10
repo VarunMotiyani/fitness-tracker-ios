@@ -8,23 +8,28 @@ struct ExerciseDetailSheet: View {
     var onSelectForToday: (() -> Bool)?
     var onReplaceForToday: (() -> Void)?
     var onRemoveFromToday: (() -> Bool)?
+    var isCustom: Bool = false
+    var onEditCustom: (() -> Void)?
+    var onDeleteCustom: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var showAnimation = true
     @State private var showRemoveConfirmation = false
+    @State private var showDeleteConfirmation = false
     @State private var selectionError: String?
 
     private var stillURL: URL? {
-        if let first = exercise.imagePaths.first, first.hasSuffix(".jpg") || first.hasSuffix(".png") {
+        if let first = exercise.imagePaths.first,
+           first.lowercased().hasSuffix(".jpg") || first.lowercased().hasSuffix(".jpeg") || first.lowercased().hasSuffix(".png") {
             return URL(string: first)
         }
         return exercise.imagePaths.compactMap { URL(string: $0) }.first
     }
 
     private var gifURL: URL? {
-        if let gifPath = exercise.imagePaths.first(where: { $0.hasSuffix(".gif") }) {
+        if let gifPath = exercise.imagePaths.first(where: { $0.lowercased().hasSuffix(".gif") }) {
             return URL(string: gifPath)
         }
-        return exercise.imagePaths.count > 1 ? URL(string: exercise.imagePaths[1]) : stillURL
+        return nil
     }
 
     var body: some View {
@@ -189,6 +194,32 @@ struct ExerciseDetailSheet: View {
                         .font(.system(size: 14, weight: .semibold))
                         .frame(maxWidth: .infinity, alignment: .center)
                     }
+
+                    if isCustom {
+                        Divider().padding(.vertical, 4)
+                        HStack(spacing: 12) {
+                            Button {
+                                onEditCustom?()
+                                dismiss()
+                            } label: {
+                                Label("Edit exercise", systemImage: "pencil")
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundStyle(GymTheme.green)
+                                    .frame(maxWidth: .infinity, minHeight: 46)
+                                    .background(GymTheme.green.opacity(0.14), in: RoundedRectangle(cornerRadius: 13))
+                            }
+                            Button {
+                                showDeleteConfirmation = true
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundStyle(.red)
+                                    .frame(maxWidth: .infinity, minHeight: 46)
+                                    .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(20)
                 .padding(.bottom, 30)
@@ -222,6 +253,14 @@ struct ExerciseDetailSheet: View {
             }
         } message: {
             Text("This changes only today’s workout. Your recurring plan stays the same.")
+        }
+        .confirmationDialog("Delete custom exercise?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete exercise", role: .destructive) {
+                onDeleteCustom?()
+                dismiss()
+            }
+        } message: {
+            Text("It will be removed from your library. Existing workout history is kept.")
         }
     }
 

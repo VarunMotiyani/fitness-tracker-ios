@@ -318,9 +318,22 @@ enum WorkoutScheduleStore {
         }
     }
 
+    /// Decoded-value cache keyed by the raw stored string. Every screen reads
+    /// these properties dozens of times per frame (the 7-day week strip alone
+    /// calls `effectiveRoutineID` seven times, each hitting `dayPlan` twice);
+    /// re-running `JSONDecoder` each time was a measurable on-device hitch.
+    /// Comparing the raw string means writes from anywhere — `encode` here, a
+    /// backup restore, a direct `UserDefaults.set` — invalidate it for free.
+    private static var decodeCache: [String: (raw: String?, value: Any?)] = [:]
+
     private static func decode<T: Decodable>(_ type: T.Type, key: String) -> T? {
-        guard let data = UserDefaults.standard.string(forKey: key)?.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(type, from: data)
+        let raw = UserDefaults.standard.string(forKey: key)
+        if let hit = decodeCache[key], hit.raw == raw {
+            return hit.value as? T
+        }
+        let decoded: T? = raw?.data(using: .utf8).flatMap { try? JSONDecoder().decode(type, from: $0) }
+        decodeCache[key] = (raw, decoded)
+        return decoded
     }
 
     private static func encode<T: Encodable>(_ value: T, key: String) {

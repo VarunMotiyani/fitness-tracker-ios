@@ -10,6 +10,8 @@ struct SessionStartView: View {
     let catalog: CatalogStore
     let onStart: (EnergyRating, Int) -> Void
 
+    @Environment(\.dismiss) private var dismiss
+
     /// Defaults to `.normal`; the selected value is passed straight to `onStart`.
     @State private var energy: EnergyRating = .normal
     /// Defaults to 60 min (a middle-of-the-road session), independent of the
@@ -44,6 +46,16 @@ struct SessionStartView: View {
         }
         .navigationTitle("Session \(planned.order + 1)")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .accessibilityLabel("Close workout setup")
+            }
+        }
     }
 
     // MARK: - Header

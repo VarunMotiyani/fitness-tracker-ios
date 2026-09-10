@@ -52,7 +52,7 @@ struct ProposeExerciseSwapTool: CoachTool {
         suggestion.replacementExerciseID = args.replacementExerciseID
         suggestion.sourceMemoryID = args.sourceMemoryId.flatMap { UUID(uuidString: $0) }
         context.insert(suggestion)
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
         return "{\"status\": \"proposed\"}"
     }
 }
@@ -106,7 +106,7 @@ struct ProposeSetChangeTool: CoachTool {
         suggestion.targetLoadKg = args.targetLoadKg
         suggestion.sourceMemoryID = args.sourceMemoryId.flatMap { UUID(uuidString: $0) }
         context.insert(suggestion)
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
         return "{\"status\": \"proposed\"}"
     }
 }

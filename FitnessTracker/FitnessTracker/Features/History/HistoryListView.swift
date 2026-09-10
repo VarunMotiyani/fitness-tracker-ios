@@ -113,7 +113,7 @@ struct HistoryListView: View {
                 context.insert(setModel)
             }
         }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 
     @ViewBuilder

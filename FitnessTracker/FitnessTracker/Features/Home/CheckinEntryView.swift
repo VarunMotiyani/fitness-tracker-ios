@@ -18,6 +18,7 @@ struct CheckinEntryView: View {
     @State private var sleepQuality: Double = 7
     @State private var soreness: Double = 3
     @State private var note: String = ""
+    @State private var saveError: String?
 
     /// Called with the persisted row after Save, before dismiss.
     var onSaved: (DailyCheckinModel) -> Void
@@ -77,6 +78,13 @@ struct CheckinEntryView: View {
         .presentationDetents([.height(430)])
         .presentationDragIndicator(.visible)
         .onAppear(perform: prefillFromToday)
+        .alert("Couldn't save check-in", isPresented: Binding(
+            get: { saveError != nil },
+            set: { if !$0 { saveError = nil } })) {
+            Button("OK", role: .cancel) { saveError = nil }
+        } message: {
+            Text(saveError ?? "")
+        }
     }
 
     /// Seed the sliders + note from today's existing check-in so reopening the
@@ -125,8 +133,12 @@ struct CheckinEntryView: View {
         let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
         checkin.note = trimmed.isEmpty ? nil : trimmed
 
-        try? context.save()
-        onSaved(checkin)
-        dismiss()
+        do {
+            try context.save()
+            onSaved(checkin)
+            dismiss()
+        } catch {
+            saveError = "Could not save check-in: \(error.localizedDescription)"
+        }
     }
 }

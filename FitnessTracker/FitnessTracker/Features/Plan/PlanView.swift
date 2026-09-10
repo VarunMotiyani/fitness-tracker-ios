@@ -71,7 +71,7 @@ struct PlanView: View {
                 targetsSection
             }
             .padding(.top, 8)
-            .padding(.bottom, 90) // Pad for custom tab bar
+            .padding(.bottom, 100) // Pad for custom tab bar
         }
         .background(GymTheme.bg.ignoresSafeArea())
         .sheet(item: $activeSheet) { sheet in

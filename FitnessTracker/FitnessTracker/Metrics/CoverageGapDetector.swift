@@ -85,6 +85,6 @@ enum CoverageGapDetector {
             context.insert(suggestion)
             insertedCount += 1
         }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 }

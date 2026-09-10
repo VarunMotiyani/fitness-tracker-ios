@@ -56,12 +56,12 @@ struct ChatSummarizer {
             // Still ran real, billable calls even though it never converged —
             // nothing to fold, but bill what actually happened.
             recordCalls(partialCalls)
-            try? context.save()
+            _ = PersistenceReporter.attemptSave(context, operation: "persist context")
             return
         } catch ToolLoopError.providerFailed(let partialCalls), ToolLoopError.providerFailedWithMessage(let partialCalls, _) {
             // Provider threw mid-loop — bill the sub-calls that already ran.
             recordCalls(partialCalls)
-            try? context.save()
+            _ = PersistenceReporter.attemptSave(context, operation: "persist context")
             return
         } catch {
             return // provider/decode failure — silent no-op, the transcript just stays a bit longer.
@@ -74,7 +74,7 @@ struct ChatSummarizer {
         for message in toFold { context.delete(message) }
 
         recordCalls(loopResult.calls)
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 
     private func recordCalls(_ calls: [CallOutcome]) {

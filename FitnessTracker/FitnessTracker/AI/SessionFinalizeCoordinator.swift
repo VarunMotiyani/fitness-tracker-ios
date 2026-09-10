@@ -149,7 +149,7 @@ struct SessionFinalizeCoordinator: SessionFinalizing {
                                       success: call.succeeded, usedFallback: usedFallback || call.usedFallback)
             context.insert(record)
         }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 
     private func energyLabel(_ energy: EnergyRating) -> String {

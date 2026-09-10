@@ -91,7 +91,7 @@ public struct DemoSeedGenerator {
         context.insert(PersonalRecordModel(typeRaw: "weight", exerciseID: "0043", value: 110.0, atLoadKg: 110.0, reps: 8, date: now.addingTimeInterval(-9*86400), sessionID: UUID()))
         context.insert(PersonalRecordModel(typeRaw: "weight", exerciseID: "2330", value: 75.0, atLoadKg: 75.0, reps: 8, date: now.addingTimeInterval(-5*86400), sessionID: UUID()))
 
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 
     private static func makeCompletedSession(

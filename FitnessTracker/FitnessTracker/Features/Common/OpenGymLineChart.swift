@@ -193,6 +193,10 @@ public struct OpenGymLineChart: View {
                     .position(x: w / 2, y: h - 8)
                 }
             }
+            // Flatten the paths + gradient fill + AA strokes into one GPU layer.
+            // On-device these were rendering on the CPU (argb32_shade_axial_RGB /
+            // aa_render) and showed up as a top hotspot.
+            .drawingGroup()
         }
         .frame(height: height)
     }

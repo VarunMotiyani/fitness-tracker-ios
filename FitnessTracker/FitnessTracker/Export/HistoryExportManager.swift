@@ -38,7 +38,7 @@ public enum HistoryExportManager {
         }
 
         let tempDir = FileManager.default.temporaryDirectory
-        let fileURL = tempDir.appendingPathComponent("pulseai-workout-history-\(dateStamp()).csv")
+        let fileURL = tempDir.appendingPathComponent("trainsage-workout-history-\(dateStamp()).csv")
         try? csv.write(to: fileURL, atomically: true, encoding: .utf8)
         return fileURL
     }
@@ -47,7 +47,7 @@ public enum HistoryExportManager {
     public static func exportFullJSON(context: ModelContext, catalog: CatalogStore) -> URL? {
         guard let data = exportFullJSONData(context: context, catalog: catalog) else { return nil }
         let tempDir = FileManager.default.temporaryDirectory
-        let fileURL = tempDir.appendingPathComponent("pulseai-backup-\(dateStamp()).json")
+        let fileURL = tempDir.appendingPathComponent("trainsage-backup-\(dateStamp()).json")
         try? data.write(to: fileURL)
         return fileURL
     }
@@ -194,7 +194,7 @@ public enum HistoryExportManager {
             }
 
         let fullBackup: [String: Any] = [
-            "appName": "PulseAI",
+            "appName": "TrainSage",
             "version": 3,
             "exportedAt": df.string(from: Date()),
             "workouts": sessionsList,

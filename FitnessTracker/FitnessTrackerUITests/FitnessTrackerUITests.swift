@@ -19,8 +19,8 @@ final class FitnessTrackerUITests: XCTestCase {
         app.launch()
 
         // 1. Home screen verification
-        let pulseTitle = app.staticTexts["PulseAI"]
-        XCTAssertTrue(pulseTitle.waitForExistence(timeout: 5.0))
+        let trainSageTitle = app.staticTexts["TrainSage"]
+        XCTAssertTrue(trainSageTitle.waitForExistence(timeout: 5.0))
         saveScreenshot(app: app, name: "audit_ui_home")
 
         // 2. Open Settings

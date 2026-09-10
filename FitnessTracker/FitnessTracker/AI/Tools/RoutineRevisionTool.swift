@@ -57,7 +57,7 @@ struct ProposeRoutineRevisionTool: CoachTool {
             model.supersededBy = memory.supersededBy
             model.retiredByCap = memory.retiredByCap
         }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
         return "{\"status\": \"noted\"}"
     }
 }

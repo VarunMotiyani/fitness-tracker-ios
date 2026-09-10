@@ -6,6 +6,19 @@ import Metrics
 import LLMKit
 import RuleEngine
 
+enum TargetWeightStore {
+    static let key = "targetWeightKg"
+
+    static func load(from defaults: UserDefaults = .standard) -> Double? {
+        let value = defaults.double(forKey: key)
+        return value > 0 ? value : nil
+    }
+
+    static func save(_ value: Double?, to defaults: UserDefaults = .standard) {
+        defaults.set(value ?? 0, forKey: key)
+    }
+}
+
 enum HomeSheetType: Identifiable {
     case logWeight
     case targetWeight
@@ -149,7 +162,8 @@ struct HomeView: View {
     }
 
     private func refreshAutomaticReschedule() {
-        WorkoutScheduleStore.refresh(completedSessions: completedSessions, plan: plan)
+        let persisted = (try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? completedSessions
+        WorkoutScheduleStore.refresh(completedSessions: persisted, plan: plan)
     }
 
     private func effectiveRoutineID(for dayIndex: Int, date: Date) -> UUID? {
@@ -162,7 +176,9 @@ struct HomeView: View {
 
     @State private var weekOffset: Int = 0
     @State private var activeSheet: HomeSheetType?
-    @State private var targetWeight: Double? = 77.0
+    // Shared UserDefaults storage keeps Home and Stats in sync and survives
+    // view recreation and app relaunches. A value of 0 means no goal is set.
+    @AppStorage("targetWeightKg") private var targetWeightKg: Double = 77.0
 
     init(
         profile: UserProfile,
@@ -233,8 +249,9 @@ struct HomeView: View {
         return currentWeight - prev
     }
 
+    @State private var snapshotCache = SessionSnapshotCache()
     private var sessionSnapshots: [CompletedSessionSnapshot] {
-        completedSessions.map { $0.toSnapshot() }
+        snapshotCache.snapshots(from: completedSessions)
     }
 
     private var streakSummary: StreakCalculator.Summary {
@@ -273,14 +290,14 @@ struct HomeView: View {
                         observation: observation,
                         onAccept: {
                             observation.confirmed = true
-                            try? context.save()
+                            _ = PersistenceReporter.attemptSave(context, operation: "persist context")
                             if observation.kind == "bodyFatPercent" || observation.kind == "muscleMassKg" {
                                 proactiveCoordinator.resetInBodyReminder()
                             }
                         },
                         onDismiss: {
                             context.delete(observation)
-                            try? context.save()
+                            _ = PersistenceReporter.attemptSave(context, operation: "persist context")
                         }
                     )
                 }
@@ -306,7 +323,7 @@ struct HomeView: View {
                         },
                         onSkip: {
                             SuggestionApplier.skip(suggestion, context: context)
-                            try? context.save()
+                            _ = PersistenceReporter.attemptSave(context, operation: "persist context")
                         }
                     )
                 }
@@ -339,11 +356,10 @@ struct HomeView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
-            .padding(.bottom, 90) // Pad for custom tab bar
+            .padding(.bottom, 100) // Pad for custom tab bar
         }
         .background(GymTheme.bg.ignoresSafeArea())
         .onAppear {
-            seedInitialDataIfNeeded()
             refreshAutomaticReschedule()
             reopenDayOverrideIfNeeded()
         }
@@ -367,9 +383,12 @@ struct HomeView: View {
                 }
             case .targetWeight:
                 TargetWeightSheet(
-                    targetWeight: targetWeight,
-                    onSave: { newTarget in targetWeight = newTarget },
-                    onRemove: { targetWeight = nil }
+                    targetWeight: targetWeightKg > 0 ? targetWeightKg : nil,
+                    // `@AppStorage` writes straight through to the shared
+                    // `targetWeightKg` UserDefaults key that `TargetWeightStore`
+                    // reads, so no second write is needed here.
+                    onSave: { newTarget in targetWeightKg = newTarget },
+                    onRemove: { targetWeightKg = 0 }
                 )
             case .calendar:
                 CalendarSheet(plan: plan, catalog: catalog)
@@ -421,36 +440,23 @@ struct HomeView: View {
         reopenDayOverrideDate = nil
     }
 
-    private func seedInitialDataIfNeeded() {
-        if bodyweightEntries.isEmpty {
-            let now = Date()
-            let cal = Calendar.appWeek
-            let entriesData: [(daysAgo: Int, kg: Double)] = [
-                (0, 78.7),
-                (4, 78.3),
-                (7, 78.8),
-                (11, 79.2),
-                (21, 79.9),
-                (31, 80.8),
-                (45, 82.5)
-            ]
-            for item in entriesData {
-                let d = cal.date(byAdding: .day, value: -item.daysAgo, to: now) ?? now
-                context.insert(BodyweightEntryModel(date: d, kg: item.kg))
-            }
-            try? context.save()
-        }
-    }
-
     // MARK: - Header Section
 
     @ViewBuilder
     private var headerSection: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("PulseAI")
-                    .font(.system(size: 34, weight: .bold))
-                    .foregroundStyle(GymTheme.label)
+                HStack(spacing: 8) {
+                    Image("TrainSageLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 32, height: 32)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                    Text("TrainSage")
+                        .font(.system(size: 34, weight: .bold))
+                        .foregroundStyle(GymTheme.label)
+                }
 
                 Text(Date().formatted(.dateTime.weekday(.wide).day().month(.wide)))
                     .font(.system(size: 16, weight: .regular))
@@ -462,8 +468,7 @@ struct HomeView: View {
             // Profile keeps athlete-owned inputs reachable without adding a
             // sixth bottom tab or crowding the page with a fourth icon.
             Button {
-                let generator = UIImpactFeedbackGenerator(style: .light)
-                generator.impactOccurred()
+                Haptics.impactLight()
                 showProfile = true
             } label: {
                 Image(systemName: "person.crop.circle.fill")
@@ -478,8 +483,7 @@ struct HomeView: View {
 
             // Coach hub: unread badge opens Insights first; Chat is a separate section.
             Button {
-                let generator = UIImpactFeedbackGenerator(style: .light)
-                generator.impactOccurred()
+                Haptics.impactLight()
                 showCoachInbox = true
             } label: {
                 ZStack(alignment: .topTrailing) {
@@ -506,8 +510,7 @@ struct HomeView: View {
 
             // Settings Button (1-tap opens Settings)
             Button {
-                let generator = UIImpactFeedbackGenerator(style: .light)
-                generator.impactOccurred()
+                Haptics.impactLight()
                 onOpenSettings()
             } label: {
                 Image(systemName: "gearshape.fill")
@@ -581,8 +584,7 @@ struct HomeView: View {
             // Week navigation header
             HStack {
                 Button {
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.impactOccurred()
+                    Haptics.impactLight()
                     weekOffset -= 1
                 } label: {
                     Image(systemName: "chevron.left")
@@ -595,15 +597,26 @@ struct HomeView: View {
 
                 Spacer()
 
-                Text(weekOffset == 0 ? "This week" : (weekOffset == -1 ? "Last week" : (weekOffset == 1 ? "Next week" : "Week \(weekOffset)")))
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(GymTheme.label)
+                Button {
+                    Haptics.impactLight()
+                    activeSheet = .calendar
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(weekOffset == 0 ? "This week" : (weekOffset == -1 ? "Last week" : (weekOffset == 1 ? "Next week" : "Week \(weekOffset)")))
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(GymTheme.label)
+                        Image(systemName: "calendar")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color(white: 0.50))
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open full calendar")
 
                 Spacer()
 
                 Button {
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.impactOccurred()
+                    Haptics.impactLight()
                     weekOffset += 1
                 } label: {
                     Image(systemName: "chevron.right")
@@ -629,8 +642,7 @@ struct HomeView: View {
                     let isRescheduled = isAutomaticallyRescheduled(dayIndex: dayIndex, date: dayDate)
 
                     Button {
-                        let generator = UIImpactFeedbackGenerator(style: .light)
-                        generator.impactOccurred()
+                        Haptics.impactLight()
                         if let firstTrained = trainedSessions.first {
                             activeSheet = .workoutDetail(firstTrained)
                         } else {
@@ -684,8 +696,7 @@ struct HomeView: View {
                 let isDoneToday = todayCompletedSession != nil
 
                 Button {
-                    let generator = UIImpactFeedbackGenerator(style: .medium)
-                    generator.impactOccurred()
+                    Haptics.impactMedium()
                     onStartSession(today)
                 } label: {
                     HStack(spacing: 12) {
@@ -730,8 +741,7 @@ struct HomeView: View {
     private var thisWeekCard: some View {
         if let latest = weeklySummaries.first {
             Button {
-                let generator = UIImpactFeedbackGenerator(style: .light)
-                generator.impactOccurred()
+                Haptics.impactLight()
                 activeSheet = .weeklySummary
             } label: {
                 HStack(spacing: 14) {
@@ -780,14 +790,13 @@ struct HomeView: View {
 
                 // Target weight button
                 Button {
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.impactOccurred()
+                    Haptics.impactLight()
                     activeSheet = .targetWeight
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "target")
                             .font(.system(size: 13, weight: .bold))
-                        Text(targetWeight != nil ? String(format: "%.0f", targetWeight!) : "Goal")
+                        Text(targetWeightKg > 0 ? String(format: "%.0f", targetWeightKg) : "Goal")
                             .font(.system(size: 14, weight: .bold))
                     }
                     .foregroundStyle(GymTheme.gold)
@@ -802,8 +811,7 @@ struct HomeView: View {
 
                 // + Log Button (1-tap opens LogWeightSheet)
                 Button {
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.impactOccurred()
+                    Haptics.impactLight()
                     activeSheet = .logWeight
                 } label: {
                     HStack(spacing: 4) {
@@ -857,7 +865,8 @@ struct HomeView: View {
             }
 
             // Target Subtitle
-            if let target = targetWeight {
+            if targetWeightKg > 0 {
+                let target = targetWeightKg
                 let remaining = currentWeight - target
                 HStack(spacing: 6) {
                     Image(systemName: "target")
@@ -875,7 +884,7 @@ struct HomeView: View {
             // openGym's weight chart (`<LineChart>` defaults to `var(--acc)`).
             OpenGymLineChart(
                 points: chartPoints,
-                goal: targetWeight,
+                goal: targetWeightKg > 0 ? targetWeightKg : nil,
                 lineColor: activeAccent
             )
             .padding(.top, 4)
@@ -889,8 +898,7 @@ struct HomeView: View {
     @ViewBuilder
     private var streakCard: some View {
         Button {
-            let generator = UIImpactFeedbackGenerator(style: .light)
-            generator.impactOccurred()
+            Haptics.impactLight()
             activeSheet = .calendar
         } label: {
             HStack(spacing: 14) {

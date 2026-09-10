@@ -15,6 +15,32 @@ import RuleEngine
 import UserNotifications
 import Combine
 
+/// Startup persistence checks must query SwiftData directly. `@Query` can be
+/// temporarily empty while its first fetch is still being delivered to the
+/// view, which used to make the bootstrap path seed a new default profile on
+/// every relaunch and overwrite the user's choices.
+@MainActor
+enum AppBootstrap {
+    static func existingUserProfile(in context: ModelContext) -> UserProfile? {
+        var descriptor = FetchDescriptor<UserProfile>()
+        descriptor.fetchLimit = 1
+        return try? context.fetch(descriptor).first
+    }
+
+    static func needsInitialSeed(in context: ModelContext) -> Bool {
+        do {
+            var descriptor = FetchDescriptor<UserProfile>()
+            descriptor.fetchLimit = 1
+            return try context.fetch(descriptor).isEmpty
+        } catch {
+            // A fetch failure is not proof that the store is empty. Failing
+            // closed prevents a transient SwiftData error from replacing the
+            // user's profile with defaults.
+            return false
+        }
+    }
+}
+
 /// Bridges a tapped `proactive_weekly` notification into SwiftUI state.
 /// `ProactiveCoordinator.scheduleWeekly` stamps the notification's
 /// `userInfo["proactive"] == "weekly"`; tapping it flips `showWeeklySummary`,
@@ -58,14 +84,35 @@ struct RootView: View {
     private var activeProfiles: [ProviderProfile] { allProviderProfiles.filter(\.isActive) }
     @Query(sort: \AICallRecord.timestamp) private var calls: [AICallRecord]
     @Query private var completedSessions: [CompletedSessionModel]
+    @Query(sort: \CustomExerciseModel.name) private var customExercises: [CustomExerciseModel]
 
     @State private var catalog: CatalogStore?
+    /// Memoized `catalog` + custom exercises. Rebuilt only when the bundled
+    /// catalog loads or a custom exercise is added/edited/removed — never on a
+    /// plain `body` re-evaluation. Reconstructing the ~1.5 MB catalog (full
+    /// struct-array copy + dictionary build) on every render was freezing the
+    /// main thread on each tab tap.
+    @State private var mergedCatalogCache = MergedCatalogCache()
     @State private var loadFailed = false
     @State private var lastNote: String?
     @State private var isGenerating = false
 
     // openGym 5-tab navigation state
     @State private var selectedTab: AppTab = .home
+
+    init() {
+        // The app draws its own floating glass `CustomTabBar`; make the system
+        // `UITabBar` fully invisible so its iOS 26 glass background doesn't show
+        // as a second bar behind ours. `.toolbar(.hidden, for: .tabBar)` hides
+        // the items but can leave the material/hairline behind.
+        let clear = UITabBarAppearance()
+        clear.configureWithTransparentBackground()
+        clear.backgroundColor = .clear
+        clear.shadowColor = .clear
+        UITabBar.appearance().standardAppearance = clear
+        UITabBar.appearance().scrollEdgeAppearance = clear
+        UITabBar.appearance().isHidden = true
+    }
     @State private var activePlannedSession: PlannedSession?
     @State private var showSettings = false
     @State private var exerciseLibraryIntent: ExerciseLibraryIntent?
@@ -88,6 +135,11 @@ struct RootView: View {
     private var summary: CostSummary {
         CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp, costUSD: $0.costUSD) },
                          now: .now)
+    }
+
+    private var effectiveCatalog: CatalogStore? {
+        guard let catalog else { return nil }
+        return mergedCatalogCache.catalog(base: catalog, custom: customExercises)
     }
 
     /// Resolved the same way `SessionContainerView`/`generateAndStore` do —
@@ -121,7 +173,7 @@ struct RootView: View {
         }
         .preferredColorScheme(.dark)
         .fullScreenCover(item: $activePlannedSession) { session in
-            if let catalog {
+            if let catalog = effectiveCatalog {
                 SessionContainerView(planned: session, catalog: catalog) {
                     activePlannedSession = nil
                 }
@@ -137,7 +189,7 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, let catalog else { return }
-            WorkoutScheduleStore.refresh(completedSessions: completedSessions)
+            WorkoutScheduleStore.refresh(completedSessions: persistedCompletedSessions())
             runProactive(catalog: catalog)
         }
         .overlay(alignment: .top) {
@@ -167,12 +219,15 @@ struct RootView: View {
         }
         .task {
             SessionRunner.resolveAbandoned(in: context, now: .now)
-            WorkoutScheduleStore.refresh(completedSessions: completedSessions)
+            WorkoutScheduleStore.refresh(completedSessions: persistedCompletedSessions())
             if catalog == nil {
                 do { catalog = try BundledCatalog.load() }
                 catch { loadFailed = true }
             }
-            if profiles.isEmpty, let catalog {
+            // Do not use `profiles.isEmpty` here. `@Query` may report an empty
+            // snapshot before SwiftData has finished its initial fetch, which
+            // caused the default profile/plan to be seeded again on relaunch.
+            if AppBootstrap.needsInitialSeed(in: context), let catalog {
                 let defaultProfile = UserProfile(
                     goalRaw: "buildMuscle",
                     experienceRaw: "intermediate",
@@ -241,67 +296,91 @@ struct RootView: View {
             NavigationStack {
                 SettingsView(onClose: { showSettings = false })
             }
-        } else if let profile = profiles.first, let plan = try? plans.first?.decodedPlan(), let catalog {
-            Group {
-                switch selectedTab {
-                case .home:
-                    HomeView(
-                        profile: profile,
-                        plan: plan,
-                        catalog: catalog,
-                        costSummary: summary,
-                        onStartSession: { session in activePlannedSession = session },
-                        onOpenSettings: { showSettings = true },
-                        onOpenPlan: { selectedTab = .plan },
-                        reopenDayOverrideDate: $reopenDayOverrideDate,
-                        onEditExerciseList: { intent in
-                            reopenDayOverrideDate = intent.date
-                            exerciseLibraryIntent = intent
-                            selectedTab = .exercises
-                        }
-                    )
-                case .plan:
-                    PlanView(
-                        plan: plan,
-                        catalog: catalog,
-                        onStartSession: { session in activePlannedSession = session },
-                        onSplitChanged: { template in
-                            profile.splitTemplateName = template.name
-                            profile.sessionsPerWeek = template.sessionCount
-                            profile.updatedAt = .now
-                            try? context.save()
-                            regeneratePlan(for: profile)
-                        }
-                    )
-                case .start:
-                    WorkoutTabView(
-                        plan: plan,
-                        catalog: catalog,
-                        onStartSession: { session in activePlannedSession = session }
-                    )
-                case .stats:
-                    StatsView(
-                        plan: plan,
-                        catalog: catalog
-                    )
-                case .exercises:
-                    LibraryView(
-                        catalog: catalog,
-                        plan: plan,
-                        exerciseLibraryIntent: $exerciseLibraryIntent,
-                        onWorkoutSelectionCommitted: { date in
-                            reopenDayOverrideDate = date
-                            selectedTab = .home
-                        }
-                    )
-                case .coach:
-                    ChatView(catalog: catalog, provider: resolvedProvider, activeProfile: activeProfiles.first)
+        } else if let profile = profiles.first, let plan = try? plans.first?.decodedPlan(), let catalog = effectiveCatalog {
+            // `TabView` keeps every tab mounted, so switching is a visibility
+            // toggle (instant) rather than a teardown + rebuild. Each screen's
+            // heavy computes are memoized so the one-time build on first visit
+            // stays cheap and off-screen graph updates are light.
+            TabView(selection: $selectedTab) {
+                HomeView(
+                    profile: profile,
+                    plan: plan,
+                    catalog: catalog,
+                    costSummary: summary,
+                    onStartSession: { session in activePlannedSession = session },
+                    onOpenSettings: { showSettings = true },
+                    onOpenPlan: { selectedTab = .plan },
+                    reopenDayOverrideDate: $reopenDayOverrideDate,
+                    onEditExerciseList: { intent in
+                        reopenDayOverrideDate = intent.date
+                        exerciseLibraryIntent = intent
+                        selectedTab = .exercises
+                    }
+                )
+                .tag(AppTab.home)
+
+                PlanView(
+                    plan: plan,
+                    catalog: catalog,
+                    onStartSession: { session in activePlannedSession = session },
+                    onSplitChanged: { template in
+                        profile.splitTemplateName = template.name
+                        profile.sessionsPerWeek = template.sessionCount
+                        profile.updatedAt = .now
+                        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
+                        regeneratePlan(for: profile)
+                    }
+                )
+                .tag(AppTab.plan)
+
+                WorkoutTabView(
+                    plan: plan,
+                    catalog: catalog,
+                    onStartSession: { session in activePlannedSession = session }
+                )
+                .tag(AppTab.start)
+
+                StatsView(plan: plan, catalog: catalog)
+                    .tag(AppTab.stats)
+
+                LibraryView(
+                    catalog: catalog,
+                    plan: plan,
+                    exerciseLibraryIntent: $exerciseLibraryIntent,
+                    onWorkoutSelectionCommitted: { date in
+                        reopenDayOverrideDate = date
+                        selectedTab = .home
+                    }
+                )
+                .tag(AppTab.exercises)
+
+                // Built only while selected — `resolvedProvider` reads the
+                // Keychain and spins a URLSession; no need on every body pass.
+                Group {
+                    if selectedTab == .coach {
+                        ChatView(catalog: catalog, provider: resolvedProvider, activeProfile: activeProfiles.first)
+                    } else {
+                        Color.clear
+                    }
                 }
+                .tag(AppTab.coach)
             }
-        } else if profiles.isEmpty {
+            .toolbar(.hidden, for: .tabBar)
+        } else if AppBootstrap.needsInitialSeed(in: context) {
+            // Direct fetch, not `profiles.isEmpty`: `@Query` can report an empty
+            // first snapshot on relaunch before SwiftData hydrates, which would
+            // briefly flash onboarding over existing data.
             OnboardingView { profile in
                 context.insert(profile)
-                regeneratePlan(for: profile)
+                do {
+                    // Persist the profile before any async AI/rule-engine work.
+                    // If generation is interrupted, the athlete's answers are
+                    // still present on the next launch.
+                    try context.save()
+                    regeneratePlan(for: profile)
+                } catch {
+                    lastNote = "Could not save your profile: \(error.localizedDescription)"
+                }
             }
         } else {
             ProgressView()
@@ -321,5 +400,12 @@ struct RootView: View {
                                                  modelContext: context)
             lastNote = outcome.note
         }
+    }
+
+    /// `@Query` is allowed to render an empty first snapshot while SwiftData
+    /// hydrates. Scheduling must never use that transient snapshot because it
+    /// could rewrite the persisted catch-up layer as if no workouts existed.
+    private func persistedCompletedSessions() -> [CompletedSessionModel] {
+        (try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? []
     }
 }

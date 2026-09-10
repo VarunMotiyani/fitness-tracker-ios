@@ -98,7 +98,7 @@ import RuleEngine
             let data = try Data(contentsOf: url)
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             #expect(json != nil)
-            #expect(json?["appName"] as? String == "PulseAI")
+            #expect(json?["appName"] as? String == "TrainSage")
             #expect(json?["bodyweight"] != nil)
         }
     }

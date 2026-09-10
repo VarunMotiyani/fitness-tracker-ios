@@ -126,7 +126,7 @@ final class SessionRunner {
             let entry = CompletedEntryModel(exerciseID: item.exerciseID, performedOrder: idx)
             it.entries.append(entry)
         }
-        try? modelContext.save()
+        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
 
         self.session = it
         currentEntryIndex = 0
@@ -167,7 +167,7 @@ final class SessionRunner {
 
         entry.sets.append(set)
         entry.stateRaw = EntryState.inProgress.rawValue
-        try? modelContext.save()
+        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
     }
 
     func removeLastSet(entryIndex: Int) {
@@ -180,7 +180,7 @@ final class SessionRunner {
             if entry.sets.isEmpty {
                 entry.stateRaw = EntryState.notStarted.rawValue
             }
-            try? modelContext.save()
+            _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
         }
     }
 
@@ -188,7 +188,7 @@ final class SessionRunner {
         let entries = orderedEntries
         guard entries.indices.contains(entryIndex) else { return }
         entries[entryIndex].stateRaw = EntryState.done.rawValue
-        try? modelContext.save()
+        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
     }
 
     func markSkipped(entryIndex: Int) {
@@ -196,7 +196,7 @@ final class SessionRunner {
         guard entries.indices.contains(entryIndex) else { return }
         entries[entryIndex].stateRaw = EntryState.done.rawValue
         entries[entryIndex].skipped = true
-        try? modelContext.save()
+        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
     }
 
     func reorder(from: Int, to: Int) {
@@ -207,21 +207,21 @@ final class SessionRunner {
         for (idx, entry) in entries.enumerated() {
             entry.performedOrder = idx
         }
-        try? modelContext.save()
+        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
     }
 
     func setFeel(entryIndex: Int, _ feel: Feel) {
         let entries = orderedEntries
         guard entries.indices.contains(entryIndex) else { return }
         entries[entryIndex].feelRaw = feel.rawValue
-        try? modelContext.save()
+        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
     }
 
     func setEntryNote(entryIndex: Int, _ text: String) {
         let entries = orderedEntries
         guard entries.indices.contains(entryIndex) else { return }
         entries[entryIndex].note = text
-        try? modelContext.save()
+        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
     }
 
     func finish(partialReason: PartialReason?, overallNote: String?) {
@@ -246,7 +246,7 @@ final class SessionRunner {
         session.outcomeRaw = outcome.rawValue
         session.partialReasonRaw = partialReason?.rawValue
         session.overallNote = overallNote
-        try? modelContext.save()
+        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
 
         let new = Self.detectAndPersistPRs(for: session, in: modelContext)
         lastSessionPRs = new
@@ -296,7 +296,7 @@ final class SessionRunner {
                 other.performedOrder += 1
             }
         }
-        try? modelContext.save()
+        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
     }
 
     // MARK: - Abandoned-session sweep
@@ -315,7 +315,7 @@ final class SessionRunner {
             // `finishedAt == startedAt` and `actualDurationMin == 0`.
             closeSessionAsPartial(session, in: context, now: session.startedAt)
         }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 
     /// F7: close a single in-progress session as `.partial` — promote its
@@ -334,7 +334,7 @@ final class SessionRunner {
         session.outcomeRaw = SessionOutcome.partial.rawValue
         session.partialReasonRaw = nil
         session.actualDurationMin = Int((now.timeIntervalSince(session.startedAt) / 60).rounded())
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
         _ = detectAndPersistPRs(for: session, in: context)
     }
 
@@ -362,7 +362,7 @@ final class SessionRunner {
         for pr in new {
             context.insert(personalRecordModel(from: pr))
         }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
         return new
     }
 }

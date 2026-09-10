@@ -44,6 +44,14 @@ struct StatsView: View {
     @State private var showHistorySheet = false
     @State private var selectedSessionForDetail: CompletedSessionModel? = nil
 
+    // `sessionSnapshots` feeds recovery, streak, effort, trend, histogram and
+    // per-exercise analytics — six-plus computed props, each recomputed on
+    // every body pass. Building the snapshot trees once per data change and
+    // reusing them is the difference between a smooth and a janky Stats tab
+    // on-device.
+    @State private var snapshotCache = SessionSnapshotCache()
+    @State private var analyticsCache = StatsAnalyticsCache()
+
     enum MapMode: String, CaseIterable {
         case balance = "Muscle balance"
         case fatigue = "Fatigue"
@@ -72,11 +80,13 @@ struct StatsView: View {
     // MARK: - Computed Domain Analytics (The Backend)
 
     private var sessionSnapshots: [CompletedSessionSnapshot] {
-        completedSessions.filter { $0.finishedAt != nil }.map { $0.toSnapshot() }
+        snapshotCache.snapshots(from: completedSessions)
     }
 
     private var recoveryStatuses: [MuscleGroup: MuscleRecoveryStatus] {
-        RecoveryModel.computeRecovery(from: sessionSnapshots, catalog: catalog, now: .now)
+        analyticsCache.value("recovery", deps: [snapshotCache.generation]) {
+            RecoveryModel.computeRecovery(from: sessionSnapshots, catalog: catalog, now: .now)
+        }
     }
 
     private var monthWorkoutsCount: Int {
@@ -104,31 +114,41 @@ struct StatsView: View {
         return latest.kg - first.kg
     }
 
+    // Both of these read `sessionSnapshots` (value types, built once and cached)
+    // rather than walking the `completedSessions` SwiftData rows, whose
+    // `entries`/`sets` relationships fault out of SQLite on every access.
     private var activityDays: [Date: (count: Int, volume: Double)] {
-        var map: [Date: (count: Int, volume: Double)] = [:]
-        let cal = Calendar.appWeek
-
-        for s in completedSessions where s.finishedAt != nil {
-            let day = cal.startOfDay(for: s.startedAt)
-            var sessionVol: Double = 0
-            for entry in s.entries where !entry.skipped {
-                for set in entry.sets where !set.isWarmup {
-                    sessionVol += (set.actualLoadKg * Double(set.actualReps))
+        analyticsCache.value("activityDays", deps: [snapshotCache.generation]) {
+            var map: [Date: (count: Int, volume: Double)] = [:]
+            let cal = Calendar.appWeek
+            for s in sessionSnapshots {
+                let day = cal.startOfDay(for: s.date)
+                var sessionVol: Double = 0
+                for entry in s.entries where !entry.skipped {
+                    for set in entry.sets where !set.isWarmup {
+                        sessionVol += (set.actualLoadKg * Double(set.actualReps))
+                    }
                 }
+                let prev = map[day] ?? (count: 0, volume: 0)
+                map[day] = (count: prev.count + 1, volume: prev.volume + sessionVol)
             }
-            let prev = map[day] ?? (count: 0, volume: 0)
-            map[day] = (count: prev.count + 1, volume: prev.volume + sessionVol)
+            return map
         }
-        return map
     }
 
     private var muscleSetCountsInWindow: [String: Double] {
+        analyticsCache.value("muscleSetCounts", deps: [snapshotCache.generation, balanceWindowDays, filterHardSetsOnly]) {
+            muscleSetCountsInWindowUncached
+        }
+    }
+
+    private var muscleSetCountsInWindowUncached: [String: Double] {
         let cal = Calendar.appWeek
         let cutoff = balanceWindowDays > 0 ? cal.date(byAdding: .day, value: -balanceWindowDays, to: .now) : nil
         var items: [MuscleBalanceModel.EffectiveSetItem] = []
 
-        for s in completedSessions where s.finishedAt != nil {
-            if let cutoff, s.startedAt < cutoff { continue }
+        for s in sessionSnapshots {
+            if let cutoff, s.date < cutoff { continue }
             for entry in s.entries where !entry.skipped {
                 guard let ex = catalog.exercise(id: entry.exerciseID) else { continue }
                 let doneSets = entry.sets.filter { set in
@@ -177,19 +197,27 @@ struct StatsView: View {
     }
 
     private var effortSummary: EffortSummary {
-        EffortAnalyticsEngine.computeSummary(from: sessionSnapshots, windowDays: effortWindowDays)
+        analyticsCache.value("effortSummary", deps: [snapshotCache.generation, effortWindowDays]) {
+            EffortAnalyticsEngine.computeSummary(from: sessionSnapshots, windowDays: effortWindowDays)
+        }
     }
 
     private var weeklyEffortTrends: [WeeklyEffortTrend] {
-        EffortAnalyticsEngine.computeWeeklyTrends(from: sessionSnapshots, windowDays: effortWindowDays)
+        analyticsCache.value("weeklyEffortTrends", deps: [snapshotCache.generation, effortWindowDays]) {
+            EffortAnalyticsEngine.computeWeeklyTrends(from: sessionSnapshots, windowDays: effortWindowDays)
+        }
     }
 
     private var effortHistogramBins: [EffortHistogramBin] {
-        EffortAnalyticsEngine.computeHistogram(from: sessionSnapshots, windowDays: effortWindowDays)
+        analyticsCache.value("effortHistogram", deps: [snapshotCache.generation, effortWindowDays]) {
+            EffortAnalyticsEngine.computeHistogram(from: sessionSnapshots, windowDays: effortWindowDays)
+        }
     }
 
     private var exercisePerformances: [ExerciseLoggedPerformance] {
-        EffortAnalyticsEngine.computeExercisePerformances(exerciseID: selectedExerciseID, sessions: sessionSnapshots, limit: 5)
+        analyticsCache.value("exercisePerf", deps: [snapshotCache.generation, selectedExerciseID]) {
+            EffortAnalyticsEngine.computeExercisePerformances(exerciseID: selectedExerciseID, sessions: sessionSnapshots, limit: 5)
+        }
     }
 
     // MARK: - Body View
@@ -223,7 +251,7 @@ struct StatsView: View {
                     recentWorkoutsSection
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 90)
+                .padding(.bottom, 100)
             }
             .background(GymTheme.bg.ignoresSafeArea())
             .sheet(isPresented: $showHistorySheet) {

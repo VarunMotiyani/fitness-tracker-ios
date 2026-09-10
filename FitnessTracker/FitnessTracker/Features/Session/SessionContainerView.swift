@@ -84,8 +84,10 @@ struct SessionContainerView: View {
             // a tap here would be a silent no-op against a nil runner.
             ProgressView("Preparing…")
         case .idle:
-            SessionStartView(planned: planned, catalog: catalog) { energy, minutes in
-                Task { await runner?.start(planned: planned, energy: energy, timeAvailableMin: minutes) }
+            NavigationStack {
+                SessionStartView(planned: planned, catalog: catalog) { energy, minutes in
+                    Task { await runner?.start(planned: planned, energy: energy, timeAvailableMin: minutes) }
+                }
             }
         case .finalizing:
             ProgressView("Building today's session…")

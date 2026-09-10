@@ -48,6 +48,10 @@ struct BodyMapWebKitView: UIViewRepresentable {
     class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var parent: BodyMapWebKitView
         var isLoaded = false
+        // What we last pushed into the page, so `updateUIView` doesn't fire a
+        // redundant cross-process `evaluateJavaScript` on every SwiftUI pass.
+        var appliedMode: MuscleMapModeState?
+        var appliedSelection: String?
 
         init(_ parent: BodyMapWebKitView) {
             self.parent = parent
@@ -74,6 +78,8 @@ struct BodyMapWebKitView: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             isLoaded = true
             parent.applyState(to: webView)
+            appliedMode = parent.modeState
+            appliedSelection = parent.selectedMuscleSlug
         }
     }
 
@@ -102,10 +108,17 @@ struct BodyMapWebKitView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        context.coordinator.parent = self
-        if context.coordinator.isLoaded {
-            applyState(to: webView)
+        let coordinator = context.coordinator
+        coordinator.parent = self
+        guard coordinator.isLoaded else { return }
+        // Skip the JS round-trip unless the inputs actually changed. `appliedMode`
+        // is nil until the first real apply, so the first pass always runs.
+        if coordinator.appliedMode == modeState, coordinator.appliedSelection == selectedMuscleSlug {
+            return
         }
+        coordinator.appliedMode = modeState
+        coordinator.appliedSelection = selectedMuscleSlug
+        applyState(to: webView)
     }
 
     func applyState(to webView: WKWebView) {

@@ -50,6 +50,10 @@ public struct ImportedExerciseEntry: Sendable, Codable, Equatable {
 
 public struct ImportedWorkoutSession: Sendable, Codable, Equatable {
     public var id: UUID
+    /// Stable identifier supplied by the source app when available (for
+    /// example Hevy's workout id). It lets imports be safely repeated.
+    public var sourceID: String?
+    public var source: String?
     public var title: String
     public var date: Date
     public var durationSeconds: Int
@@ -58,6 +62,8 @@ public struct ImportedWorkoutSession: Sendable, Codable, Equatable {
 
     public init(
         id: UUID = UUID(),
+        sourceID: String? = nil,
+        source: String? = nil,
         title: String,
         date: Date,
         durationSeconds: Int = 3600,
@@ -65,6 +71,8 @@ public struct ImportedWorkoutSession: Sendable, Codable, Equatable {
         notes: String? = nil
     ) {
         self.id = id
+        self.sourceID = sourceID
+        self.source = source
         self.title = title
         self.date = date
         self.durationSeconds = durationSeconds

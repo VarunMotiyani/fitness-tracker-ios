@@ -33,7 +33,7 @@ struct AskCoachCoordinator {
 
         let userMessage = ChatMessageModel(role: "user", text: text)
         context.insert(userMessage)
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
 
         let existingMemories = ((try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []).map { $0.toDomain() }
         let recalled = MemoryRecall.select(from: existingMemories, context: RecallContext(), now: .now)
@@ -91,7 +91,7 @@ struct AskCoachCoordinator {
         recordCalls(calls)
         let assistantMessage = ChatMessageModel(role: "assistant", text: dto.reply)
         context.insert(assistantMessage)
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
 
         Task {
             await MemoryKeeperCoordinator(catalog: catalog, context: context, provider: provider, activeProfile: activeProfile)
@@ -148,6 +148,6 @@ struct AskCoachCoordinator {
                                       success: call.succeeded, usedFallback: call.usedFallback)
             context.insert(record)
         }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 }

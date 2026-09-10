@@ -18,66 +18,63 @@ public struct ActivityDay: Identifiable, Sendable {
 }
 
 public struct ActivityHeatmapView: View {
-    public let activityDays: [Date: (count: Int, volume: Double)]
-    public let calendar: Calendar
-    public let now: Date
     public var accentColor: Color
-    
+
+    // Precomputed once per instance. Previously these were computed properties
+    // hit once per grid cell (52×7 = 364 cells) on every body pass — each call
+    // rebuilding a dictionary and running String(format:) — which dominated the
+    // Stats tab's CPU time.
+    private let weeks: [[Date]]
+    /// Intensity (0…1) per grid cell, parallel to `weeks`. Precomputed so the
+    /// 364-cell body doesn't run `String(format:)` + a dictionary lookup per
+    /// cell on every render.
+    private let cellIntensities: [[Double]]
+    private let totalWorkoutsThisYear: Int
+
     public init(
         activityDays: [Date: (count: Int, volume: Double)] = [:],
         calendar: Calendar = .appWeek,
         now: Date = .now,
         accentColor: Color = GymTheme.green
     ) {
-        self.activityDays = activityDays
-        self.calendar = calendar
-        self.now = now
         self.accentColor = accentColor
-    }
-    
-    private var weeks: [[Date]] {
-        var result: [[Date]] = []
+
+        var weekGrid: [[Date]] = []
         let currentWeekStart = WeekKey.startOfWeek(now, weekStart: .monday, calendar: calendar)
-        guard let start = calendar.date(byAdding: .weekOfYear, value: -51, to: currentWeekStart) else {
-            return []
-        }
-        for w in 0..<52 {
-            guard let weekDate = calendar.date(byAdding: .weekOfYear, value: w, to: start) else { continue }
-            var days: [Date] = []
-            for d in 0..<7 {
-                if let day = calendar.date(byAdding: .day, value: d, to: weekDate) {
-                    days.append(day)
+        if let start = calendar.date(byAdding: .weekOfYear, value: -51, to: currentWeekStart) {
+            for w in 0..<52 {
+                guard let weekDate = calendar.date(byAdding: .weekOfYear, value: w, to: start) else { continue }
+                var days: [Date] = []
+                for d in 0..<7 {
+                    if let day = calendar.date(byAdding: .day, value: d, to: weekDate) { days.append(day) }
                 }
+                weekGrid.append(days)
             }
-            result.append(days)
         }
-        return result
-    }
-    
-    /// Day → activity, keyed by a stable `yyyy-MM-dd` string so a cell lookup is O(1) and
-    /// never depends on `Date` equality across calendars or times of day (the reason the
-    /// grid was rendering blank).
-    private var dayIndex: [String: (count: Int, volume: Double)] {
-        var out: [String: (count: Int, volume: Double)] = [:]
+        self.weeks = weekGrid
+
+        var index: [String: (count: Int, volume: Double)] = [:]
         for (date, v) in activityDays {
             let k = Self.key(date, calendar)
-            let prev = out[k] ?? (0, 0)
-            out[k] = (prev.count + v.count, prev.volume + v.volume)
+            let prev = index[k] ?? (0, 0)
+            index[k] = (prev.count + v.count, prev.volume + v.volume)
         }
-        return out
+        self.totalWorkoutsThisYear = activityDays.values.reduce(0) { $0 + $1.count }
+        let maxVol = max(1.0, index.values.map(\.volume).max() ?? 1.0)
+
+        self.cellIntensities = weekGrid.map { week in
+            week.map { day -> Double in
+                guard let info = index[Self.key(day, calendar)], info.count > 0 else { return 0 }
+                if info.count >= 2 { return 1 }
+                let volFrac = min(1, info.volume / maxVol)
+                return max(0.35, 0.35 + volFrac * 0.65)
+            }
+        }
     }
 
     private static func key(_ date: Date, _ calendar: Calendar) -> String {
         let c = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
-    }
-
-    private var totalWorkoutsThisYear: Int {
-        activityDays.values.reduce(0) { $0 + $1.count }
-    }
-
-    private var maxDayVolume: Double {
-        max(1.0, dayIndex.values.map(\.volume).max() ?? 1.0)
     }
     
     public var body: some View {
@@ -96,10 +93,12 @@ public struct ActivityHeatmapView: View {
             // 52-week horizontal scrollable grid
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 3) {
-                    ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
+                    ForEach(cellIntensities.indices, id: \.self) { wi in
                         VStack(spacing: 3) {
-                            ForEach(week, id: \.self) { day in
-                                dayCell(for: day)
+                            ForEach(cellIntensities[wi].indices, id: \.self) { di in
+                                RoundedRectangle(cornerRadius: 2.5)
+                                    .fill(shade(for: cellIntensities[wi][di]))
+                                    .frame(width: 11, height: 11)
                             }
                         }
                     }
@@ -126,22 +125,6 @@ public struct ActivityHeatmapView: View {
         .background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 14))
     }
     
-    @ViewBuilder
-    private func dayCell(for day: Date) -> some View {
-        RoundedRectangle(cornerRadius: 2.5)
-            .fill(shade(for: intensity(for: day)))
-            .frame(width: 11, height: 11)
-    }
-
-    /// 0 = no session that day; otherwise a 0…1 level. A session day is always at least
-    /// 0.35 so it reads as trained; volume relative to the busiest day nudges it up.
-    private func intensity(for day: Date) -> Double {
-        guard let info = dayIndex[Self.key(day, calendar)], info.count > 0 else { return 0 }
-        if info.count >= 2 { return 1 }
-        let volFrac = min(1, info.volume / maxDayVolume)
-        return max(0.35, 0.35 + volFrac * 0.65)
-    }
-
     private func shade(for level: Double) -> Color {
         guard level > 0 else { return Color(white: 0.22) }
         // 0.35 → faint, 1.0 → full accent.

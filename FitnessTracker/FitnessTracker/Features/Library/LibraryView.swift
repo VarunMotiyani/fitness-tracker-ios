@@ -1,8 +1,10 @@
 import SwiftUI
+import SwiftData
 import FitnessDomain
 import ExerciseCatalog
 
 struct LibraryView: View {
+    @Environment(\.modelContext) private var context
     let catalog: CatalogStore
     var plan: WeeklyPlan?
     @Binding var exerciseLibraryIntent: ExerciseLibraryIntent?
@@ -12,7 +14,10 @@ struct LibraryView: View {
     @State private var selectedMuscle: MuscleGroup? = nil
     @State private var selectedEquipment: Equipment? = nil
     @State private var selectedExerciseForDetail: Exercise? = nil
+    @State private var showingCustomExerciseEditor = false
+    @State private var editingCustomExercise: CustomExerciseModel?
     @State private var shownCount: Int = 40
+    @Query(sort: \CustomExerciseModel.name) private var customExercises: [CustomExerciseModel]
 
     @AppStorage("gym_equip_filter_on") private var equipFilterOn: Bool = false
     @AppStorage("gym_active_profile_id") private var activeProfileID: String = "commercial_gym"
@@ -27,6 +32,10 @@ struct LibraryView: View {
     /// (Unlicense) `yuhonas/free-exercise-db` dataset, static images only.
     @AppStorage("gym_media_source") private var mediaSourceRaw: String = ExerciseMediaSource.gymVisual.rawValue
     @State private var freeCatalog: CatalogStore?
+    // Merging the ~1.5 MB catalog with custom exercises on every body pass
+    // (several times over, via the computed catalog props below) was making the
+    // Exercises tab stutter. Rebuild only when a side actually changes.
+    @State private var mergedCatalogCache = MergedCatalogCache()
 
     init(
         catalog: CatalogStore,
@@ -47,11 +56,14 @@ struct LibraryView: View {
     /// The catalog actually being browsed: the shared (Gym Visual) catalog, or the
     /// separately-loaded free-exercise-db catalog once it's been read from disk.
     private var displayCatalog: CatalogStore {
-        mediaSource == .freeStatic ? (freeCatalog ?? catalog) : catalog
+        let base = mediaSource == .freeStatic ? (freeCatalog ?? catalog) : catalog
+        return mergedCatalogCache.catalog(base: base, custom: customExercises)
     }
 
     private var visibleCatalog: CatalogStore {
-        exerciseLibraryIntent == nil ? displayCatalog : catalog
+        // Custom exercises are first-class catalog entries, including when the
+        // user is swapping an exercise in today's workout.
+        displayCatalog
     }
 
     /// Exercises matching search + muscle + the active equipment profile — the pool the
@@ -210,7 +222,7 @@ struct LibraryView: View {
                 }
                 .padding(.horizontal, 16)
             }
-            .padding(.bottom, 90)
+            .padding(.bottom, 100)
         }
         .background(GymTheme.bg.ignoresSafeArea())
         .sheet(item: $selectedExerciseForDetail) { ex in
@@ -221,7 +233,26 @@ struct LibraryView: View {
                     onSelectForToday: { commit(exercise: ex, for: intent) }
                 )
             } else {
-                ExerciseDetailSheet(exercise: ex)
+                ExerciseDetailSheet(
+                    exercise: ex,
+                    isCustom: customExercises.contains { $0.id.uuidString == ex.id },
+                    onEditCustom: customExercises.first(where: { $0.id.uuidString == ex.id }).map { model in
+                        { editingCustomExercise = model; showingCustomExerciseEditor = true }
+                    },
+                    onDeleteCustom: customExercises.first(where: { $0.id.uuidString == ex.id }).map { model in
+                        {
+                            CustomExercisePhotoStore.delete(filename: model.photoFilename)
+                            context.delete(model)
+                            _ = PersistenceReporter.attemptSave(context, operation: "delete custom exercise")
+                            selectedExerciseForDetail = nil
+                        }
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showingCustomExerciseEditor) {
+            CustomExerciseEditorSheet(existing: editingCustomExercise) {
+                shownCount = max(shownCount, 40)
             }
         }
         .task(id: mediaSourceRaw) {
@@ -273,7 +304,11 @@ struct LibraryView: View {
 
     @ViewBuilder
     private var customExerciseCard: some View {
-        HStack(spacing: 12) {
+        Button {
+            editingCustomExercise = nil
+            showingCustomExerciseEditor = true
+        } label: {
+            HStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10)
                     .fill(GymTheme.surface2)
@@ -297,56 +332,77 @@ struct LibraryView: View {
             Image(systemName: "plus")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(Color(white: 0.55))
+            }
+            .padding(12)
+            .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 14))
         }
-        .padding(12)
-        .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+        .buttonStyle(.plain)
+        .accessibilityLabel("Create a custom exercise")
+        .accessibilityHint("Opens the exercise editor")
     }
 
     // MARK: - Exercise Row
 
     @ViewBuilder
     private func exerciseRow(_ ex: Exercise) -> some View {
-        Button {
-            selectedExerciseForDetail = ex
-        } label: {
-            HStack(spacing: 12) {
-                // Exercise Thumbnail Image
-                ExerciseThumbnailView(urlString: ex.imagePaths.first, size: 48, cornerRadius: 10)
+        HStack(spacing: 12) {
+            // Keep detail and Plan as sibling buttons. Nested SwiftUI buttons
+            // make taps ambiguous on a physical device.
+            Button {
+                selectedExerciseForDetail = ex
+            } label: {
+                HStack(spacing: 12) {
+                    ExerciseThumbnailView(urlString: ex.imagePaths.first, size: 48, cornerRadius: 10)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(ex.name)
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(GymTheme.label)
-                        .multilineTextAlignment(.leading)
-                    Text("\(ex.primaryMuscle.label) · \(ex.equipment.label)")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(Color(white: 0.60))
-                }
-
-                Spacer()
-
-                if exerciseLibraryIntent == nil {
-                    Button {
-                        selectedExerciseForDetail = ex
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 11, weight: .bold))
-                            Text("Plan")
-                                .font(.system(size: 13, weight: .bold))
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 7) {
+                            Text(ex.name)
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(GymTheme.label)
+                                .multilineTextAlignment(.leading)
+                            if customExercises.contains(where: { $0.id.uuidString == ex.id }) {
+                                Text("CUSTOM")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(GymTheme.green)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(GymTheme.green.opacity(0.14), in: Capsule())
+                            }
                         }
-                        .foregroundStyle(GymTheme.green)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(GymTheme.green.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+                        Text("\(ex.primaryMuscle.label) · \(ex.equipment.label)")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundStyle(Color(white: 0.60))
                     }
-                    .buttonStyle(.plain)
+                    Spacer(minLength: 0)
                 }
             }
-            .padding(12)
-            .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel("View \(ex.name) details")
+            .accessibilityHint("Opens exercise details")
+
+            if exerciseLibraryIntent == nil {
+                Button {
+                    selectedExerciseForDetail = ex
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("Plan")
+                            .font(.system(size: 13, weight: .bold))
+                    }
+                    .foregroundStyle(GymTheme.green)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(GymTheme.green.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Plan \(ex.name)")
+            }
         }
-        .buttonStyle(.plain)
+        .padding(12)
+        .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+        .contentShape(RoundedRectangle(cornerRadius: 14))
     }
 
     private func selectionTitle(for intent: ExerciseLibraryIntent) -> String {
@@ -364,12 +420,12 @@ struct LibraryView: View {
         switch intent.action {
         case .add:
             changed = WorkoutScheduleStore.addExercise(
-                exercise, on: intent.date, in: plan, catalog: catalog, origin: .manual
+                exercise, on: intent.date, in: plan, catalog: displayCatalog, origin: .manual
             )
         case let .replace(existingExerciseID):
             changed = WorkoutScheduleStore.replaceExercise(
                 existingExerciseID, with: exercise, on: intent.date, in: plan,
-                catalog: catalog, origin: .manual
+                catalog: displayCatalog, origin: .manual
             )
         }
 
