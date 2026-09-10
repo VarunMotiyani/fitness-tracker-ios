@@ -2,11 +2,11 @@
 
 > **For agentic workers:** SDD ledger at `.superpowers/sdd/2026-09-03-phase-3a-progression-parity/`. Steps use `- [ ]`.
 
-**Goal:** Make `FitnessCore` progression produce the same target/why as openGym `lib/progression.js` for every policy, including stall counting, per‑policy deload, the bodyweight branch, and warm‑up handling.
+**Goal:** Make `FitnessCore` progression produce the same target/why as reference app `lib/progression.js` for every policy, including stall counting, per‑policy deload, the bodyweight branch, and warm‑up handling.
 
 **Architecture:** A new pure `SessionReading` type reduces a completed entry to a verdict. `ProgressionRule.next(...)` gains a `history: [SessionReading]` input and a `stallCount`. Warm‑up rows (`LoggedSetSnapshot.isWarmup`) are filtered wherever `ok`/`low`/`count` are computed. Nothing writes back to a finished session.
 
-**Spec:** `docs/specs/2026-09-03-opengym-parity-phase3-design.md`. Reference: `~/Documents/person/opengym/frontend/src/lib/progression.js`, `lib/rep-range.js`, `lib/history.js` (`rerampWarmups`, `cascadeWeight`).
+**Spec:** `docs/specs/2026-09-03-reference-app-parity-phase3-design.md`. Reference: `~/Documents/person/reference-app/frontend/src/lib/progression.js`, `lib/rep-range.js`, `lib/history.js` (`rerampWarmups`, `cascadeWeight`).
 
 ## Global Constraints
 
@@ -136,7 +136,7 @@ public struct Prescription: Sendable, Equatable {
 - `inc = cfg.inc>0 ? cfg.inc : defaultIncrement`. `defaultIncrement`: HEAVY body parts (`upper legs, lower legs, back, hips, glutes`) → lb 10 / kg 5; else lb 5 / kg 2.5.
 - `snap(v, step) = round(v/step)*step` (1 dp).
 
-**Keep** the existing feel‑driven `standardLinear` **as a distinct policy** (`ProgressionPolicy.aiCoach` or keep `standardLinear`) — the AI layer wants it. Add openGym's `linear` as a separate case. So `ProgressionPolicy` becomes `{ off, linear, greyskull, double, time, aiCoachLinear }`.
+**Keep** the existing feel‑driven `standardLinear` **as a distinct policy** (`ProgressionPolicy.aiCoach` or keep `standardLinear`) — the AI layer wants it. Add reference app's `linear` as a separate case. So `ProgressionPolicy` becomes `{ off, linear, greyskull, double, time, aiCoachLinear }`.
 
 - [ ] Tests (extend `ProgressionRuleTests`):
   - linear: `[miss]` → `.hold` (1/3), `[miss, miss]` → `.hold` (2/3), `[miss, miss, miss]` → `.deload` at `deloadTo(w, inc)`

@@ -62,7 +62,7 @@ _Current Branch: `fitness-engine-v2` | Target: iPhone (iOS 17+) / Swift 6 Strict
 
 ## 2. Milestone Execution Ledger
 
-### Phase 3g: openGym vs PulseAI Full Screen Diff & UI/Behavioral Parity
+### Phase 3g: reference app vs PulseAI Full Screen Diff & UI/Behavioral Parity
 - **Status:** **100% COMPLETE & VERIFIED**
 - **Key Modules & Features**:
   - **`HomeView.swift`**: Outline `gearshape` in circular badge, ascending chronological sorting for bodyweight chart, 4-state session status dots (Green, Orange, Gray, Clear), dynamic TODAY card with `COMPLETED TODAY` / `TODAY` states.

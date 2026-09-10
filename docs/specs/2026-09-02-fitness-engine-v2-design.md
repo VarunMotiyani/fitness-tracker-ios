@@ -11,8 +11,8 @@ exercise library, and history importers — **local-first, no backend, no accoun
 It is our own code. The training methods it implements (Epley / Brzycki / Lombardi
 1RM estimators, linear / Greyskull LP / double progression, RIR↔RPE effort,
 effective-set muscle volume, deload-on-stall) are published exercise-science method and
-mathematics — free for anyone to implement. openGym and our existing
-`FitnessCore` are **reference only**: openGym for scope and UX, `FitnessCore` for the
+mathematics — free for anyone to implement. reference app and our existing
+`FitnessCore` are **reference only**: reference app for scope and UX, `FitnessCore` for the
 Swift code we already have. This is an original Swift-native implementation.
 
 ## Dataset
@@ -223,7 +223,7 @@ Gaps to build (feature → engine section):
 
 ## 3. UI target
 
-Information architecture and flows modelled on openGym; visuals original.
+Information architecture and flows modelled on reference app; visuals original.
 
 - **Tabs:** Home (today's session + body weight) · Plan (weekly grid + routines) · Stats
   (1RM · heatmap · effort · muscle map) · Library · Settings. The workout runner is a
@@ -237,16 +237,16 @@ Information architecture and flows modelled on openGym; visuals original.
   "confirm working weight" → finish summary (duration, volume, sets, PRs, 1RM records,
   muscle map).
 - **Design system:** theme + accent as SwiftUI environment; `L.t(key, args…)` templated
-  strings; charts hand-rolled with `Path` (no chart dependency, matches openGym's
+  strings; charts hand-rolled with `Path` (no chart dependency, matches reference app's
   approach, keeps the engine + UI dependency-free).
 
 ## 4. Testing
 
 - Engine modules (`SessionReading`, `ProgressionPolicy`, `OneRM`, `MuscleMap`, `Effort`,
   `WorkoutHistory`, `Importers`, `PlanShare`) — Swift Testing, exhaustive; this is the
-  safety-critical layer. Port openGym's `*.test.js` cases as behavioural fixtures
+  safety-critical layer. Port reference app's `*.test.js` cases as behavioural fixtures
   (expected inputs/outputs are fact, not code).
-- Persistence — round-trip `AppState`; load a real openGym JSON export and assert parity
+- Persistence — round-trip `AppState`; load a real reference app JSON export and assert parity
   (the model is kept compatible).
 - Store — debounce, background flush, live workout survives reload.
 - One XCUITest smoke: start a routine → log a set → rest timer → finish.
@@ -274,13 +274,13 @@ Each phase is one SDD run and leaves the app building (from C on, runnable).
 
 ## 6. Resolved decisions
 
-1. Original implementation; standard exercise-science methods; openGym + `FitnessCore` are
+1. Original implementation; standard exercise-science methods; reference app + `FitnessCore` are
    reference only.
 2. `hasaneyldrm/exercises-dataset` **MIT data** replaces free-exercise-db; MIT notice
    retained.
 3. **No exercise media in v1** — Gym visual media is not licensed to us. `MediaSource`
    seam left open.
-4. Data model kept compatible with openGym's JSON export (free interop, and keeps the
+4. Data model kept compatible with reference app's JSON export (free interop, and keeps the
    port honest to reference behaviour).
 5. Hand-rolled charts, no chart dependency.
 6. AI layer deferred; parked 2c modules are its seed.
@@ -294,9 +294,9 @@ Each phase is one SDD run and leaves the app building (from C on, runnable).
   brutal, caps, built for the AI guardrail) vs §1.3's miss/hit + stall + policy model.
   Options: replace outright (simplest, loses the AI-tuned caps), or keep §1.3 as the
   engine and re-add the guardrail caps when the AI layer lands. Leaning replace.
-- **Apple Health** — file import (openGym's route, no entitlement) vs `HealthKit` read
+- **Apple Health** — file import (reference app's route, no entitlement) vs `HealthKit` read
   (native, new entitlement + review surface). v1 = file import; HealthKit later.
 - **Locale coverage at launch** — all 10 instruction languages + a UI-string set, or
   ship EN + a lazy-load path and backfill. Bundle-size call for Phase B.
-- **`emoji` on routines** — openGym stores a literal emoji and maps it to an icon.
+- **`emoji` on routines** — reference app stores a literal emoji and maps it to an icon.
   Keep emoji, or an icon picker from the start?

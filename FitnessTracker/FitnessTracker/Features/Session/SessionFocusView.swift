@@ -92,7 +92,7 @@ struct SessionFocusView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                // Top Session-Level Navigation Header (openGym Parity)
+                // Top session-level navigation header
                 sessionTopHeader
 
                 // Pinned Total-Set Progress Bar
@@ -334,7 +334,7 @@ struct SessionFocusView: View {
                     RestTimerView(timer: restTimer)
                 }
 
-                // 8. Interactive All-Sets Editable Table (openGym Item 3.10)
+                // 8. Interactive all-sets editable table
                 allSetsEditableTable(entry: entry, plannedRestSec: planned?.restSeconds ?? 90)
 
                 // 9. Inline Set Actions: Warm-up / Remove / Add Set
@@ -518,7 +518,7 @@ struct SessionFocusView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - All-Sets Editable Table (openGym Item 3.10 Parity)
+    // MARK: - All-Sets Editable Table
 
     @ViewBuilder
     private func allSetsEditableTable(entry: CompletedEntryModel, plannedRestSec: Int) -> some View {

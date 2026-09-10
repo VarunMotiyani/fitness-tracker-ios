@@ -811,7 +811,7 @@ struct StatsView: View {
                     return "\(d) · \(String(format: "%.1f", f.averageRIR)) RIR · \(f.setsCount) sets"
                 }()
 
-                OpenGymLineChart(
+                ProgressLineChart(
                     points: effortPts,
                     height: 140,
                     lineColor: GymTheme.yellow,
@@ -930,8 +930,8 @@ struct StatsView: View {
             }
 
             // Weight Chart Points with Goal — themed to the active accent, like
-            // openGym's weight chart (`<LineChart>` defaults to `var(--acc)`).
-            OpenGymLineChart(
+            // Weight trend chart using the app accent palette.
+            ProgressLineChart(
                 points: pts,
                 goal: targetWeightKg,
                 height: 150,
@@ -1015,7 +1015,7 @@ struct StatsView: View {
                         : ((exerciseMetricMode == .effort) ? (perf.averageRIR ?? 0) : perf.topSetWeightKg)
                     return ChartDataPoint(date: perf.date, value: val)
                 }
-                OpenGymLineChart(
+                ProgressLineChart(
                     points: chartPoints,
                     height: 140,
                     lineColor: exerciseMetricMode == .effort ? GymTheme.yellow : Color(red: 0.18, green: 0.52, blue: 0.98),
@@ -1104,7 +1104,7 @@ struct StatsView: View {
                 .buttonStyle(.plain)
             }
 
-            // Cards in exact openGym list style
+            // Compact metric cards
             VStack(spacing: 8) {
                 ForEach(completedSessions.filter { $0.finishedAt != nil }.prefix(6), id: \.id) { session in
                     let d = session.startedAt.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))

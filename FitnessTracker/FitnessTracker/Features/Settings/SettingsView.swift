@@ -87,10 +87,10 @@ struct SettingsView: View {
             // 7. Equipment Profile
             equipmentSection
 
-            // 8. Appearance & Body Model (openGym)
+            // 8. Appearance and body model
             appearanceSection
 
-            // 9. Data & Backup (openGym)
+            // 9. Data and backup
             dataSection
         }
         .scrollContentBackground(.hidden)
@@ -440,7 +440,7 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Appearance Section (openGym exact swatches)
+    // MARK: - Appearance Section
 
     @ViewBuilder
     private var appearanceSection: some View {
@@ -496,7 +496,7 @@ struct SettingsView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Data Section (openGym Full Parity)
+    // MARK: - Data Section
 
     @ViewBuilder
     private var dataSection: some View {

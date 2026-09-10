@@ -32,7 +32,7 @@ public struct EquipmentProfile: Identifiable, Codable, Sendable, Equatable {
     ]
 }
 
-/// Equipment-availability filter (parity with openGym's `equipment.js` `exAvailable`):
+/// Equipment-availability filter for the app's equipment profiles:
 /// purely additive — filtering off, or no matching profile, shows everything. Bodyweight
 /// is never gated, since no gym-or-home setup can take it away from you.
 public enum EquipmentFilter {

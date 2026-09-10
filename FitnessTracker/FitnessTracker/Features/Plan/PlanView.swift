@@ -53,7 +53,7 @@ struct PlanView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // Big Title Header (openGym Parity)
+                // Big title header
                 headerSection
 
                 // Split styles are separate from the routine cards below: the

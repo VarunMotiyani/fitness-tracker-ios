@@ -28,7 +28,7 @@ public struct TimerFlashOverlay: View {
     private func startFourFlashSequence() {
         animationTask?.cancel()
         animationTask = Task { @MainActor in
-            // Timing matching openGym @keyframes timer-flash-four (2.4s total):
+            // Four-pulse timer flash sequence (2.4s total):
             // 4%,16%,60%,72% -> black flash
             // 32%,44%,88%,96% -> white flash
             let flashSteps: [(color: Color, gapMs: UInt64, durationMs: UInt64)] = [

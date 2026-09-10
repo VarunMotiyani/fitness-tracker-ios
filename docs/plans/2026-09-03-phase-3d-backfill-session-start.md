@@ -4,11 +4,11 @@
 
 **Goal:** One code path builds a session's exercise entries whether it's a live start or logging a past workout, so a prescription‑rule change can't drift the two. Add "log a past workout" (backfill) — the same runner screen pointed at another date, no rest timers, filed into history in date order.
 
-**Reference:** `~/Documents/person/opengym/frontend/src/lib/session-start.js` (`buildSessionEntries`), `lib/backfill.js`, `views/Workout.jsx` (the `A.backfill` branch), `lib/history.js` (`buildSets`, `applyIntensifierPlan`).
+**Reference:** `~/Documents/person/reference-app/frontend/src/lib/session-start.js` (`buildSessionEntries`), `lib/backfill.js`, `views/Workout.jsx` (the `A.backfill` branch), `lib/history.js` (`buildSets`, `applyIntensifierPlan`).
 
 ## Global Constraints
 
-Phase 3 spec. Depends on **3a** (prescription) and **3c** (intensifier plan on the set list). `FitnessCore` helpers pure; runner/UI `@MainActor`. Data model stays openGym‑JSON compatible.
+Phase 3 spec. Depends on **3a** (prescription) and **3c** (intensifier plan on the set list). `FitnessCore` helpers pure; runner/UI `@MainActor`. Data model stays reference app‑JSON compatible.
 
 ## File Structure
 

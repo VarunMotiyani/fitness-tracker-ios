@@ -12,7 +12,7 @@ public enum GymTheme {
     public static let label3 = Color(white: 0.45)
     public static let label4 = Color(white: 0.25)
     
-    // openGym Official Accents (lib/format.js: ACCENTS = { lime, sky, orange, violet, pink, red, teal, gold })
+    // High-contrast accent palette used throughout the app.
     public static let lime = Color(red: 0.19, green: 0.82, blue: 0.35) // #30d158
     public static let sky = Color(red: 0.04, green: 0.52, blue: 1.0) // #0a84ff
     public static let orange = Color(red: 1.0, green: 0.62, blue: 0.04) // #ff9f0a
@@ -54,7 +54,7 @@ public enum GymTheme {
     }
 }
 
-/// A small fade+slide `ViewModifier` — the Swift side of openGym's
+/// A small fade+slide `ViewModifier` for consistent native navigation transitions.
 /// `@keyframes viewfade { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }`,
 /// which fades and nudges every route change in by 4px instead of a hard cut.
 private struct ViewFadeModifier: ViewModifier {

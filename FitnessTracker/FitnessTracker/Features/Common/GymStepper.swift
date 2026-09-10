@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// openGym tactile gym-floor stepper with minus/plus buttons and centered editable value.
+/// Tactile gym-floor stepper with minus/plus buttons and centered editable value.
 struct GymStepper: View {
     @Binding var value: Double
     let step: Double

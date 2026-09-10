@@ -281,7 +281,7 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                // Header: openGym + Date + Settings Gear
+                // Header: app title, date, and Settings gear
                 headerSection
 
                 // Pending AI-derived observations awaiting your review
@@ -628,7 +628,7 @@ struct HomeView: View {
                 .buttonStyle(.plain)
             }
 
-            // Clickable Weekday circles (MO TU WE TH FR SA SU) - Exactly like openGym!
+            // Clickable weekday circles (MO TU WE TH FR SA SU)
             HStack(spacing: 0) {
                 ForEach(0..<7, id: \.self) { dayIndex in
                     let dayDate = cal.date(byAdding: .day, value: dayIndex, to: startOfWeek) ?? startOfWeek
@@ -881,8 +881,8 @@ struct HomeView: View {
             }
 
             // Bezier Curve Chart with Goal Line — themed to the active accent, like
-            // openGym's weight chart (`<LineChart>` defaults to `var(--acc)`).
-            OpenGymLineChart(
+            // Weight trend chart using the app accent palette.
+            ProgressLineChart(
                 points: chartPoints,
                 goal: targetWeightKg > 0 ? targetWeightKg : nil,
                 lineColor: activeAccent

@@ -1641,7 +1641,7 @@ git commit -m "Wire SessionFinalizeCoordinator into SessionContainerView: AI fin
   UI, substitution/recovery-pacing suggestion cards, the memory-keeper call,
   proactive notifications, and Ask Coach are follow-on plans — each should
   be its own plan document once this slice is proven working end to end,
-  the same way the earlier openGym-parity work was split into 3a–3f rather
+  the same way the earlier reference app-parity work was split into 3a–3f rather
   than attempted as one plan.
 
 ---

@@ -1,22 +1,22 @@
-# Phase 3 — openGym behavioural parity — Design
+# Phase 3 — reference app behavioural parity — Design
 
 **Status:** approved by owner ("i want everything") · **Branch:** `fitness-engine-v2`
 
 ## Goal
 
 Close every behavioural and flow gap between the current Swift port and the **latest**
-openGym (`~/Documents/person/opengym`, GitLab `DuarteSantos8/opengym`). The port already
+reference app (`~/Documents/person/reference-app`, GitLab `DuarteSantos8/reference-app`). The port already
 has the 5‑tab UI, `FitnessCore` engine skeleton, `SessionRunner`, `RecoveryModel`,
 `PlateMath`, `EffortAnalyticsEngine`, `StreakCalculator`. This phase makes the numbers and
 the flows match the reference.
 
-openGym is the behavioural spec. It is AGPL, so **no source is copied** — each task cites
+reference app is the behavioural spec. It is AGPL, so **no source is copied** — each task cites
 the reference function whose *behaviour* it reproduces (standard training‑science method +
 arithmetic), gives the Swift signature, and pins the test cases. The Swift is our own.
 
-## Reference map (openGym file → concern)
+## Reference map (reference app file → concern)
 
-| openGym | concern | Phase |
+| reference app | concern | Phase |
 |---|---|---|
 | `lib/progression.js` (`stallCount`, `DELOAD_AFTER`, bodyweight branch, `readSession`, `applyPrescription`, `rerampWarmups`) | progression correctness | 3a |
 | `lib/rep-range.js` (`normalizeRepRange`) | double‑progression bounds | 3a |
@@ -60,7 +60,7 @@ arithmetic), gives the Swift signature, and pins the test cases. The Swift is ou
 - Branch `fitness-engine-v2`. **No `git push`.** Small commits per task.
 - `FitnessCore` stays UI‑framework‑free (`Foundation` only) and Swift‑Testing‑only.
 - App target default actor isolation `@MainActor`; `@Model` / `@Observable` / views `@MainActor`; pure helpers `nonisolated`.
-- Persisted data model stays **openGym‑JSON compatible** (field names / shapes) so an openGym export imports unchanged.
+- Persisted data model stays **reference app‑JSON compatible** (field names / shapes) so an reference app export imports unchanged.
 - Every task ends green: `cd FitnessCore && swift test` and `xcodebuild test -scheme FitnessTracker -destination 'platform=iOS Simulator,id=B29C47DD-D3FE-490C-9A84-3D9A32AFE68A' -project FitnessTracker/FitnessTracker.xcodeproj`.
 - Snapshot types already carry `rpe`, `isWarmup`, `drops`, `clusters` (`MetricSnapshots.swift`) — extend, don't duplicate.
 

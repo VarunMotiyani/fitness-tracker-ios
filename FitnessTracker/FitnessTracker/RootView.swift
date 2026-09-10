@@ -97,7 +97,7 @@ struct RootView: View {
     @State private var lastNote: String?
     @State private var isGenerating = false
 
-    // openGym 5-tab navigation state
+    // Main five-tab navigation state
     @State private var selectedTab: AppTab = .home
 
     init() {
@@ -157,7 +157,7 @@ struct RootView: View {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // openGym Custom Bottom Navigation Bar (Persistent across all views & Settings)
+            // Persistent custom bottom navigation bar across views and Settings
             if profiles.first != nil, let plan = try? plans.first?.decodedPlan() {
                 CustomTabBar(
                     selectedTab: $selectedTab,

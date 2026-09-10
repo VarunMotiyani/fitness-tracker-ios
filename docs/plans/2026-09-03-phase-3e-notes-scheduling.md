@@ -4,11 +4,11 @@
 
 **Goal:** Exercise notes (three distinct kinds) and a session note; a weekly plan grid with per‑day reschedule overrides; "what's next" when today is a rest day; a configurable week start (Mon/Sun) threaded through streak, heatmap and calendar.
 
-**Reference:** `~/Documents/person/opengym/frontend/src/lib/history.js` (`pinnedNoteFor`, `exNoteFor`, `NOTE_MAX`, `effectiveRoutineId`, `nextTrainingDay`, `streakWeeks`), `lib/finish-workout.js` (`note`, `notePin`, session note), `views/Plan.jsx`, `views/Home.jsx`, `components/Heatmap.jsx`.
+**Reference:** `~/Documents/person/reference-app/frontend/src/lib/history.js` (`pinnedNoteFor`, `exNoteFor`, `NOTE_MAX`, `effectiveRoutineId`, `nextTrainingDay`, `streakWeeks`), `lib/finish-workout.js` (`note`, `notePin`, session note), `views/Plan.jsx`, `views/Home.jsx`, `components/Heatmap.jsx`.
 
 ## Global Constraints
 
-Phase 3 spec. Mostly independent of 3a–3d. `FitnessCore` helpers pure. Data model stays openGym‑JSON compatible: notes on entry (`note`, `notePin`), session (`note`), a per‑exercise standing‑note map, `dayPlan` map, `weekStart` setting.
+Phase 3 spec. Mostly independent of 3a–3d. `FitnessCore` helpers pure. Data model stays reference app‑JSON compatible: notes on entry (`note`, `notePin`), session (`note`), a per‑exercise standing‑note map, `dayPlan` map, `weekStart` setting.
 
 ## File Structure
 
@@ -65,7 +65,7 @@ public enum Scheduling {
 
 - `CompletedEntrySnapshot.note: String?` (exists), add `notePin: Bool` (default false — "show this again next time").
 - `CompletedSessionSnapshot.overallNote` (exists) — surface it in the finish flow.
-- A standing per‑exercise note store: `exNotes: [String: String]` on the profile/state (openGym `exNoteFor`); `pinnedNoteFor(exerciseID:sessions:)` returns the most recent entry `note` where `notePin == true`, with its date.
+- A standing per‑exercise note store: `exNotes: [String: String]` on the profile/state (reference app `exNoteFor`); `pinnedNoteFor(exerciseID:sessions:)` returns the most recent entry `note` where `notePin == true`, with its date.
 - `NOTE_MAX = 500` — clamp on write.
 - Finish flow persists: entry `note` + `notePin`, session `overallNote`, all trimmed, written only when non‑empty (an untouched entry stays byte‑for‑byte its old shape).
 

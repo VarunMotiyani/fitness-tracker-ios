@@ -14,7 +14,7 @@ public struct ChartDataPoint: Identifiable, Sendable {
     }
 }
 
-public struct OpenGymLineChart: View {
+public struct ProgressLineChart: View {
     public let points: [ChartDataPoint]
     public let goal: Double?
     public let height: CGFloat
