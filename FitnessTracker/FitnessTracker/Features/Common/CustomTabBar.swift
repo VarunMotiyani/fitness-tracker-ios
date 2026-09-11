@@ -26,6 +26,7 @@ struct CustomTabBar: View {
 
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @Namespace private var pillNamespace
     @State private var resumePulse = false
@@ -75,13 +76,16 @@ struct CustomTabBar: View {
                 .font(.system(size: TabBarMetrics.iconFontSize, weight: .semibold))
                 .foregroundStyle(isSelected ? activeAccent : GymTheme.label3)
                 .frame(maxWidth: .infinity)
-                .frame(height: TabBarMetrics.pillHeight)
+                // Full capsule height is the hit area (≥44 pt); the visual pill
+                // stays pillHeight tall, centred inside it.
+                .frame(height: TabBarMetrics.capsuleHeight)
                 .background {
                     if isSelected {
                         Capsule()
                             .fill(activeAccent.opacity(0.16))
                             .overlay(Capsule().strokeBorder(activeAccent.opacity(0.28), lineWidth: 0.75))
                             .matchedGeometryEffect(id: "pill", in: pillNamespace)
+                            .padding(.vertical, (TabBarMetrics.capsuleHeight - TabBarMetrics.pillHeight) / 2)
                     }
                 }
                 .contentShape(Rectangle())
@@ -101,12 +105,14 @@ struct CustomTabBar: View {
         } label: {
             ZStack {
                 if isWorkoutActive {
+                    // Reduce Motion: static ring instead of the repeating
+                    // expansion pulse (which also kept the GPU waking forever).
                     Circle()
                         .stroke(GymTheme.orange, lineWidth: 2)
                         .frame(width: TabBarMetrics.startDiameter, height: TabBarMetrics.startDiameter)
-                        .scaleEffect(resumePulse ? 1.5 : 1.0)
-                        .opacity(resumePulse ? 0 : 0.7)
-                        .animation(.easeOut(duration: 1.9).repeatForever(autoreverses: false), value: resumePulse)
+                        .scaleEffect(reduceMotion ? 1.0 : (resumePulse ? 1.5 : 1.0))
+                        .opacity(reduceMotion ? 0.7 : (resumePulse ? 0 : 0.7))
+                        .animation(reduceMotion ? nil : .easeOut(duration: 1.9).repeatForever(autoreverses: false), value: resumePulse)
                 }
                 Circle()
                     .fill(tint.gradient)
@@ -114,7 +120,7 @@ struct CustomTabBar: View {
                     .overlay(Circle().strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
                     .shadow(color: tint.opacity(0.45), radius: 8, y: 3)
                 Image(systemName: isWorkoutActive ? "timer" : "play.fill")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.title2.weight(.bold))
                     .foregroundStyle(.black)
             }
         }

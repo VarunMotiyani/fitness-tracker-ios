@@ -73,6 +73,35 @@ final class SessionRunner {
     /// indicator (design spec §3).
     private(set) var coachSource: CoachSource = .rule
 
+    // MARK: - Save coalescing
+    // Per-action `context.save()` on the main thread made every logged set pay
+    // a full SwiftData commit plus a full revalidation of every mounted tab's
+    // @Query. Mutations now mark-dirty; one commit lands at most every 700 ms,
+    // and lifecycle checkpoints (start/finish) and view teardown flush eagerly.
+
+    private var savePending = false
+
+    private func markDirty() {
+        guard !savePending else { return }
+        savePending = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            self?.flushPendingSave()
+        }
+    }
+
+    /// Commit any coalesced mutation now. Idempotent — and on a failed save,
+    /// `savePending` stays `true` so the next checkpoint (or the 700ms timer)
+    /// retries instead of silently dropping the mutation (the whole point of
+    /// coalescing was never to be less safe than the per-action save it replaced).
+    @discardableResult
+    func flushPendingSave() -> Bool {
+        guard savePending else { return true }
+        let saved = PersistenceReporter.attemptSave(modelContext, operation: "persist model context (coalesced)")
+        if saved { savePending = false }
+        return saved
+    }
+
     init(modelContext: ModelContext,
          catalog: CatalogStore,
          repository: any MetricsRepository,
@@ -227,7 +256,7 @@ final class SessionRunner {
 
         entry.sets.append(set)
         entry.stateRaw = EntryState.inProgress.rawValue
-        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
+        markDirty()
     }
 
     func removeLastSet(entryIndex: Int) {
@@ -240,7 +269,7 @@ final class SessionRunner {
             if entry.sets.isEmpty {
                 entry.stateRaw = EntryState.notStarted.rawValue
             }
-            _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
+            markDirty()
         }
     }
 
@@ -248,7 +277,7 @@ final class SessionRunner {
         let entries = orderedEntries
         guard entries.indices.contains(entryIndex) else { return }
         entries[entryIndex].stateRaw = EntryState.done.rawValue
-        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
+        markDirty()
     }
 
     func markSkipped(entryIndex: Int) {
@@ -256,7 +285,7 @@ final class SessionRunner {
         guard entries.indices.contains(entryIndex) else { return }
         entries[entryIndex].stateRaw = EntryState.done.rawValue
         entries[entryIndex].skipped = true
-        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
+        markDirty()
     }
 
     func reorder(from: Int, to: Int) {
@@ -267,25 +296,26 @@ final class SessionRunner {
         for (idx, entry) in entries.enumerated() {
             entry.performedOrder = idx
         }
-        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
+        markDirty()
     }
 
     func setFeel(entryIndex: Int, _ feel: Feel) {
         let entries = orderedEntries
         guard entries.indices.contains(entryIndex) else { return }
         entries[entryIndex].feelRaw = feel.rawValue
-        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
+        markDirty()
     }
 
     func setEntryNote(entryIndex: Int, _ text: String) {
         let entries = orderedEntries
         guard entries.indices.contains(entryIndex) else { return }
         entries[entryIndex].note = text
-        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
+        markDirty()
     }
 
     func finish(partialReason: PartialReason?, overallNote: String?) {
         guard let session, session.finishedAt == nil else { return }   // F4: idempotent
+        flushPendingSave()
 
         // F1/F3: compute the outcome from the CURRENT entry states, BEFORE the
         // promotion loop below — a genuinely partial session (unfinished, or
@@ -330,6 +360,7 @@ final class SessionRunner {
     /// calls `finish`.
     func requestSummary() {
         guard phase == .active else { return }
+        flushPendingSave()
         phase = .summary
     }
 
@@ -356,7 +387,7 @@ final class SessionRunner {
                 other.performedOrder += 1
             }
         }
-        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
+        markDirty()
     }
 
     // MARK: - Abandoned-session sweep

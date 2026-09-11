@@ -160,7 +160,7 @@ struct CoachNoteCard: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
                 Image(systemName: symbolName)
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.body.weight(.bold))
                     .foregroundStyle(symbolColor)
                     .frame(width: iconSize, height: iconSize)
                     .background(symbolColor.opacity(0.16), in: RoundedRectangle(cornerRadius: 10))
@@ -302,7 +302,7 @@ struct CoachInsightPreview: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: symbolName)
-                .font(.system(size: 16, weight: .bold))
+                .font(.body.weight(.bold))
                 .foregroundStyle(symbolColor)
                 .frame(width: 36, height: 36)
                 .background(symbolColor.opacity(0.16), in: RoundedRectangle(cornerRadius: 10))
@@ -492,7 +492,7 @@ struct CoachInboxView: View {
             if let onClose {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color(white: 0.70))
                         .frame(width: 44, height: 44)
                         .background(GymTheme.surface, in: Circle())

@@ -259,15 +259,15 @@ struct WeeklySummaryView: View {
     private func summaryRow(icon: String, iconColor: Color, title: String, value: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .bold))
+                .font(.subheadline.weight(.bold))
                 .foregroundStyle(iconColor)
                 .frame(width: 28)
             Text(title)
-                .font(.system(size: 15, weight: .medium))
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(GymTheme.label)
             Spacer()
             Text(value)
-                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .font(.body.weight(.bold)).fontDesign(.rounded)
                 .foregroundStyle(GymTheme.label)
         }
         .padding(.vertical, 12)
@@ -280,13 +280,13 @@ struct WeeklySummaryView: View {
         VStack(spacing: 10) {
             Image(systemName: "calendar.badge.clock")
                 .font(.system(size: 34, weight: .regular))
-                .foregroundStyle(Color(white: 0.45))
+                .foregroundStyle(Color(white: 0.60))
             Text("No weekly recap yet")
-                .font(.system(size: 18, weight: .bold))
+                .font(.title3.weight(.bold))
                 .foregroundStyle(GymTheme.label)
             Text("Check back after your week wraps up.")
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(Color(white: 0.55))
+                .font(.subheadline.weight(.regular))
+                .foregroundStyle(Color(white: 0.60))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)

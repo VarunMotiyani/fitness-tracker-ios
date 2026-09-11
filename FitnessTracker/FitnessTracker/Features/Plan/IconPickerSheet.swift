@@ -42,7 +42,7 @@ public struct IconPickerSheet: View {
                         } label: {
                             VStack {
                                 Image(systemName: icon)
-                                    .font(.system(size: 26))
+                                    .font(.title)
                                     .foregroundStyle(selectedIcon == icon ? GymTheme.green : GymTheme.label)
                                     .frame(width: 60, height: 60)
                                     .background(

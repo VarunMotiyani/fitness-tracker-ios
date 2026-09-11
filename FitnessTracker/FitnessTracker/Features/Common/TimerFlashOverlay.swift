@@ -1,9 +1,15 @@
 import SwiftUI
+import UIKit
 
+/// Rest-timer-end screen cue. Two black pulses at reduced amplitude — the
+/// old sequence was four alternating black/white pulses at 85% opacity
+/// (~4 Hz), which is a photosensitivity hazard. With Reduce Motion on, the
+/// strobe is suppressed entirely and replaced with a single non-flashing
+/// tint + a success haptic — a cue still fires, it just never pulses.
 public struct TimerFlashOverlay: View {
     public let triggerID: UUID?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var flashOpacity: Double = 0.0
-    @State private var currentColor: Color = .clear
     @State private var animationTask: Task<Void, Never>?
 
     public init(triggerID: UUID?) {
@@ -11,57 +17,49 @@ public struct TimerFlashOverlay: View {
     }
 
     public var body: some View {
-        currentColor
+        Color.black
             .opacity(flashOpacity)
             .ignoresSafeArea()
             .allowsHitTesting(false)
             .onChange(of: triggerID) { _, newTrigger in
-                if newTrigger != nil {
-                    startFourFlashSequence()
-                }
+                guard newTrigger != nil else { return }
+                reduceMotion ? startReducedMotionCue() : startFlashSequence()
             }
             .onDisappear {
                 animationTask?.cancel()
             }
     }
 
-    private func startFourFlashSequence() {
+    /// Reduce Motion fallback: one 200ms non-repeating tint, well under
+    /// strobe territory, plus the haptic doing the actual cueing.
+    private func startReducedMotionCue() {
+        animationTask?.cancel()
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        animationTask = Task { @MainActor in
+            withAnimation(.linear(duration: 0.1)) { flashOpacity = 0.25 }
+            try? await Task.sleep(nanoseconds: 200 * 1_000_000)
+            if Task.isCancelled { return }
+            withAnimation(.linear(duration: 0.1)) { flashOpacity = 0.0 }
+        }
+    }
+
+    private func startFlashSequence() {
         animationTask?.cancel()
         animationTask = Task { @MainActor in
-            // Four-pulse timer flash sequence (2.4s total):
-            // 4%,16%,60%,72% -> black flash
-            // 32%,44%,88%,96% -> white flash
-            let flashSteps: [(color: Color, gapMs: UInt64, durationMs: UInt64)] = [
-                (.black, 96, 288),   // Flash 1: 4%..16% (96..384ms)
-                (.white, 384, 288),  // Flash 2: 32%..44% (768..1056ms)
-                (.black, 384, 288),  // Flash 3: 60%..72% (1440..1728ms)
-                (.white, 384, 192)   // Flash 4: 88%..96% (2112..2304ms)
-            ]
-
-            for (idx, step) in flashSteps.enumerated() {
-                // Gap before this flash
-                currentColor = .clear
-                flashOpacity = 0.0
-                try? await Task.sleep(nanoseconds: step.gapMs * 1_000_000)
-                if Task.isCancelled { return }
-
-                // Active Flash
-                currentColor = step.color
+            // Two black pulses: 0.35 peak, ~170 ms each, 260 ms gap (~0.9 s total).
+            let pulseMs: UInt64 = 170
+            let gapMs: UInt64 = 260
+            for _ in 0..<2 {
                 withAnimation(.linear(duration: 0.04)) {
-                    flashOpacity = 0.85
+                    flashOpacity = 0.35
                 }
-                try? await Task.sleep(nanoseconds: step.durationMs * 1_000_000)
+                try? await Task.sleep(nanoseconds: pulseMs * 1_000_000)
                 if Task.isCancelled { return }
-            }
-
-            // Final gap to 100% (2400ms)
-            withAnimation(.linear(duration: 0.08)) {
-                flashOpacity = 0.0
-            }
-            try? await Task.sleep(nanoseconds: 96 * 1_000_000)
-            if !Task.isCancelled {
-                currentColor = .clear
-                flashOpacity = 0.0
+                withAnimation(.linear(duration: 0.08)) {
+                    flashOpacity = 0.0
+                }
+                try? await Task.sleep(nanoseconds: gapMs * 1_000_000)
+                if Task.isCancelled { return }
             }
         }
     }

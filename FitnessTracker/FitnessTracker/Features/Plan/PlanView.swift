@@ -159,27 +159,27 @@ struct PlanView: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "square.grid.2x2.fill")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.title3.weight(.semibold))
                     .foregroundStyle(GymTheme.green)
                     .frame(width: 40, height: 40)
                     .background(GymTheme.green.opacity(0.14), in: RoundedRectangle(cornerRadius: 11))
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Training split")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.body.weight(.bold))
                         .foregroundStyle(GymTheme.label)
                     Text(selectedSplitName.isEmpty ? "Explore 17 evidence-based templates" : selectedSplitName)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(GymTheme.label2)
                         .lineLimit(1)
                 }
 
                 Spacer(minLength: 8)
                 Text("Browse")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.footnote.weight(.bold))
                     .foregroundStyle(GymTheme.green)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(GymTheme.green)
             }
             .padding(14)
@@ -201,7 +201,7 @@ struct PlanView: View {
                     .foregroundStyle(GymTheme.label)
 
                 Text("Your weekly routine")
-                    .font(.system(size: 16, weight: .regular))
+                    .font(.body.weight(.regular))
                     .foregroundStyle(Color(white: 0.65))
             }
 
@@ -213,7 +213,7 @@ struct PlanView: View {
                 showChat = true
             } label: {
                 Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: 16))
+                    .font(.body)
                     .foregroundStyle(Color(white: 0.70))
                     .frame(width: 38, height: 38)
                     .background(GymTheme.surface, in: Circle())
@@ -226,7 +226,7 @@ struct PlanView: View {
                 activeSheet = .share
             } label: {
                 Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(GymTheme.green)
                     .frame(width: 38, height: 38)
                     .background(GymTheme.surface, in: Circle())
@@ -241,7 +241,7 @@ struct PlanView: View {
     private var scheduleSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Week schedule")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(GymTheme.label)
                 .padding(.horizontal, 16)
 
@@ -256,17 +256,17 @@ struct PlanView: View {
                     } label: {
                         HStack {
                             Text(dayName)
-                                .font(.system(size: 15, weight: .medium))
+                                .font(.subheadline.weight(.medium))
                                 .foregroundStyle(GymTheme.label)
                             Spacer()
                             if let routine = assignedRoutine {
                                 HStack(spacing: 6) {
                                     Image(systemName: routine.iconName)
-                                        .font(.system(size: 11))
+                                        .font(.caption)
                                     Text(routine.name)
-                                        .font(.system(size: 12, weight: .bold))
+                                        .font(.caption.weight(.bold))
                                     Image(systemName: "chevron.right")
-                                        .font(.system(size: 9, weight: .bold))
+                                        .font(.caption2.weight(.bold))
                                 }
                                 .foregroundStyle(GymTheme.green)
                                 .padding(.horizontal, 10)
@@ -275,10 +275,10 @@ struct PlanView: View {
                             } else {
                                 HStack(spacing: 4) {
                                     Text("Rest")
-                                        .font(.system(size: 13, weight: .regular))
+                                        .font(.footnote.weight(.regular))
                                         .foregroundStyle(GymTheme.label3)
                                     Image(systemName: "chevron.right")
-                                        .font(.system(size: 9, weight: .bold))
+                                        .font(.caption2.weight(.bold))
                                         .foregroundStyle(GymTheme.label4)
                                 }
                             }
@@ -299,7 +299,7 @@ struct PlanView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Routines")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(GymTheme.label)
                 Spacer()
                 Button {
@@ -312,7 +312,7 @@ struct PlanView: View {
                         Image(systemName: "plus")
                         Text("New")
                     }
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(GymTheme.green)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -364,17 +364,17 @@ struct PlanView: View {
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: routine.iconName)
-                        .font(.system(size: 20))
+                        .font(.title3)
                         .foregroundStyle(GymTheme.green)
                         .frame(width: 44, height: 44)
                         .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 10))
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(routine.name)
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.body.weight(.bold))
                             .foregroundStyle(GymTheme.label)
                         Text("\(routine.exercises.count) exercises")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.caption.weight(.medium))
                             .foregroundStyle(GymTheme.label3)
                     }
                 }
@@ -392,7 +392,7 @@ struct PlanView: View {
                 }
             } label: {
                 Text(cardAction == .start ? "Start" : "Add exercises")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.footnote.weight(.bold))
                     .foregroundStyle(GymTheme.bg)
                     .padding(.horizontal, cardAction == .start ? 16 : 12)
                     .padding(.vertical, 8)
@@ -409,7 +409,7 @@ struct PlanView: View {
         if !plan.weeklyVolumeTargets.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Weekly volume targets")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(GymTheme.label)
                     .padding(.horizontal, 16)
 
@@ -417,11 +417,11 @@ struct PlanView: View {
                     ForEach(Array(plan.weeklyVolumeTargets.enumerated()), id: \.offset) { idx, target in
                         HStack {
                             Text(target.muscle.rawValue.capitalized)
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.subheadline.weight(.medium))
                                 .foregroundStyle(GymTheme.label)
                             Spacer()
                             Text("\(target.targetSets) sets")
-                                .font(.system(size: 13, weight: .bold))
+                                .font(.footnote.weight(.bold))
                                 .foregroundStyle(GymTheme.green)
                         }
                         .padding(.horizontal, 16)
@@ -543,10 +543,10 @@ private struct SplitTemplateBrowserSheet: View {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Choose how you train")
-                            .font(.system(size: 20, weight: .bold))
+                            .font(.title3.weight(.bold))
                             .foregroundStyle(GymTheme.label)
                         Text("Pick a split that matches your schedule. You can still edit every routine and exercise afterward.")
-                            .font(.system(size: 14))
+                            .font(.subheadline)
                             .foregroundStyle(GymTheme.label2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -588,7 +588,7 @@ private struct SplitTemplateBrowserSheet: View {
                         dismiss()
                     } label: {
                         Text("Use \(selectedTemplate.name)")
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.body.weight(.bold))
                             .foregroundStyle(.black)
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
@@ -612,17 +612,17 @@ private struct SplitTemplateBrowserSheet: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: iconName(for: template))
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(GymTheme.green)
                     .frame(width: 38, height: 38)
                     .background(GymTheme.green.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(template.name)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(GymTheme.label)
                     Text(focusSummary(for: template))
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.caption.weight(.medium))
                         .foregroundStyle(GymTheme.label2)
                         .lineLimit(1)
                 }
@@ -630,11 +630,11 @@ private struct SplitTemplateBrowserSheet: View {
                 Spacer(minLength: 8)
                 if selection == template.name {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 20))
+                        .font(.title3)
                         .foregroundStyle(GymTheme.green)
                 } else {
                     Image(systemName: "circle")
-                        .font(.system(size: 20))
+                        .font(.title3)
                         .foregroundStyle(GymTheme.label4)
                 }
             }

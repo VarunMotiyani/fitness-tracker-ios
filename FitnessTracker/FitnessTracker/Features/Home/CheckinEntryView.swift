@@ -32,11 +32,11 @@ struct CheckinEntryView: View {
             // Title
             VStack(alignment: .leading, spacing: 4) {
                 Text("Daily check-in")
-                    .font(.system(size: 26, weight: .bold))
+                    .font(.title.weight(.bold))
                     .foregroundStyle(GymTheme.label)
 
                 Text("Today, \(Date().formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))")
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.subheadline.weight(.regular))
                     .foregroundStyle(Color(white: 0.60))
             }
             .padding(.top, 28)
@@ -47,11 +47,11 @@ struct CheckinEntryView: View {
             // Note field
             VStack(alignment: .leading, spacing: 6) {
                 Text("Note")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(white: 0.50))
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color(white: 0.60))
 
                 TextField("Anything worth telling your coach", text: $note, axis: .vertical)
-                    .font(.system(size: 15, weight: .regular))
+                    .font(.subheadline.weight(.regular))
                     .foregroundStyle(GymTheme.label)
                     .lineLimit(1...3)
                     .padding(12)
@@ -63,7 +63,7 @@ struct CheckinEntryView: View {
                 save()
             } label: {
                 Text("Save")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.body.weight(.bold))
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
@@ -102,13 +102,13 @@ struct CheckinEntryView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(white: 0.50))
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color(white: 0.60))
 
                 Spacer()
 
                 Text("\(Int(value.wrappedValue.rounded()))")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.body.weight(.bold))
                     .foregroundStyle(activeAccent)
             }
 

@@ -5,6 +5,7 @@ import Metrics
 public struct SessionNoteSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Binding public var sessionNote: String
+    @FocusState private var editorFocused
 
     public init(sessionNote: Binding<String>) {
         self._sessionNote = sessionNote
@@ -18,6 +19,7 @@ public struct SessionNoteSheet: View {
                     .foregroundStyle(GymTheme.label)
 
                 TextEditor(text: $sessionNote)
+                    .focused($editorFocused)
                     .frame(minHeight: 140)
                     .padding(8)
                     .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 10))
@@ -35,6 +37,7 @@ public struct SessionNoteSheet: View {
             .background(GymTheme.bg.ignoresSafeArea())
             .navigationTitle("Workout Notes")
             .navigationBarTitleDisplayMode(.inline)
+            .task { editorFocused = true }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {

@@ -108,8 +108,8 @@ struct CalendarSheet: View {
         HStack(spacing: 0) {
             ForEach(dayHeaders, id: \.self) { h in
                 Text(h)
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Color(white: 0.45))
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color(white: 0.60))
                     .frame(maxWidth: .infinity)
             }
         }
@@ -130,17 +130,17 @@ struct CalendarSheet: View {
 
         VStack(alignment: .leading, spacing: 2) {
             Text(month.formatted(.dateTime.month(.wide).year()))
-                .font(.system(size: 18, weight: .bold))
+                .font(.title3.weight(.bold))
                 .foregroundStyle(GymTheme.label)
 
             if monthSessions.isEmpty {
                 Text("No workouts")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color(white: 0.50))
+                    .font(.caption.weight(.regular))
+                    .foregroundStyle(Color(white: 0.60))
             } else {
                 Text("\(monthSessions.count) workouts · \(totalMs / 60)h \(totalMs % 60)m · \(String(format: "%.1f kg", totalVol))")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color(white: 0.50))
+                    .font(.caption.weight(.regular))
+                    .foregroundStyle(Color(white: 0.60))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -201,7 +201,7 @@ struct CalendarSheet: View {
                     .foregroundStyle(isTrained ? activeAccent : GymTheme.label)
 
                 Circle()
-                    .fill(isTrained ? activeAccent : (isRescheduled ? GymTheme.orange : (isPlanned ? Color(white: 0.40) : Color.clear)))
+                    .fill(isTrained ? activeAccent : (isRescheduled ? GymTheme.orange : (isPlanned ? Color(white: 0.60) : Color.clear)))
                     .frame(width: 4.5, height: 4.5)
             }
             .frame(maxWidth: .infinity)
@@ -224,19 +224,19 @@ struct CalendarSheet: View {
             HStack(spacing: 5) {
                 Circle().fill(activeAccent).frame(width: 5, height: 5)
                 Text("Trained")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(Color(white: 0.65))
             }
             HStack(spacing: 5) {
-                Circle().fill(Color(white: 0.40)).frame(width: 5, height: 5)
+                Circle().fill(Color(white: 0.60)).frame(width: 5, height: 5)
                 Text("Planned")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(Color(white: 0.65))
             }
             HStack(spacing: 5) {
                 Circle().fill(GymTheme.orange).frame(width: 5, height: 5)
                 Text("Rescheduled")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(Color(white: 0.65))
             }
         }

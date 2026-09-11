@@ -28,27 +28,15 @@ public struct ExerciseMediaZoomSheet: View {
                                 .padding(16)
                                 .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
                         } else if let firstImage = ex.imagePaths.first, let url = URL(string: firstImage) {
-                            AsyncImage(url: url) { phase in
-                                switch phase {
-                                case .empty:
-                                    ProgressView()
-                                        .frame(height: 260)
-                                case .success(let image):
-                                    image
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(maxHeight: 300)
-                                        .scaleEffect(scale)
-                                        .gesture(
-                                            MagnificationGesture()
-                                                .onChanged { scale = $0 }
-                                                .onEnded { _ in withAnimation { scale = 1.0 } }
-                                        )
-                                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                                @unknown default:
-                                    EmptyView()
-                                }
-                            }
+                            CachedRemoteImage(url: url, maxPixelSize: 900)
+                                .frame(maxHeight: 300)
+                                .scaleEffect(scale)
+                                .gesture(
+                                    MagnificationGesture()
+                                        .onChanged { scale = $0 }
+                                        .onEnded { _ in withAnimation { scale = 1.0 } }
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
                             .padding(16)
                             .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
                         }

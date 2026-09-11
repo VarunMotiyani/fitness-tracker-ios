@@ -49,7 +49,7 @@ public struct DayAssignSheet: View {
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: routine.iconName)
-                                    .font(.system(size: 18))
+                                    .font(.title3)
                                     .foregroundStyle(GymTheme.green)
                                     .frame(width: 28)
 

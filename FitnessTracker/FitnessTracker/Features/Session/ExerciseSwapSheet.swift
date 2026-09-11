@@ -149,7 +149,7 @@ struct ExerciseSwapSheet: View {
     private func filterChip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 13, weight: .medium))
+                .font(.footnote.weight(.medium))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(isSelected ? GymTheme.green : GymTheme.surface2, in: Capsule())

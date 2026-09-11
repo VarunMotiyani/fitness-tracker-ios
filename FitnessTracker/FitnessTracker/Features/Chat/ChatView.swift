@@ -23,6 +23,7 @@ struct ChatView: View {
     @State private var draft: String = ""
     @State private var isSending = false
     @State private var errorText: String?
+    @FocusState private var composerFocused
 
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
@@ -45,7 +46,7 @@ struct ChatView: View {
                         LazyVStack(alignment: .leading, spacing: 12) {
                             if messages.isEmpty {
                                 Text("Ask your coach about recovery, muscle balance, or your training history.")
-                                    .font(.system(size: 14))
+                                    .font(.subheadline)
                                     .foregroundStyle(GymTheme.label3)
                                     .frame(maxWidth: .infinity, alignment: .center)
                                     .padding(.top, 24)
@@ -82,6 +83,8 @@ struct ChatView: View {
             }
         }
         .background(GymTheme.bg.ignoresSafeArea())
+        // Never swipe-away a typed-but-unsent question.
+        .interactiveDismissDisabled(!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     // MARK: - Header
@@ -95,7 +98,7 @@ struct ChatView: View {
                     .foregroundStyle(GymTheme.label)
 
                 Text("Ask about your training")
-                    .font(.system(size: 16, weight: .regular))
+                    .font(.body.weight(.regular))
                     .foregroundStyle(Color(white: 0.65))
             }
 
@@ -106,12 +109,13 @@ struct ChatView: View {
                     onClose()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color(white: 0.70))
-                        .frame(width: 38, height: 38)
-                        .background(GymTheme.surface, in: Circle())
+                        .frame(width: 44, height: 44)
+                        .background(GymTheme.surface, in: Circle().inset(by: 3))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Close coach chat")
             }
         }
         .padding(.horizontal, 16)
@@ -125,7 +129,7 @@ struct ChatView: View {
         HStack {
             if message.role == "user" { Spacer(minLength: 40) }
             Text(message.text)
-                .font(.system(size: 15))
+                .font(.subheadline)
                 .foregroundStyle(GymTheme.label)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -144,28 +148,33 @@ struct ChatView: View {
     private var inputBar: some View {
         HStack(spacing: 10) {
             TextField("Ask your coach…", text: $draft, axis: .vertical)
-                .font(.system(size: 15))
+                .font(.subheadline)
                 .foregroundStyle(GymTheme.label)
+                .focused($composerFocused)
+                .submitLabel(.send)
+                .onSubmit { send() }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 18))
                 .lineLimit(1...4)
+                .accessibilityLabel("Message to coach")
 
             Button {
                 send()
             } label: {
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.body.weight(.bold))
                     .foregroundStyle(.black)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 44, height: 44)
                     .background(
                         (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
                             ? GymTheme.surface3 : activeAccent,
-                        in: Circle()
+                        in: Circle().inset(by: 4)
                     )
             }
             .buttonStyle(.plain)
             .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
+            .accessibilityLabel("Send message")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

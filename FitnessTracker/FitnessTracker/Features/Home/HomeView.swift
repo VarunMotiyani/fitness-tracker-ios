@@ -142,6 +142,8 @@ struct HomeView: View {
 
     @State private var showCoachInbox = false
     @State private var showProfile = false
+    /// The collapsed "Coach updates" zone; auto-expands once the user opens it.
+    @State private var coachZoneExpanded = false
 
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
@@ -289,50 +291,7 @@ struct HomeView: View {
 
             ScrollView {
                 VStack(spacing: 16) {
-                // Pending AI-derived observations awaiting your review
-                ForEach(pendingObservations) { observation in
-                    PendingObservationCard(
-                        observation: observation,
-                        onAccept: {
-                            observation.confirmed = true
-                            _ = PersistenceReporter.attemptSave(context, operation: "persist context")
-                            if observation.kind == "bodyFatPercent" || observation.kind == "muscleMassKg" {
-                                proactiveCoordinator.resetInBodyReminder()
-                            }
-                        },
-                        onDismiss: {
-                            context.delete(observation)
-                            _ = PersistenceReporter.attemptSave(context, operation: "persist context")
-                        }
-                    )
-                }
-
-                // Pending AI-derived plan suggestions awaiting your review
-                // (Ask Coach proposals + coverage-gap detector).
-                ForEach(pendingSuggestions) { suggestion in
-                    SuggestionCard(
-                        suggestion: suggestion,
-                        catalog: catalog,
-                        onAccept: {
-                            guard let stored = plans.first else { return }
-                            do {
-                                try SuggestionApplier.apply(suggestion, storedPlan: stored, context: context)
-                                try context.save()
-                            } catch {
-                                // apply() throws before mutating `suggestion` on failure
-                                // (e.g. its target session ID is stale), so `resolvedAt`
-                                // stays nil and the card simply remains for another look
-                                // instead of vanishing with no visible effect.
-                                print("SuggestionCard: accept failed for \(suggestion.id): \(error)")
-                            }
-                        },
-                        onSkip: {
-                            SuggestionApplier.skip(suggestion, context: context)
-                            _ = PersistenceReporter.attemptSave(context, operation: "persist context")
-                        }
-                    )
-                }
-
+                // Today's workout is the reason this screen exists — it leads.
                 // Week Strip Card + Nested Today Routine
                 weekStripCard
 
@@ -340,13 +299,10 @@ struct HomeView: View {
                     dailyCheckinCard
                 }
 
-                // One compact coach preview keeps the workout action primary;
-                // the Coach screen owns the full note history.
-                if let note = homeCoachNote {
-                    CoachInsightPreview(note: note, onOpenCoach: {
-                        showCoachInbox = true
-                    })
-                }
+                // All AI-initiated content (observations, plan suggestions, the
+                // coach note preview) collapsed behind one disclosure so the
+                // dashboard opens on training state, not inbox noise.
+                coachUpdatesCard
 
                 // This-week recap card (only once a WeeklySummaryModel exists)
                 if weeklySummaries.first != nil {
@@ -465,7 +421,7 @@ struct HomeView: View {
                 }
 
                 Text(Date().formatted(.dateTime.weekday(.wide).day().month(.wide)))
-                    .font(.system(size: 16, weight: .regular))
+                    .font(.body.weight(.regular))
                     .foregroundStyle(Color(white: 0.65))
             }
 
@@ -478,7 +434,7 @@ struct HomeView: View {
                 showProfile = true
             } label: {
                 Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 16))
+                    .font(.body)
                     .foregroundStyle(activeAccent)
                     .frame(width: 38, height: 38)
                     .background(GymTheme.surface, in: Circle())
@@ -494,14 +450,14 @@ struct HomeView: View {
             } label: {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: "bubble.left.and.bubble.right.fill")
-                        .font(.system(size: 16))
+                        .font(.body)
                         .foregroundStyle(Color(white: 0.70))
                         .frame(width: 38, height: 38)
                         .background(GymTheme.surface, in: Circle())
 
                     if unreadCoachNotes.count > 0 {
                         Text(unreadCoachNotes.count > 9 ? "9+" : "\(unreadCoachNotes.count)")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.caption2.weight(.bold))
                             .foregroundStyle(.black)
                             .padding(.horizontal, 4)
                             .frame(minWidth: 16, minHeight: 16)
@@ -520,15 +476,98 @@ struct HomeView: View {
                 onOpenSettings()
             } label: {
                 Image(systemName: "gearshape.fill")
-                    .font(.system(size: 17))
+                    .font(.body)
                     .foregroundStyle(Color(white: 0.70))
                     .frame(width: 38, height: 38)
                     .background(GymTheme.surface, in: Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 4)
         .padding(.top, 12)
+    }
+
+    /// Observations, plan suggestions and the coach-note preview collapsed
+    /// behind one disclosure, so the dashboard opens on training state.
+    /// Nothing pending → the card is absent entirely.
+    @ViewBuilder
+    private var coachUpdatesCard: some View {
+        let pendingCount = pendingObservations.count + pendingSuggestions.count
+        if pendingCount > 0 || homeCoachNote != nil {
+            VStack(alignment: .leading, spacing: 12) {
+                Button {
+                    withAnimation(.snappy(duration: 0.25)) { coachZoneExpanded.toggle() }
+                } label: {
+                    HStack {
+                        Image(systemName: "sparkles")
+                            .font(.footnote.weight(.bold))
+                            .foregroundStyle(activeAccent)
+                        Text(pendingCount > 0 ? "Coach updates · \(pendingCount) waiting" : "Coach note")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(GymTheme.label)
+                        Spacer()
+                        Image(systemName: coachZoneExpanded ? "chevron.up" : "chevron.down")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Color(white: 0.60))
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(pendingCount > 0 ? "Coach updates, \(pendingCount) waiting" : "Coach note")
+                .accessibilityValue(coachZoneExpanded ? "Expanded" : "Collapsed")
+
+                if coachZoneExpanded {
+                    ForEach(pendingObservations) { observation in
+                        PendingObservationCard(
+                            observation: observation,
+                            onAccept: {
+                                observation.confirmed = true
+                                _ = PersistenceReporter.attemptSave(context, operation: "persist context")
+                                if observation.kind == "bodyFatPercent" || observation.kind == "muscleMassKg" {
+                                    proactiveCoordinator.resetInBodyReminder()
+                                }
+                            },
+                            onDismiss: {
+                                context.delete(observation)
+                                _ = PersistenceReporter.attemptSave(context, operation: "persist context")
+                            }
+                        )
+                    }
+
+                    ForEach(pendingSuggestions) { suggestion in
+                        SuggestionCard(
+                            suggestion: suggestion,
+                            catalog: catalog,
+                            onAccept: {
+                                guard let stored = plans.first else { return }
+                                do {
+                                    try SuggestionApplier.apply(suggestion, storedPlan: stored, context: context)
+                                    try context.save()
+                                } catch {
+                                    // applier() throws before mutating `suggestion` on
+                                    // failure (e.g. its target session ID is stale), so
+                                    // `resolvedAt` stays nil and the card simply remains
+                                    // for another look instead of vanishing silently.
+                                }
+                            },
+                            onSkip: {
+                                SuggestionApplier.skip(suggestion, context: context)
+                                _ = PersistenceReporter.attemptSave(context, operation: "persist context")
+                            }
+                        )
+                    }
+
+                    if let note = homeCoachNote {
+                        CoachInsightPreview(note: note, onOpenCoach: {
+                            showCoachInbox = true
+                        })
+                    }
+                }
+            }
+            .padding(16)
+            .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+        }
     }
 
     @ViewBuilder
@@ -594,7 +633,7 @@ struct HomeView: View {
                     weekOffset -= 1
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.caption.weight(.bold))
                         .foregroundStyle(GymTheme.label)
                         .frame(width: 30, height: 30)
                         .background(GymTheme.surface2, in: Circle())
@@ -609,11 +648,11 @@ struct HomeView: View {
                 } label: {
                     HStack(spacing: 5) {
                         Text(weekOffset == 0 ? "This week" : (weekOffset == -1 ? "Last week" : (weekOffset == 1 ? "Next week" : "Week \(weekOffset)")))
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(GymTheme.label)
                         Image(systemName: "calendar")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color(white: 0.50))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color(white: 0.60))
                     }
                 }
                 .buttonStyle(.plain)
@@ -626,7 +665,7 @@ struct HomeView: View {
                     weekOffset += 1
                 } label: {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.caption.weight(.bold))
                         .foregroundStyle(GymTheme.label)
                         .frame(width: 30, height: 30)
                         .background(GymTheme.surface2, in: Circle())
@@ -657,8 +696,8 @@ struct HomeView: View {
                     } label: {
                         VStack(spacing: 6) {
                             Text(dayName)
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(Color(white: 0.50))
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(Color(white: 0.60))
 
                             ZStack {
                                 if isToday {
@@ -666,7 +705,7 @@ struct HomeView: View {
                                         .fill(activeAccent)
                                         .frame(width: 32, height: 32)
                                     Text("\(dayNum)")
-                                        .font(.system(size: 15, weight: .bold))
+                                        .font(.subheadline.weight(.bold))
                                         .foregroundStyle(.black)
                                 } else {
                                     Text("\(dayNum)")
@@ -680,7 +719,7 @@ struct HomeView: View {
                             // orange = an automatic catch-up day, gray = scheduled,
                             // clear = rest day.
                             Circle()
-                                .fill(isTrained ? activeAccent : (isRescheduled ? GymTheme.orange : (isScheduledTrainingDay ? Color(white: 0.40) : Color.clear)))
+                                .fill(isTrained ? activeAccent : (isRescheduled ? GymTheme.orange : (isScheduledTrainingDay ? Color(white: 0.60) : Color.clear)))
                                 .frame(width: 4, height: 4)
                         }
                         .frame(maxWidth: .infinity)
@@ -707,25 +746,25 @@ struct HomeView: View {
                 } label: {
                     HStack(spacing: 12) {
                         Image(systemName: isDoneToday ? "checkmark" : "figure.strengthtraining.traditional")
-                            .font(.system(size: 20))
+                            .font(.title3)
                             .foregroundStyle(.black)
                             .frame(width: 40, height: 40)
                             .background(activeAccent, in: RoundedRectangle(cornerRadius: 10))
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(isDoneToday ? "COMPLETED TODAY" : "TODAY")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(Color(white: 0.50))
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(Color(white: 0.60))
 
                             Text(sessionDisplayName)
-                                .font(.system(size: 16, weight: .bold))
+                                .font(.body.weight(.bold))
                                 .foregroundStyle(GymTheme.label)
                         }
 
                         Spacer()
 
                         Text(isDoneToday ? "Redo" : "Start")
-                            .font(.system(size: 14, weight: .bold))
+                            .font(.subheadline.weight(.bold))
                             .foregroundStyle(activeAccent)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
@@ -752,17 +791,17 @@ struct HomeView: View {
             } label: {
                 HStack(spacing: 14) {
                     Image(systemName: "calendar.badge.clock")
-                        .font(.system(size: 22))
+                        .font(.title2)
                         .foregroundStyle(.black)
                         .frame(width: 44, height: 44)
                         .background(activeAccent, in: RoundedRectangle(cornerRadius: 10))
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("LAST WEEK")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(Color(white: 0.50))
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Color(white: 0.60))
                         Text(latest.headline)
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.body.weight(.bold))
                             .foregroundStyle(GymTheme.label)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
@@ -771,8 +810,8 @@ struct HomeView: View {
                     Spacer(minLength: 8)
 
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color(white: 0.45))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color(white: 0.60))
                 }
                 .padding(14)
                 .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
@@ -789,7 +828,7 @@ struct HomeView: View {
             // Header: Body weight | 🎯 77 | + Log
             HStack {
                 Text("Body weight")
-                    .font(.system(size: 15, weight: .regular))
+                    .font(.subheadline.weight(.regular))
                     .foregroundStyle(Color(white: 0.60))
 
                 Spacer()
@@ -801,9 +840,9 @@ struct HomeView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "target")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.footnote.weight(.bold))
                         Text(targetWeightKg > 0 ? String(format: "%.0f", targetWeightKg) : "Goal")
-                            .font(.system(size: 14, weight: .bold))
+                            .font(.subheadline.weight(.bold))
                     }
                     .foregroundStyle(GymTheme.gold)
                     .padding(.horizontal, 8)
@@ -822,9 +861,9 @@ struct HomeView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "plus")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.caption.weight(.bold))
                         Text("Log")
-                            .font(.system(size: 14, weight: .bold))
+                            .font(.subheadline.weight(.bold))
                     }
                     .foregroundStyle(activeAccent)
                     .padding(.horizontal, 8)
@@ -842,12 +881,12 @@ struct HomeView: View {
                     .foregroundStyle(GymTheme.label)
 
                 Text("kg")
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.body.weight(.medium))
                     .foregroundStyle(Color(white: 0.60))
 
                 if let delta = weightDelta {
                     Text("\(delta >= 0 ? "↑" : "↓") \(String(format: "%.1f", abs(delta)))")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(delta > 0 ? GymTheme.red : activeAccent)
                 }
 
@@ -865,8 +904,8 @@ struct HomeView: View {
                         }
                     }()
                     Text(dateStr)
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(Color(white: 0.50))
+                        .font(.subheadline.weight(.regular))
+                        .foregroundStyle(Color(white: 0.60))
                 }
             }
 
@@ -876,11 +915,11 @@ struct HomeView: View {
                 let remaining = currentWeight - target
                 HStack(spacing: 6) {
                     Image(systemName: "target")
-                        .font(.system(size: 12))
+                        .font(.caption)
                         .foregroundStyle(GymTheme.gold)
 
                     Text("Goal \(String(format: "%.0f", target)) kg · \(String(format: "%.1f", abs(remaining))) kg to \(remaining >= 0 ? "lose" : "gain")")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(GymTheme.gold)
                 }
                 .padding(.top, 2)
@@ -910,7 +949,7 @@ struct HomeView: View {
             HStack(spacing: 14) {
                 // Flame Icon
                 Image(systemName: "flame.fill")
-                    .font(.system(size: 24))
+                    .font(.title)
                     .foregroundStyle(GymTheme.orange)
                     .frame(width: 44, height: 44)
                     .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 10))
@@ -918,11 +957,11 @@ struct HomeView: View {
                 // Streak details
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(streakSummary.currentStreakWeeks) week streak")
-                        .font(.system(size: 17, weight: .bold))
+                        .font(.body.weight(.bold))
                         .foregroundStyle(GymTheme.label)
 
                     Text("\(streakSummary.workoutsThisWeek)/\(plan.sessions.count) this week · \(streakSummary.totalWorkouts) workouts total")
-                        .font(.system(size: 13, weight: .regular))
+                        .font(.footnote.weight(.regular))
                         .foregroundStyle(Color(white: 0.60))
                 }
 
@@ -930,7 +969,7 @@ struct HomeView: View {
 
                 // Calendar Action Icon
                 Image(systemName: "calendar")
-                    .font(.system(size: 16))
+                    .font(.body)
                     .foregroundStyle(Color(white: 0.70))
                     .frame(width: 32, height: 32)
                     .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 8))

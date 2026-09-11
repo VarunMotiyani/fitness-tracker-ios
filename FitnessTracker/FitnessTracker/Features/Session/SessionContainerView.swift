@@ -15,6 +15,7 @@ struct SessionContainerView: View {
     let onFinished: () -> Void
 
     @Environment(\.modelContext) private var context
+    @Environment(\.scenePhase) private var scenePhase
     @Query private var profiles: [UserProfile]
     // Plain @Query + Swift-side filter, not a #Predicate on `isActive` — a
     // #Predicate<ProviderProfile> boolean filter thrashing CoreData's SQL
@@ -73,6 +74,18 @@ struct SessionContainerView: View {
                     runner = SessionRunner(modelContext: context, catalog: cat,
                                            repository: repo, finalizer: fin, memoryKeeper: keeper)
                 }
+            }
+            .onDisappear {
+                // Leaving via the ✕ guard (or any dismissal) must not lose the
+                // last coalesced set — commit before the runner goes away.
+                runner?.flushPendingSave()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // Backgrounding mid-workout is the one moment the 700ms coalescer
+                // window can't cover on its own (a phone call, the OS suspending
+                // the app) — flush eagerly the instant we're not foreground-active.
+                guard phase != .active else { return }
+                runner?.flushPendingSave()
             }
     }
 

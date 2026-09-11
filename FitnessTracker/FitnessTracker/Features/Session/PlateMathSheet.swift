@@ -43,7 +43,7 @@ public struct PlateMathSheet: View {
                     .pickerStyle(.menu)
                     .tint(.primary)
                     .padding(10)
-                    .background(Color(white: 0.15), in: RoundedRectangle(cornerRadius: 10))
+                    .background(Color(white: 0.60), in: RoundedRectangle(cornerRadius: 10))
                 }
                 .padding(.horizontal)
                 
@@ -107,7 +107,7 @@ public struct PlateMathSheet: View {
                         Spacer()
                     }
                     .padding()
-                    .background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 12))
+                    .background(Color(white: 0.60), in: RoundedRectangle(cornerRadius: 12))
                     .padding(.horizontal)
                 }
                 
@@ -146,7 +146,7 @@ public struct PlateMathSheet: View {
             .frame(width: 18, height: height)
             .overlay {
                 Text(String(format: "%.0f", weight))
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.caption2.weight(.bold))
                     .foregroundStyle(.white)
                     .rotationEffect(.degrees(-90))
             }

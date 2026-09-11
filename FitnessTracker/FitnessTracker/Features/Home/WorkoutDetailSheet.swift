@@ -69,11 +69,11 @@ struct WorkoutDetailSheet: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(dayCheckin == nil ? "How are you feeling?" : (isToday ? "Today’s check-in" : "Daily check-in"))
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.subheadline.weight(.bold))
                     .foregroundStyle(GymTheme.label)
 
                 Text(checkinSummaryText)
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundStyle(GymTheme.label2)
                     .lineLimit(2)
             }
@@ -82,7 +82,7 @@ struct WorkoutDetailSheet: View {
 
             if isEditable {
                 Text(dayCheckin == nil ? "Check in" : "Update")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.footnote.weight(.bold))
                     .foregroundStyle(activeAccent)
             }
         }
@@ -98,7 +98,7 @@ struct WorkoutDetailSheet: View {
                     // Header Title & Stats
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Session Details")
-                            .font(.system(size: 22, weight: .bold))
+                            .font(.title2.weight(.bold))
                             .foregroundStyle(GymTheme.label)
 
                         let dur = session.actualDurationMin
@@ -106,7 +106,7 @@ struct WorkoutDetailSheet: View {
                             sum + e.sets.reduce(0.0) { sSum, s in sSum + (s.actualLoadKg * Double(s.actualReps)) }
                         }
                         Text("\(session.startedAt.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))) · \(dur)m · \(String(format: "%.1f kg", totalKg))")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.subheadline.weight(.medium))
                             .foregroundStyle(Color(white: 0.60))
                     }
                     .padding(.top, 8)
@@ -120,17 +120,17 @@ struct WorkoutDetailSheet: View {
                             HStack(alignment: .top, spacing: 12) {
                                 ZStack {
                                     RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color(white: 0.16))
+                                        .fill(Color(white: 0.60))
                                         .frame(width: 44, height: 44)
                                     Image(systemName: "dumbbell.fill")
-                                        .font(.system(size: 18))
+                                        .font(.title3)
                                         .foregroundStyle(GymTheme.green)
                                 }
 
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {
                                         Text(ex?.name ?? entry.exerciseID)
-                                            .font(.system(size: 15, weight: .bold))
+                                            .font(.subheadline.weight(.bold))
                                             .foregroundStyle(GymTheme.label)
                                     }
 
@@ -139,7 +139,7 @@ struct WorkoutDetailSheet: View {
                                         "\(String(format: "%.1f", s.actualLoadKg))×\(s.actualReps)"
                                     }
                                     Text(setStrings.joined(separator: " · "))
-                                        .font(.system(size: 13, weight: .regular, design: .monospaced))
+                                        .font(.footnote.weight(.regular)).fontDesign(.monospaced)
                                         .foregroundStyle(Color(white: 0.70))
                                 }
                                 Spacer()
@@ -153,10 +153,10 @@ struct WorkoutDetailSheet: View {
                     if let note = session.overallNote, !note.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Session note")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color(white: 0.50))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Color(white: 0.60))
                             Text(note)
-                                .font(.system(size: 14))
+                                .font(.subheadline)
                                 .foregroundStyle(Color(white: 0.80))
                                 .padding(12)
                                 .frame(maxWidth: .infinity, alignment: .leading)

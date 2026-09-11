@@ -48,16 +48,16 @@ struct LogWeightSheet: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Log body weight")
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.title.weight(.bold))
                         .foregroundStyle(GymTheme.label)
 
                     Text("Today, \(Date().formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))")
-                        .font(.system(size: 14, weight: .regular))
+                        .font(.subheadline.weight(.regular))
                         .foregroundStyle(Color(white: 0.60))
                 }
                 Spacer()
                 Button("Done") { dismiss() }
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.subheadline.weight(.bold))
                     .foregroundStyle(activeAccent)
                     .frame(minWidth: 44, minHeight: 44)
             }
@@ -72,7 +72,7 @@ struct LogWeightSheet: View {
             .accessibilityHint("Choose whether this is your morning or night weigh-in")
 
             Text("Log both readings to use their daily average in your progress metrics.")
-                .font(.system(size: 13.5))
+                .font(.subheadline)
                 .foregroundStyle(GymTheme.label2)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -87,7 +87,7 @@ struct LogWeightSheet: View {
                 saveWeight()
             } label: {
                 Text("Save \(selectedSlot.title) reading")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.body.weight(.bold))
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
@@ -97,7 +97,7 @@ struct LogWeightSheet: View {
 
             if let savedSummary {
                 Text(savedSummary)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.footnote.weight(.medium))
                     .foregroundStyle(activeAccent)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
@@ -105,26 +105,26 @@ struct LogWeightSheet: View {
             // Recent weigh-ins (historical records)
             if !recentEntries.isEmpty {
                 Text("Recent weigh-ins")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(white: 0.50))
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color(white: 0.60))
                     .padding(.top, 10)
 
                 VStack(spacing: 0) {
                     ForEach(Array(recentEntries.enumerated()), id: \.element.id) { idx, item in
                         HStack {
                             Text(item.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
-                                .font(.system(size: 14, weight: .regular))
+                                .font(.subheadline.weight(.regular))
                                 .foregroundStyle(Color(white: 0.65))
 
                             Spacer()
 
                             Text(String(format: "%.1f kg", item.kg))
-                                .font(.system(size: 16, weight: .bold))
+                                .font(.body.weight(.bold))
                                 .foregroundStyle(GymTheme.label)
 
                             if item.morningKg != nil || item.nightKg != nil {
                                 Text(readingDetail(for: item))
-                                    .font(.system(size: 11, weight: .medium))
+                                    .font(.caption.weight(.medium))
                                     .foregroundStyle(GymTheme.label3)
                             }
 
@@ -132,7 +132,7 @@ struct LogWeightSheet: View {
                                 deleteEntry(item)
                             } label: {
                                 Image(systemName: "trash")
-                                    .font(.system(size: 13))
+                                    .font(.footnote)
                                     .foregroundStyle(GymTheme.red)
                                     .frame(width: 32, height: 30)
                                     .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 8))
@@ -198,11 +198,11 @@ struct LogWeightSheet: View {
             Divider().frame(height: 28)
             VStack(alignment: .trailing, spacing: 2) {
                 Text("DAILY AVG")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.caption2.weight(.bold))
                     .tracking(0.5)
                     .foregroundStyle(GymTheme.label3)
                 Text(String(format: "%.1f kg", entry.kg))
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.subheadline.weight(.bold))
                     .foregroundStyle(activeAccent)
                     .monospacedDigit()
             }
@@ -216,11 +216,11 @@ struct LogWeightSheet: View {
     private func summaryValue(title: String, value: Double?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(.system(size: 10, weight: .bold))
+                .font(.caption2.weight(.bold))
                 .tracking(0.5)
                 .foregroundStyle(GymTheme.label3)
             Text(value.map { String(format: "%.1f", $0) } ?? "—")
-                .font(.system(size: 15, weight: .bold))
+                .font(.subheadline.weight(.bold))
                 .foregroundStyle(value == nil ? GymTheme.label3 : GymTheme.label)
                 .monospacedDigit()
         }

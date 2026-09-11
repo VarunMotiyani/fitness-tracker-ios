@@ -26,7 +26,7 @@ struct WeightInputView: View {
                     step(by: isInteger ? -1.0 : -0.1)
                 } label: {
                     Image(systemName: "minus")
-                        .font(.system(size: 20, weight: .bold))
+                        .font(.title3.weight(.bold))
                         .foregroundStyle(.white)
                         .frame(width: 48, height: 48)
                         .background(GymTheme.surface2, in: Circle())
@@ -39,7 +39,7 @@ struct WeightInputView: View {
                         .foregroundStyle(GymTheme.label)
                         .monospacedDigit()
                     Text(unit)
-                        .font(.system(size: 18, weight: .medium))
+                        .font(.title3.weight(.medium))
                         .foregroundStyle(Color(white: 0.60))
                 }
                 .frame(minWidth: 160)
@@ -48,7 +48,7 @@ struct WeightInputView: View {
                     step(by: isInteger ? +1.0 : +0.1)
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 20, weight: .bold))
+                        .font(.title3.weight(.bold))
                         .foregroundStyle(.white)
                         .frame(width: 48, height: 48)
                         .background(GymTheme.surface2, in: Circle())
@@ -101,7 +101,7 @@ struct WeightInputView: View {
             step(by: delta)
         } label: {
             Text(label)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(GymTheme.label)
                 .frame(width: 60, height: 34)
                 .background(GymTheme.surface2, in: Capsule())

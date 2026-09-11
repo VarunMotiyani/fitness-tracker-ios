@@ -429,8 +429,8 @@ struct SettingsView: View {
                         .foregroundStyle(GymTheme.label)
                     Spacer()
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(white: 0.45))
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color(white: 0.60))
                 }
             }
         } header: {
@@ -460,7 +460,7 @@ struct SettingsView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Accent color")
-                    .font(.system(size: 15))
+                    .font(.subheadline)
                     .foregroundStyle(GymTheme.label)
 
                 HStack(spacing: 12) {
@@ -619,7 +619,7 @@ struct SettingsView: View {
                         Text("How it felt").frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .font(.caption.bold())
-                    .foregroundStyle(Color(white: 0.50))
+                    .foregroundStyle(Color(white: 0.60))
                     .padding(.bottom, 8)
 
                     Divider().background(Color.white.opacity(0.1))
@@ -655,9 +655,9 @@ struct SettingsView: View {
     @ViewBuilder
     private func effortRow(rir: String, rpe: String, feel: String, isAnchor: Bool) -> some View {
         HStack {
-            Text(rir).frame(width: 44, alignment: .leading).font(.system(size: 14, weight: .bold))
-            Text(rpe).frame(width: 44, alignment: .leading).font(.system(size: 14, weight: .bold))
-            Text(feel).frame(maxWidth: .infinity, alignment: .leading).font(.system(size: 13))
+            Text(rir).frame(width: 44, alignment: .leading).font(.subheadline.weight(.bold))
+            Text(rpe).frame(width: 44, alignment: .leading).font(.subheadline.weight(.bold))
+            Text(feel).frame(maxWidth: .infinity, alignment: .leading).font(.footnote)
         }
         .foregroundStyle(isAnchor ? activeAccent : GymTheme.label)
         .padding(.vertical, 8)

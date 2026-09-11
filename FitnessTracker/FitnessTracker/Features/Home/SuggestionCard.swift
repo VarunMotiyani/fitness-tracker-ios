@@ -48,15 +48,15 @@ struct SuggestionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("COACH SUGGESTS")
-                .font(.system(size: 11, weight: .bold))
+                .font(.caption.weight(.bold))
                 .foregroundStyle(GymTheme.label3)
 
             Text(summary)
-                .font(.system(size: 16, weight: .bold))
+                .font(.body.weight(.bold))
                 .foregroundStyle(GymTheme.label)
 
             Text(suggestion.rationale)
-                .font(.system(size: 13, weight: .regular))
+                .font(.footnote.weight(.regular))
                 .foregroundStyle(GymTheme.label2)
 
             HStack(spacing: 12) {
@@ -64,7 +64,7 @@ struct SuggestionCard: View {
                     onAccept()
                 } label: {
                     Text("Accept")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.subheadline.weight(.bold))
                         .foregroundStyle(.black)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
@@ -76,7 +76,7 @@ struct SuggestionCard: View {
                     onSkip()
                 } label: {
                     Text("Skip")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.subheadline.weight(.bold))
                         .foregroundStyle(GymTheme.red)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)

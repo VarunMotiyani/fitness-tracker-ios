@@ -89,6 +89,27 @@ _Current Branch: `fitness-engine-v2` | Target: iPhone (iOS 17+) / Swift 6 Strict
 
 ---
 
+### Phase 5: UI/UX Audit Remediation (2026-09-11)
+- **Status:** **100% COMPLETE & VERIFIED** (all unit + UI tests pass on physical iPhone 14; changes left UNCOMMITTED per user instruction)
+- **Plan:** `docs/plans/2026-09-11-uiux-audit-remediation-plan.md` → `...2026-09-11-uiux-audit-remediation-plan.md`; source audit 8/20 → decisions D1–D7 all adopted as recommended
+- **Engineering decisions recorded:**
+  - **iPhone-only:** `TARGETED_DEVICE_FAMILY = "1"`, iPhone orientations portrait-only (was `"1,2"` + all orientations)
+  - **Dynamic Type:** 343 fixed-size fonts → text styles across 33 files; display numerals ≥ 29 pt stay fixed; icon glyphs scale with content size
+  - **Save coalescer (`SessionRunner`):** mutations mark-dirty; single commit at most every 700 ms; eager flush at `finish`, `requestSummary`, and container `onDisappear` — removed 8 per-action main-thread `context.save()` calls
+  - **Session render storm:** `SessionElapsedClock` subview owns the 1 Hz tick (whole 900-line body no longer re-renders per second); history scans memoized into `lastTimeText`/`bestText`/`firstLoggedStart` at exercise change
+  - **Native GIF renderer (`AnimatedGifView.swift`):** `CGImageSourceCreateWithData` pre-decode (downscaled ≤ 420 px, off-main actor LRU cache, 8 plans) + contained ticker view; every WKWebView removed from the app
+  - **Image cache (`RemoteImageCache.swift`):** SHA-256-keyed disk cache under Caches + 60 MB `NSCache` of decoded stills; `CachedRemoteImage` replaces all 5 `AsyncImage` sites; thumbnails no longer re-download on revisit
+  - **Reduce Motion gating:** rest-flash overlay (2 black pulses, peak 0.35, fully suppressed under Reduce Motion), tab pulse, root toast
+  - **Modal sequencing:** finish dialog no longer co-presented with the working-weight sheet (`advanceOrFinish` guard) — previously the dialog was silently dropped on the last exercise
+  - **Plan-decode failure:** explicit `ContentUnavailableView` + "Rebuild my plan" replaces permanent silent spinner; startup seed check moved off `body`
+  - **A11y:** VoiceOver labels on metric tiles, all 3 Stats charts (spoken first/latest summaries), heatmap, icon buttons; ghost demo fallback values removed from real metric tiles
+  - **Home hierarchy:** today's workout leads; observations/suggestions/coach-note collapsed behind "Coach updates · N" disclosure; dead `.coach` TabView branch deleted
+  - **Contrast:** 66 `Color(white: < 0.58)` literals raised to 0.60; `label3`/`label4` tokens raised
+  - **Routine naming:** `RoutineNaming.dayName(for: focusMuscles)` replaces demo-catalog exercise-ID → day-name hacks in session header and recent workouts
+- **Deviations:** Swift Charts migration skipped (D3 fallback: spoken a11y summaries on retained hand-drawn charts); legacy `GymTheme.green/blue/purple/yellow` aliases retained; Instruments traces/goldens not captured (device test suite is the gate)
+
+---
+
 ## 3. Test Verification Matrix
 
 | Suite | Tests Count | Status | Duration |

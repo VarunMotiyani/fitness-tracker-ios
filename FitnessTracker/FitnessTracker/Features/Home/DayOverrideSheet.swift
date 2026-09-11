@@ -159,11 +159,11 @@ struct DayOverrideSheet: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(dayCheckin == nil ? "How are you feeling?" : (isToday ? "Today’s check-in" : "Daily check-in"))
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.subheadline.weight(.bold))
                     .foregroundStyle(GymTheme.label)
 
                 Text(checkinSummaryText)
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundStyle(GymTheme.label2)
                     .lineLimit(2)
             }
@@ -172,7 +172,7 @@ struct DayOverrideSheet: View {
 
             if isEditable {
                 Text(dayCheckin == nil ? "Check in" : "Update")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.footnote.weight(.bold))
                     .foregroundStyle(activeAccent)
             }
         }
@@ -185,7 +185,7 @@ struct DayOverrideSheet: View {
     private var plannedWorkoutSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("YOUR PLAN")
-                .font(.system(size: 12, weight: .bold))
+                .font(.caption.weight(.bold))
                 .tracking(0.7)
                 .foregroundStyle(GymTheme.label3)
 
@@ -199,7 +199,7 @@ struct DayOverrideSheet: View {
                     } label: {
                         HStack(spacing: 14) {
                             Image(systemName: "dumbbell.fill")
-                                .font(.system(size: 19, weight: .semibold))
+                                .font(.title3.weight(.semibold))
                                 .foregroundStyle(.black)
                                 .frame(width: 48, height: 48)
                                 .background(activeAccent, in: RoundedRectangle(cornerRadius: 14))
@@ -207,20 +207,20 @@ struct DayOverrideSheet: View {
 
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(WorkoutDayPresentation.planLabel(for: session, isCustomized: hasWorkoutOverride).uppercased())
-                                    .font(.system(size: 11, weight: .bold))
+                                    .font(.caption.weight(.bold))
                                     .tracking(0.6)
                                     .foregroundStyle(activeAccent)
                                 Text(WorkoutDayPresentation.title(for: session))
-                                    .font(.system(size: 20, weight: .bold))
+                                    .font(.title3.weight(.bold))
                                     .foregroundStyle(GymTheme.label)
                                 Text("\(session.items.count) exercises · Tap to \(showExerciseEditor ? "hide" : "view")")
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(.footnote.weight(.medium))
                                     .foregroundStyle(GymTheme.label2)
                             }
 
                             Spacer(minLength: 0)
                             Image(systemName: showExerciseEditor ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 13, weight: .bold))
+                                .font(.footnote.weight(.bold))
                                 .foregroundStyle(GymTheme.label3)
                         }
                         .padding(16)
@@ -239,16 +239,16 @@ struct DayOverrideSheet: View {
                                         ExerciseThumbnailView(exercise: exercise, size: 42, cornerRadius: 10)
                                         VStack(alignment: .leading, spacing: 3) {
                                             Text(exerciseName(for: item))
-                                                .font(.system(size: 15, weight: .bold))
+                                                .font(.subheadline.weight(.bold))
                                                 .foregroundStyle(GymTheme.label)
                                                 .multilineTextAlignment(.leading)
                                             Text("\(item.targetSets) sets · \(item.targetReps.min)–\(item.targetReps.max) reps")
-                                                .font(.system(size: 13, weight: .medium))
+                                                .font(.footnote.weight(.medium))
                                                 .foregroundStyle(GymTheme.label2)
                                         }
                                         Spacer()
                                         Image(systemName: "chevron.right")
-                                            .font(.system(size: 12, weight: .bold))
+                                            .font(.caption.weight(.bold))
                                             .foregroundStyle(GymTheme.label3)
                                     }
                                     .padding(10)
@@ -264,7 +264,7 @@ struct DayOverrideSheet: View {
                                 dismiss()
                             } label: {
                                 Label("Add exercise", systemImage: "plus.circle.fill")
-                                    .font(.system(size: 15, weight: .bold))
+                                    .font(.subheadline.weight(.bold))
                                     .foregroundStyle(activeAccent)
                                     .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
                             }
@@ -276,7 +276,7 @@ struct DayOverrideSheet: View {
                                     workoutOverrideRevision += 1
                                 } label: {
                                     Label("Reset today’s workout", systemImage: "arrow.counterclockwise")
-                                        .font(.system(size: 14, weight: .semibold))
+                                        .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(GymTheme.label2)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
@@ -291,7 +291,7 @@ struct DayOverrideSheet: View {
             } else {
                 HStack(spacing: 14) {
                     Image(systemName: "moon.fill")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.title3.weight(.semibold))
                         .foregroundStyle(GymTheme.label2)
                         .frame(width: 48, height: 48)
                         .background(GymTheme.surface3, in: RoundedRectangle(cornerRadius: 14))
@@ -299,14 +299,14 @@ struct DayOverrideSheet: View {
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text("PLANNED DAY")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.caption.weight(.bold))
                             .tracking(0.6)
                             .foregroundStyle(GymTheme.label3)
                         Text("Rest day")
-                            .font(.system(size: 20, weight: .bold))
+                            .font(.title3.weight(.bold))
                             .foregroundStyle(GymTheme.label)
                         Text("Recovery is part of the plan")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.footnote.weight(.medium))
                             .foregroundStyle(GymTheme.label2)
                     }
                     Spacer(minLength: 0)
@@ -333,13 +333,13 @@ struct DayOverrideSheet: View {
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.body.weight(.semibold))
                         .accessibilityHidden(true)
                     Text(showChangeOptions ? "Hide workout choices" : (plannedSession == nil ? "Add a workout" : "Change workout"))
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.body.weight(.bold))
                     Spacer()
                     Image(systemName: showChangeOptions ? "chevron.up" : "chevron.right")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.footnote.weight(.bold))
                         .accessibilityHidden(true)
                 }
                 .foregroundStyle(activeAccent)
@@ -351,12 +351,12 @@ struct DayOverrideSheet: View {
             if showChangeOptions {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("CHOOSE A COMPATIBLE WORKOUT")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.caption.weight(.bold))
                         .tracking(0.7)
                         .foregroundStyle(GymTheme.label3)
 
                     Text("This changes only \(date.formatted(.dateTime.weekday(.wide))).")
-                        .font(.system(size: 13.5))
+                        .font(.subheadline)
                         .foregroundStyle(GymTheme.label2)
 
                     ForEach(plan.sessions.filter { isCompatibleAlternative($0, with: plannedSession) }.sorted { $0.order < $1.order }) { session in
@@ -369,7 +369,7 @@ struct DayOverrideSheet: View {
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "dumbbell.fill")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.body.weight(.semibold))
                                 .foregroundStyle(.black)
                                 .frame(width: 40, height: 40)
                                 .background(activeAccent, in: RoundedRectangle(cornerRadius: 11))
@@ -377,16 +377,16 @@ struct DayOverrideSheet: View {
 
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(WorkoutDayPresentation.title(for: session))
-                                    .font(.system(size: 16, weight: .bold))
+                                    .font(.body.weight(.bold))
                                     .foregroundStyle(GymTheme.label)
                                 Text("\(session.items.count) exercises")
-                                    .font(.system(size: 13))
+                                    .font(.footnote)
                                     .foregroundStyle(GymTheme.label2)
                             }
 
                             Spacer()
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 13, weight: .bold))
+                                .font(.footnote.weight(.bold))
                                 .foregroundStyle(GymTheme.label3)
                                 .accessibilityHidden(true)
                         }
@@ -407,7 +407,7 @@ struct DayOverrideSheet: View {
                         dismiss()
                     } label: {
                         Label("Use weekly plan again", systemImage: "arrow.counterclockwise")
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.subheadline.weight(.bold))
                             .foregroundStyle(GymTheme.label2)
                             .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                     }
@@ -427,11 +427,11 @@ struct DayOverrideSheet: View {
                 // Header with generous top padding below drag indicator
                 VStack(alignment: .leading, spacing: 4) {
                     Text(date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.title.weight(.bold))
                         .foregroundStyle(GymTheme.label)
 
                     Text(isToday ? "Today’s schedule" : "Your plan for this day")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.subheadline.weight(.medium))
                         .foregroundStyle(Color(white: 0.60))
                 }
                 .padding(.top, 28)
@@ -443,7 +443,7 @@ struct DayOverrideSheet: View {
                 Button("Need recovery? Rest today", role: .destructive) {
                     showRestConfirmation = true
                 }
-                .font(.system(size: 14, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(GymTheme.label3)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.top, 4)

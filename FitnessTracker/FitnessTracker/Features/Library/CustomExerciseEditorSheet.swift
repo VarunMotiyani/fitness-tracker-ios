@@ -11,6 +11,8 @@ struct CustomExerciseEditorSheet: View {
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var photoData: Data?
     @State private var errorMessage: String?
+    @FocusState private var focusedField: Field?
+    private enum Field: Equatable { case name, instructions }
 
     let existing: CustomExerciseModel?
     let onSaved: () -> Void
@@ -35,6 +37,9 @@ struct CustomExerciseEditorSheet: View {
                 Section {
                     TextField("Exercise name", text: $draft.name)
                         .textInputAutocapitalization(.words)
+                        .focused($focusedField, equals: .name)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .instructions }
                     if let error = draft.validationError {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .font(.footnote)
@@ -94,6 +99,7 @@ struct CustomExerciseEditorSheet: View {
 
                 Section("Instructions") {
                     TextField("One step per line (optional)", text: $draft.instructions, axis: .vertical)
+                        .focused($focusedField, equals: .instructions)
                         .lineLimit(3...8)
                 }
 

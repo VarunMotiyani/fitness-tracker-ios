@@ -78,6 +78,7 @@ final class NotificationResponder: NSObject, ObservableObject, UNUserNotificatio
 struct RootView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query private var profiles: [UserProfile]
     @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var plans: [StoredPlan]
     @Query private var allProviderProfiles: [ProviderProfile]
@@ -115,6 +116,11 @@ struct RootView: View {
     }
     @State private var activePlannedSession: PlannedSession?
     @State private var showSettings = false
+    /// nil until the first `.task` resolves it; drives the onboarding branch.
+    @State private var seedNeeded: Bool?
+    /// A stored plan that fails to decode used to fall through to a permanent
+    /// spinner. Now it gets an explicit repair path.
+    @State private var planDecodeFailed = false
     @State private var exerciseLibraryIntent: ExerciseLibraryIntent?
     @State private var reopenDayOverrideDate: Date?
 
@@ -156,6 +162,28 @@ struct RootView: View {
         ZStack(alignment: .bottom) {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .task {
+                    // Resolved off the render path — `needsInitialSeed` is a
+                    // SwiftData fetch and used to run on every body evaluation.
+                    if seedNeeded == nil {
+                        seedNeeded = AppBootstrap.needsInitialSeed(in: context)
+                        if seedNeeded == false {
+                            // A corrupt/missing plan used to render a permanent
+                            // spinner. Direct fetch, not `plans`, which can be
+                            // transiently empty while SwiftData hydrates.
+                            var descriptor = FetchDescriptor<StoredPlan>()
+                            descriptor.sortBy = [SortDescriptor(\StoredPlan.generatedAt, order: .reverse)]
+                            descriptor.fetchLimit = 1
+                            let stored = ((try? context.fetch(descriptor)) ?? []).first
+                            // No row at all just means generation hasn't produced
+                            // one yet (fresh onboarding, relaunch mid-generation)
+                            // — that's not a decode failure, and was misreporting
+                            // as "plan couldn't be read" before this guard.
+                            let decoded = stored.flatMap { plan in (try? plan.decodedPlan()) != nil }
+                            planDecodeFailed = stored != nil && decoded != true
+                        }
+                    }
+                }
 
             // Persistent custom bottom navigation bar across views and Settings
             if profiles.first != nil, let plan = try? plans.first?.decodedPlan() {
@@ -195,7 +223,7 @@ struct RootView: View {
         .overlay(alignment: .top) {
             if let lastNote {
                 Text(lastNote)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.footnote.weight(.medium))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .background(.ultraThinMaterial, in: Capsule())
@@ -210,8 +238,8 @@ struct RootView: View {
                     .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 12))
             }
         }
-        .animation(.default, value: lastNote)
-        .animation(.default, value: isGenerating)
+        .animation(reduceMotion ? nil : .default, value: lastNote)
+        .animation(reduceMotion ? nil : .default, value: isGenerating)
         .task(id: lastNote) {
             guard lastNote != nil else { return }
             try? await Task.sleep(for: .seconds(3))
@@ -354,19 +382,25 @@ struct RootView: View {
                 )
                 .tag(AppTab.exercises)
 
-                // Built only while selected — `resolvedProvider` reads the
-                // Keychain and spins a URLSession; no need on every body pass.
-                Group {
-                    if selectedTab == .coach {
-                        ChatView(catalog: catalog, provider: resolvedProvider, activeProfile: activeProfiles.first)
-                    } else {
-                        Color.clear
-                    }
-                }
-                .tag(AppTab.coach)
             }
             .toolbar(.hidden, for: .tabBar)
-        } else if AppBootstrap.needsInitialSeed(in: context) {
+        } else if planDecodeFailed {
+            // The plan row exists but won't decode (schema drift, interrupted
+            // write). Previously a permanent silent spinner — now an explicit
+            // repair path. Once a good plan exists the TabView branch wins again.
+            ContentUnavailableView {
+                Image(systemName: "exclamationmark.triangle")
+                Text("Your weekly plan couldn't be read")
+                Text("It was saved in a format this version can't open. Rebuilding keeps your history and profile.")
+            } actions: {
+                Button("Rebuild my plan") {
+                    if let profile = profiles.first {
+                        regeneratePlan(for: profile)
+                    }
+                    planDecodeFailed = false
+                }
+            }
+        } else if seedNeeded == true {
             // Direct fetch, not `profiles.isEmpty`: `@Query` can report an empty
             // first snapshot on relaunch before SwiftData hydrates, which would
             // briefly flash onboarding over existing data.
@@ -377,6 +411,12 @@ struct RootView: View {
                     // If generation is interrupted, the athlete's answers are
                     // still present on the next launch.
                     try context.save()
+                    // `seedNeeded` is resolved once in a `.task` and never
+                    // re-checked — without this, submitting onboarding briefly
+                    // re-shows the form (stale `true`) instead of the "building
+                    // your plan" spinner, since the TabView branch above still
+                    // needs a plan that regeneratePlan is only now generating.
+                    seedNeeded = false
                     regeneratePlan(for: profile)
                 } catch {
                     lastNote = "Could not save your profile: \(error.localizedDescription)"

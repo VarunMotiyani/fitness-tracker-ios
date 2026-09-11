@@ -11,6 +11,7 @@ public struct ExerciseNoteSheet: View {
     
     @Binding public var todayNote: String
     @Binding public var notePin: Bool
+    @FocusState private var editorFocused
 
     public init(
         exerciseName: String,
@@ -80,6 +81,7 @@ public struct ExerciseNoteSheet: View {
                             .foregroundStyle(GymTheme.label)
 
                         TextEditor(text: $todayNote)
+                            .focused($editorFocused)
                             .frame(minHeight: 100)
                             .padding(8)
                             .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 10))
@@ -98,6 +100,7 @@ public struct ExerciseNoteSheet: View {
             .background(GymTheme.bg.ignoresSafeArea())
             .navigationTitle(exerciseName)
             .navigationBarTitleDisplayMode(.inline)
+            .task { editorFocused = true }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {

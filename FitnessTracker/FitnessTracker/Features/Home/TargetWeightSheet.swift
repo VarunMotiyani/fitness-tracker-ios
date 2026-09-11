@@ -23,12 +23,12 @@ struct TargetWeightSheet: View {
             VStack(alignment: .leading, spacing: 14) {
                 // Title
                 Text("Target weight")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.title2.weight(.bold))
                     .foregroundStyle(GymTheme.label)
 
                 // Subtitle
                 Text("Your goal is drawn as a line through the weight charts, and gains/losses are colored by whether they move toward it.")
-                    .font(.system(size: 13.5, weight: .regular))
+                    .font(.subheadline.weight(.regular))
                     .foregroundStyle(Color(white: 0.60))
                     .lineSpacing(2)
 
@@ -44,7 +44,7 @@ struct TargetWeightSheet: View {
                     dismiss()
                 } label: {
                     Text("Save goal")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.body.weight(.bold))
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .frame(height: 48)
@@ -62,7 +62,7 @@ struct TargetWeightSheet: View {
                         dismiss()
                     } label: {
                         Text("Remove goal")
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.body.weight(.bold))
                             .foregroundStyle(GymTheme.red)
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)

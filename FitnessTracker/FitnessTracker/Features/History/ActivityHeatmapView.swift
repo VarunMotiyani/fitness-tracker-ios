@@ -122,11 +122,15 @@ public struct ActivityHeatmapView: View {
             }
         }
         .padding()
-        .background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 14))
+        .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 14))
     }
-    
+
     private func shade(for level: Double) -> Color {
-        guard level > 0 else { return Color(white: 0.22) }
+        // Decorative grid cell, not text — the a11y contrast sweep raised this
+        // to the same 0.60 gray as the card background above, so every
+        // no-activity cell (level 0, the majority of a 52-week grid) vanished
+        // into the card and only the green "had a workout" cells stayed visible.
+        guard level > 0 else { return GymTheme.surface3 }
         // 0.35 → faint, 1.0 → full accent.
         return accentColor.opacity(0.30 + level * 0.70)
     }

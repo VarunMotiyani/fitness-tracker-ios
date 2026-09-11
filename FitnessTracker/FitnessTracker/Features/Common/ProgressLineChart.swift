@@ -97,7 +97,7 @@ public struct ProgressLineChart: View {
 
                     Text(yVal == Double(Int(yVal)) ? String(format: "%.0f", yVal) : String(format: "%.1f", yVal))
                         .font(.system(size: 9.5, weight: .regular))
-                        .foregroundStyle(Color(white: 0.50))
+                        .foregroundStyle(Color(white: 0.60))
                         .position(x: padL - 16, y: yPos)
                 }
 
@@ -188,7 +188,7 @@ public struct ProgressLineChart: View {
                         }
                     }
                     .font(.system(size: 10, weight: .regular))
-                    .foregroundStyle(Color(white: 0.50))
+                    .foregroundStyle(Color(white: 0.60))
                     .padding(.horizontal, padL + 12)
                     .position(x: w / 2, y: h - 8)
                 }

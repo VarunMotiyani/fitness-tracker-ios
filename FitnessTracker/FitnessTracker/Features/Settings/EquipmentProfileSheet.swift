@@ -33,7 +33,7 @@ struct EquipmentProfileSheet: View {
                                         .foregroundStyle(GymTheme.label)
                                     if profile.id == activeProfileID {
                                         Text("ACTIVE")
-                                            .font(.system(size: 10, weight: .bold))
+                                            .font(.caption2.weight(.bold))
                                             .foregroundStyle(.black)
                                             .padding(.horizontal, 6)
                                             .padding(.vertical, 2)

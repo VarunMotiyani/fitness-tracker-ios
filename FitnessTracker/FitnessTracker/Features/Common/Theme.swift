@@ -9,8 +9,8 @@ public enum GymTheme {
     
     public static let label = Color.white
     public static let label2 = Color(white: 0.70)
-    public static let label3 = Color(white: 0.45)
-    public static let label4 = Color(white: 0.25)
+    public static let label3 = Color(white: 0.60)
+    public static let label4 = Color(white: 0.60)
     
     // High-contrast accent palette used throughout the app.
     public static let lime = Color(red: 0.19, green: 0.82, blue: 0.35) // #30d158

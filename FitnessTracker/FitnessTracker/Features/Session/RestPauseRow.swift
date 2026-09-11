@@ -26,12 +26,12 @@ public struct RestPauseRow: View {
             ForEach(Array(clusters.enumerated()), id: \.offset) { index, cluster in
                 HStack(spacing: 8) {
                     Text("Burst \(index + 1)")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.caption.weight(.bold))
                         .foregroundStyle(GymTheme.violet)
                         .frame(width: 55, alignment: .leading)
 
                     Text("\(cluster.reps) reps · \(cluster.restSeconds)s rest")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(GymTheme.label)
 
                     Spacer()
@@ -40,7 +40,7 @@ public struct RestPauseRow: View {
                         onRemoveCluster(index)
                     } label: {
                         Image(systemName: "trash")
-                            .font(.system(size: 12))
+                            .font(.caption)
                             .foregroundStyle(GymTheme.red.opacity(0.8))
                             .padding(6)
                     }
@@ -59,7 +59,7 @@ public struct RestPauseRow: View {
                     Image(systemName: "plus.circle.fill")
                     Text("Add Rest-Pause Burst (15s)")
                 }
-                .font(.system(size: 12, weight: .semibold))
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(GymTheme.violet)
                 .padding(.vertical, 4)
             }

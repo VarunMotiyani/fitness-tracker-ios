@@ -128,10 +128,10 @@ struct LibraryView: View {
                 // Search Bar
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 15))
+                        .font(.subheadline)
                         .foregroundStyle(GymTheme.label3)
                     TextField("Search...", text: $searchText)
-                        .font(.system(size: 15))
+                        .font(.subheadline)
                         .foregroundStyle(GymTheme.label)
                         .onChange(of: searchText) { _, _ in
                             shownCount = 40
@@ -204,7 +204,7 @@ struct LibraryView: View {
                             shownCount += 40
                         } label: {
                             Text("Show more")
-                                .font(.system(size: 16, weight: .bold))
+                                .font(.body.weight(.bold))
                                 .foregroundStyle(GymTheme.green)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
@@ -265,7 +265,7 @@ struct LibraryView: View {
             Text(exerciseLibraryIntent == nil
                  ? "\(visibleCatalog.all.count) exercises \(mediaSource == .freeStatic ? "with photos & instructions" : "with animations")"
                  : "Choose a push-compatible exercise. It changes today only.")
-                .font(.system(size: 14, weight: .regular))
+                .font(.subheadline.weight(.regular))
                 .foregroundStyle(Color(white: 0.60))
         }
         .padding(.horizontal, 16)
@@ -288,8 +288,8 @@ struct LibraryView: View {
                     ? "yuhonas/free-exercise-db — Unlicense (public domain), static photos only."
                     : "hasaneyldrm/exercises-dataset — © Gym visual, hotlinked; no redistribution license."
             )
-            .font(.system(size: 11, weight: .regular))
-            .foregroundStyle(Color(white: 0.50))
+            .font(.caption.weight(.regular))
+            .foregroundStyle(Color(white: 0.60))
         }
     }
 
@@ -325,24 +325,24 @@ struct LibraryView: View {
                     .fill(GymTheme.surface2)
                     .frame(width: 48, height: 48)
                 Image(systemName: "sparkles")
-                    .font(.system(size: 20))
+                    .font(.title3)
                     .foregroundStyle(GymTheme.green)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Create your own exercise")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.subheadline.weight(.bold))
                     .foregroundStyle(GymTheme.label)
                 Text("name + body part, no animation")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color(white: 0.55))
+                    .font(.caption.weight(.regular))
+                    .foregroundStyle(Color(white: 0.60))
             }
 
             Spacer()
 
             Image(systemName: "plus")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(Color(white: 0.55))
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(Color(white: 0.60))
             }
             .padding(12)
             .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 14))
@@ -368,12 +368,12 @@ struct LibraryView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 7) {
                             Text(ex.name)
-                                .font(.system(size: 15, weight: .bold))
+                                .font(.subheadline.weight(.bold))
                                 .foregroundStyle(GymTheme.label)
                                 .multilineTextAlignment(.leading)
                             if customExercises.contains(where: { $0.id.uuidString == ex.id }) {
                                 Text("CUSTOM")
-                                    .font(.system(size: 9, weight: .bold))
+                                    .font(.caption2.weight(.bold))
                                     .foregroundStyle(GymTheme.green)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 3)
@@ -381,7 +381,7 @@ struct LibraryView: View {
                             }
                         }
                         Text("\(ex.primaryMuscle.label) · \(ex.equipment.label)")
-                            .font(.system(size: 13, weight: .regular))
+                            .font(.footnote.weight(.regular))
                             .foregroundStyle(Color(white: 0.60))
                     }
                     Spacer(minLength: 0)
@@ -398,9 +398,9 @@ struct LibraryView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "plus")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.caption.weight(.bold))
                         Text("Plan")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.footnote.weight(.bold))
                     }
                     .foregroundStyle(GymTheme.green)
                     .padding(.horizontal, 12)

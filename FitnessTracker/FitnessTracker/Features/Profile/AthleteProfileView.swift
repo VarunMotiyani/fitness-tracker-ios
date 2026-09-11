@@ -98,7 +98,7 @@ struct AthleteProfileView: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: "figure.strengthtraining.traditional")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.title.weight(.semibold))
                     .foregroundStyle(.black)
                     .frame(width: 56, height: 56)
                     .background(activeAccent, in: RoundedRectangle(cornerRadius: 18))
@@ -135,12 +135,12 @@ struct AthleteProfileView: View {
                 .foregroundStyle(activeAccent)
                 .accessibilityHidden(true)
             Text(value)
-                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .font(.body.weight(.bold)).fontDesign(.rounded)
                 .foregroundStyle(GymTheme.label)
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
             Text(title)
-                .font(.system(size: 9, weight: .bold))
+                .font(.caption2.weight(.bold))
                 .foregroundStyle(GymTheme.label3)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -340,7 +340,7 @@ struct AthleteProfileView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
             Text(title.uppercased())
-                .font(.system(size: 10, weight: .bold))
+                .font(.caption2.weight(.bold))
                 .foregroundStyle(GymTheme.label3)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
