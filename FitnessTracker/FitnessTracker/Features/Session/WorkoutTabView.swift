@@ -28,20 +28,15 @@ struct WorkoutTabView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                // Header
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Start Workout")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text(todaySession != nil ? "Today's prescribed routine is ready" : "Rest day, but you can start any routine")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(white: 0.75))
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+        VStack(spacing: 0) {
+            // Keep the start-tab context visible while workout choices scroll.
+            startHeader
+                .padding(.bottom, 8)
+                .background(Color.black)
+                .zIndex(1)
 
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
                 // Today's Routine Card
                 if let today = todaySession {
                     VStack(alignment: .leading, spacing: 14) {
@@ -139,11 +134,27 @@ struct WorkoutTabView: View {
                         }
                     }
                 }
+                }
+                .padding(.bottom, 24)
             }
-            .padding(.bottom, 24)
         }
         .background(Color.black.ignoresSafeArea())
         .onAppear { WorkoutScheduleStore.refresh(completedSessions: completedSessions, plan: plan) }
+    }
+
+    @ViewBuilder
+    private var startHeader: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Start Workout")
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+            Text(todaySession != nil ? "Today's prescribed routine is ready" : "Rest day, but you can start any routine")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(white: 0.75))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
     }
 
     private func focusText(_ session: PlannedSession) -> String {

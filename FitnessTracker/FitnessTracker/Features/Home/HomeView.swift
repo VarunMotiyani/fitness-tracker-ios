@@ -279,11 +279,16 @@ struct HomeView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                // Header: app title, date, and Settings gear
-                headerSection
+        VStack(spacing: 0) {
+            // Keep the primary navigation/header context visible while the
+            // dashboard cards scroll beneath it.
+            headerSection
+                .padding(.bottom, 8)
+                .background(GymTheme.bg)
+                .zIndex(1)
 
+            ScrollView {
+                VStack(spacing: 16) {
                 // Pending AI-derived observations awaiting your review
                 ForEach(pendingObservations) { observation in
                     PendingObservationCard(
@@ -353,10 +358,11 @@ struct HomeView: View {
 
                 // 1 Week Streak Card
                 streakCard
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 100) // Pad for custom tab bar
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 100) // Pad for custom tab bar
         }
         .background(GymTheme.bg.ignoresSafeArea())
         .onAppear {

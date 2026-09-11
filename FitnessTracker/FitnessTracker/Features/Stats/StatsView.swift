@@ -224,11 +224,16 @@ struct StatsView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    // Header (Stats | Progress & history + History Icon)
-                    headerView
+            VStack(spacing: 0) {
+                // Keep the stats title and history action visible while the
+                // analytics cards scroll beneath them.
+                headerView
+                    .padding(.bottom, 8)
+                    .background(GymTheme.bg)
+                    .zIndex(1)
 
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
                     // 4-Metric Tiles Grid
                     metricsTilesGrid
 
@@ -249,9 +254,10 @@ struct StatsView: View {
 
                     // Recent Workouts Section (Matching User Reference Image 4)
                     recentWorkoutsSection
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 100)
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 100)
             }
             .background(GymTheme.bg.ignoresSafeArea())
             .sheet(isPresented: $showHistorySheet) {

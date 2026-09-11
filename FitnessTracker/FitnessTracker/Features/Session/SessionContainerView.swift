@@ -85,8 +85,11 @@ struct SessionContainerView: View {
             ProgressView("Preparing…")
         case .idle:
             NavigationStack {
-                SessionStartView(planned: planned, catalog: catalog) { energy, minutes in
-                    Task { await runner?.start(planned: planned, energy: energy, timeAvailableMin: minutes) }
+                SessionStartView(planned: planned, catalog: catalog) { editedPlan, minutes in
+                    // Energy is collected after setup by the check-in flow. Keep
+                    // the legacy runner contract neutral here while passing the
+                    // edited, session-scoped plan through unchanged.
+                    Task { await runner?.start(planned: editedPlan, energy: .normal, timeAvailableMin: minutes) }
                 }
             }
         case .finalizing:

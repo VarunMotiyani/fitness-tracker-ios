@@ -108,22 +108,16 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                // Header (Exercises | N exercises with animations / with photos)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(exerciseLibraryIntent == nil ? "Exercises" : "Editing today’s \(WorkoutDayPresentation.title(for: exerciseLibraryIntent!.session))")
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundStyle(GymTheme.label)
-                    Text(exerciseLibraryIntent == nil
-                         ? "\(visibleCatalog.all.count) exercises \(mediaSource == .freeStatic ? "with photos & instructions" : "with animations")"
-                         : "Choose a push-compatible exercise. It changes today only.")
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(Color(white: 0.60))
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
+        VStack(spacing: 0) {
+            // Keep the library context visible while the catalogue and filters
+            // scroll below it.
+            libraryHeaderSection
+                .padding(.bottom, 8)
+                .background(GymTheme.bg)
+                .zIndex(1)
 
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
                 // Media-source flag: lets you compare the animated (hotlinked, unlicensed
                 // for redistribution) source against the public-domain static one.
                 if exerciseLibraryIntent == nil {
@@ -222,7 +216,8 @@ struct LibraryView: View {
                 }
                 .padding(.horizontal, 16)
             }
-            .padding(.bottom, 100)
+                .padding(.bottom, 100)
+            }
         }
         .background(GymTheme.bg.ignoresSafeArea())
         .sheet(item: $selectedExerciseForDetail) { ex in
@@ -259,6 +254,22 @@ struct LibraryView: View {
             guard mediaSource == .freeStatic, freeCatalog == nil else { return }
             freeCatalog = try? BundledCatalog.load(resourceName: "free_exercise_db")
         }
+    }
+
+    @ViewBuilder
+    private var libraryHeaderSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(exerciseLibraryIntent == nil ? "Exercises" : "Editing today’s \(WorkoutDayPresentation.title(for: exerciseLibraryIntent!.session))")
+                .font(.system(size: 32, weight: .bold))
+                .foregroundStyle(GymTheme.label)
+            Text(exerciseLibraryIntent == nil
+                 ? "\(visibleCatalog.all.count) exercises \(mediaSource == .freeStatic ? "with photos & instructions" : "with animations")"
+                 : "Choose a push-compatible exercise. It changes today only.")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(Color(white: 0.60))
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
     }
 
     // MARK: - Media Source Picker

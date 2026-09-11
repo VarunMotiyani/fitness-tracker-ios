@@ -36,6 +36,16 @@ private struct DraftSetRow: Identifiable {
     var isWarmup: Bool
 }
 
+/// Keeps the primary workout flow deterministic: completing an exercise moves
+/// to the next entry when one exists, otherwise it enters the finish flow.
+enum SessionAdvancePolicy {
+    nonisolated static func nextIndex(currentIndex: Int, entryCount: Int) -> Int? {
+        let nextIndex = currentIndex + 1
+        guard currentIndex >= 0, nextIndex < entryCount else { return nil }
+        return nextIndex
+    }
+}
+
 /// Tactile Gym-Floor Workout Runner with complete UI parity:
 /// - Session header: ✕ close, live elapsed timer mm:ss, sets-based progress bar n/N sets, ✓ finish.
 /// - All-sets-editable interactive table with inline weight, reps, RIR steppers and ✓ check.
@@ -878,13 +888,17 @@ struct SessionFocusView: View {
             activeSheet = .workingWeight(name: name, id: entry.exerciseID, maxWeight: maxW)
         }
 
-        if runner.currentEntryIndex < runner.entriesInOrder.count - 1 {
+        if let nextIndex = SessionAdvancePolicy.nextIndex(
+            currentIndex: runner.currentEntryIndex,
+            entryCount: runner.entriesInOrder.count
+        ) {
             runner.markDone(entryIndex: runner.currentEntryIndex)
-            // Land on the exercise list, not straight into the next exercise — the
-            // one you just finished now shows green there, and you pick (or
-            // substitute) what's next instead of always taking it in plan order.
-            onOpenList()
+            // Continue in plan order. The exercise list remains available from
+            // the session header, but is no longer an involuntary stop after
+            // every completed exercise.
+            runner.currentEntryIndex = nextIndex
         } else {
+            runner.markDone(entryIndex: runner.currentEntryIndex)
             showCompleteDialog = true
         }
     }

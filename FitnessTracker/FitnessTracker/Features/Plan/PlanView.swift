@@ -51,11 +51,16 @@ struct PlanView: View {
     private let dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Big title header
-                headerSection
+        VStack(spacing: 0) {
+            // Keep page title and plan actions pinned while the plan content
+            // scrolls independently below it.
+            headerSection
+                .padding(.bottom, 8)
+                .background(GymTheme.bg)
+                .zIndex(1)
 
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
                 // Split styles are separate from the routine cards below: the
                 // cards show the active plan, while this control lets athletes
                 // discover and choose the full template catalog.
@@ -69,9 +74,10 @@ struct PlanView: View {
 
                 // 3. Weekly Volume Targets from AI
                 targetsSection
+                }
+                .padding(.top, 8)
+                .padding(.bottom, 100) // Pad for custom tab bar
             }
-            .padding(.top, 8)
-            .padding(.bottom, 100) // Pad for custom tab bar
         }
         .background(GymTheme.bg.ignoresSafeArea())
         .sheet(item: $activeSheet) { sheet in
