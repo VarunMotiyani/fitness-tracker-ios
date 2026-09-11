@@ -6,15 +6,15 @@ import ExerciseCatalog
 
 /// SwiftData-backed `MetricsRepository`.
 ///
-/// Thin fetch-and-forward adapter: on every call it fetches the relevant rows,
-/// maps them to the Phase 2a snapshot value types, and delegates to
+/// Thin fetch-and-forward adapter: it fetches the relevant rows once per
+/// repository lifetime, maps them to the Phase 2a snapshot value types, and delegates to
 /// `InMemoryMetricsRepository` — the pure implementation of every metric
 /// algorithm. This type re-implements none of that logic.
 ///
-/// `inner()` is rebuilt on every call — no memoisation. At personal-log scale
-/// that is cheap, and it guarantees each query observes the current
-/// `ModelContext` state (plan pre-flight Ruling 3: a caching layer is a
-/// documented deferral).
+/// The snapshot is immutable for the lifetime of this short-lived repository.
+/// Session finalization creates one repository per session start, so caching
+/// avoids rebuilding the complete workout-history graph for every exercise
+/// while preserving fresh data for each new operation.
 ///
 /// Isolation: the struct is `@MainActor` because it touches `ModelContext`.
 /// `MetricsRepository` no longer refines `Sendable` (the AI coach orchestrator
@@ -22,11 +22,18 @@ import ExerciseCatalog
 /// the main actor, not a runtime trap), so these are ordinary `@MainActor`
 /// methods — no `nonisolated`/`MainActor.assumeIsolated` dance needed.
 @MainActor
+private final class SwiftDataMetricsSnapshotCache {
+    var repository: InMemoryMetricsRepository?
+    var buildCount = 0
+}
+
+@MainActor
 struct SwiftDataMetricsRepository: MetricsRepository {
     private let context: ModelContext
     private let catalog: CatalogStore
     private let plannedSessionsPerWeek: Int
     private let calendar: Calendar
+    private let snapshotCache: SwiftDataMetricsSnapshotCache
 
     init(context: ModelContext,
          catalog: CatalogStore,
@@ -37,6 +44,7 @@ struct SwiftDataMetricsRepository: MetricsRepository {
         self.catalog = catalog
         self.plannedSessionsPerWeek = plannedSessionsPerWeek
         self.calendar = calendar
+        self.snapshotCache = SwiftDataMetricsSnapshotCache()
         // `now` is part of the documented init shape. The protocol's windowed
         // methods (`weeklyVolume`, `adherence`) receive `now:` as a parameter, so
         // nothing in this adapter needs the closure.
@@ -46,19 +54,32 @@ struct SwiftDataMetricsRepository: MetricsRepository {
     // MARK: - Inner pure repository
 
     /// Fetches every *finished* session (`finishedAt != nil`), maps to snapshots,
-    /// and constructs a fresh `InMemoryMetricsRepository` over them.
+    /// and constructs an `InMemoryMetricsRepository` over them. A session start
+    /// asks for the last performance of several exercises; reuse the same
+    /// immutable snapshot for that operation instead of refetching the entire
+    /// history once per exercise on the main actor.
     private func inner() -> InMemoryMetricsRepository {
+        if let repository = snapshotCache.repository {
+            return repository
+        }
         let finished = ((try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? [])
             .filter { $0.finishedAt != nil }
             .map { $0.toSnapshot() }
-        return InMemoryMetricsRepository(
+        let repository = InMemoryMetricsRepository(
             sessions: finished,
             priorPRs: [],
             observations: [],
             plannedSessionsPerWeek: plannedSessionsPerWeek,
             catalog: catalog,
             calendar: calendar)
+        snapshotCache.repository = repository
+        snapshotCache.buildCount += 1
+        return repository
     }
+
+    /// Internal visibility keeps the cache behavior regression-tested without
+    /// exposing implementation details to app callers.
+    var snapshotBuildCount: Int { snapshotCache.buildCount }
 
     // MARK: - Forwarded straight to the pure repository
 

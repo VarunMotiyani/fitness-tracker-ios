@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 struct SessionStartView: View {
     let planned: PlannedSession
     let catalog: CatalogStore
+    let onPrepare: (PlannedSession, Int) -> Void
     let onStart: (PlannedSession, Int) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -28,10 +29,12 @@ struct SessionStartView: View {
     init(
         planned: PlannedSession,
         catalog: CatalogStore,
+        onPrepare: @escaping (PlannedSession, Int) -> Void = { _, _ in },
         onStart: @escaping (PlannedSession, Int) -> Void
     ) {
         self.planned = planned
         self.catalog = catalog
+        self.onPrepare = onPrepare
         self.onStart = onStart
         _draft = State(initialValue: SessionStartDraft(items: planned.items))
     }
@@ -57,6 +60,15 @@ struct SessionStartView: View {
             .controlSize(.large)
             .padding()
             .background(.bar)
+        }
+        .task {
+            prepareCurrentSession()
+        }
+        .onChange(of: draft) { _, _ in
+            prepareCurrentSession()
+        }
+        .onChange(of: minutes) { _, _ in
+            prepareCurrentSession()
         }
         .navigationTitle("Session \(planned.order + 1)")
         .navigationBarTitleDisplayMode(.inline)
@@ -307,6 +319,10 @@ struct SessionStartView: View {
             ids.remove(draft.items[replacementIndex].exerciseID)
         }
         return ids
+    }
+
+    private func prepareCurrentSession() {
+        onPrepare(draft.plannedSession(basedOn: planned), minutes)
     }
 }
 

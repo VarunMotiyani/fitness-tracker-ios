@@ -25,6 +25,17 @@ struct SetFlags: Sendable {
 @Observable
 final class SessionRunner {
 
+    private struct FinalizationKey: Equatable {
+        let planned: PlannedSession
+        let energy: EnergyRating
+        let timeAvailableMin: Int
+    }
+
+    private struct PreparedFinalization {
+        let key: FinalizationKey
+        let result: FinalizedResult
+    }
+
     enum Phase: Equatable {
         case idle
         case finalizing
@@ -47,6 +58,12 @@ final class SessionRunner {
     private let finalizer: any SessionFinalizing
     private let memoryKeeper: (any MemoryKeeperRunning)?
     private let now: () -> Date
+
+    /// Session setup starts this work before the athlete taps Start. The
+    /// result is consumed only when every input still matches this key, so a
+    /// reorder, exercise edit, or time change can never use stale targets.
+    private var preparedFinalization: PreparedFinalization?
+    private var preparationTask: (key: FinalizationKey, task: Task<FinalizedResult?, Never>)?
 
     /// The outcome computed by `finish`, replayed by `closeSummary`.
     private var resolvedOutcome: SessionOutcome = .partial
@@ -91,11 +108,54 @@ final class SessionRunner {
 
     // MARK: - Lifecycle
 
+    /// Prepares today's history-aware session while the setup screen is open.
+    /// Repeated calls for the same inputs are coalesced; changed inputs cancel
+    /// the old work and start a fresh preparation.
+    func prepare(planned: PlannedSession, energy: EnergyRating, timeAvailableMin: Int) {
+        guard phase == .idle else { return }
+        let key = FinalizationKey(planned: planned, energy: energy,
+                                 timeAvailableMin: timeAvailableMin)
+        if preparedFinalization?.key == key || preparationTask?.key == key { return }
+
+        preparationTask?.task.cancel()
+        preparedFinalization = nil
+
+        let finalizer = self.finalizer
+        let task: Task<FinalizedResult?, Never> = Task { @MainActor [weak self] in
+            guard !Task.isCancelled else { return nil }
+            let result = await finalizer.finalize(
+                planned, energy: energy, timeAvailableMin: timeAvailableMin)
+            guard !Task.isCancelled else { return nil }
+            guard let self, self.phase == .idle,
+                  self.preparationTask?.key == key else { return result }
+            self.preparedFinalization = PreparedFinalization(key: key, result: result)
+            return result
+        }
+        preparationTask = (key: key, task: task)
+    }
+
     func start(planned: PlannedSession, energy: EnergyRating, timeAvailableMin: Int) async {
         guard phase == .idle else { return }   // F4: no second CompletedSessionModel on a double-tap
         phase = .finalizing
 
-        let result = await finalizer.finalize(planned, energy: energy, timeAvailableMin: timeAvailableMin)
+        let key = FinalizationKey(planned: planned, energy: energy,
+                                 timeAvailableMin: timeAvailableMin)
+        let result: FinalizedResult
+        if let prepared = preparedFinalization, prepared.key == key {
+            result = prepared.result
+        } else if let pending = preparationTask, pending.key == key,
+                  let prepared = await pending.task.value {
+            result = prepared
+        } else {
+            // A user can tap Start before preflight completes (or after an
+            // unexpected setup transition). Preserve correctness by resolving
+            // the exact request once here, without starting a second call.
+            result = await finalizer.finalize(
+                planned, energy: energy, timeAvailableMin: timeAvailableMin)
+        }
+        preparationTask?.task.cancel()
+        preparationTask = nil
+        preparedFinalization = nil
         let fin = result.session
         self.finalized = fin
         self.coachSource = result.coachSource

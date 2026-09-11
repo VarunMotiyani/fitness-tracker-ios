@@ -13,6 +13,27 @@ import Metrics
 @MainActor
 @Suite struct SessionRunnerTests {
 
+    private final class CountingFinalizer: SessionFinalizing {
+        private(set) var callCount = 0
+        private let delay: Duration
+
+        init(delay: Duration = .zero) {
+            self.delay = delay
+        }
+
+        func finalize(_ planned: PlannedSession, energy: EnergyRating,
+                      timeAvailableMin: Int) async -> FinalizedResult {
+            callCount += 1
+            if delay != .zero {
+                try? await Task.sleep(for: delay)
+            }
+            return FinalizedResult(
+                session: FinalizedSession(session: planned, perItemRationale: [:]),
+                coachSource: .rule
+            )
+        }
+    }
+
     // MARK: - Fixtures
 
     private func container() throws -> ModelContainer {
@@ -75,6 +96,33 @@ import Metrics
         #expect(sessions.first?.entries.count == 2)
         #expect(sessions.first?.entries.allSatisfy { $0.stateRaw == EntryState.notStarted.rawValue } == true)
         #expect(sessions.first?.plannedSessionID != nil)
+    }
+
+    @Test func startConsumesPreparedFinalizationWithoutRunningItAgain() async throws {
+        let ctx = ModelContext(try container())
+        let fin = CountingFinalizer()
+        let runner = SessionRunner(modelContext: ctx, catalog: catalog(),
+                                   repository: emptyRepo(), finalizer: fin)
+        let plan = plannedSession()
+
+        runner.prepare(planned: plan, energy: .normal, timeAvailableMin: 60)
+        await runner.start(planned: plan, energy: .normal, timeAvailableMin: 60)
+
+        #expect(runner.phase == .active)
+        #expect(fin.callCount == 1)
+    }
+
+    @Test func preparationStartsBeforeTheRunnerLeavesIdle() async throws {
+        let ctx = ModelContext(try container())
+        let fin = CountingFinalizer(delay: .milliseconds(50))
+        let runner = SessionRunner(modelContext: ctx, catalog: catalog(),
+                                   repository: emptyRepo(), finalizer: fin)
+
+        runner.prepare(planned: plannedSession(), energy: .normal, timeAvailableMin: 60)
+        await Task.yield()
+
+        #expect(runner.phase == .idle)
+        #expect(fin.callCount == 1)
     }
 
     @Test func logSetAppendsSetsAndMarksInProgress() async throws {

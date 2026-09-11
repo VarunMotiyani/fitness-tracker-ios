@@ -7,6 +7,38 @@ import RuleEngine
 import CoachMemory
 import LLMKit
 
+/// Signals that an interactive session-start finalization exceeded its UX
+/// budget. The caller can safely use the deterministic rule-engine result.
+enum SessionFinalizationTimeoutError: Error, Equatable {
+    case exceeded
+}
+
+/// Bounded wait used by interactive session setup. The operation is cancelled
+/// when the deadline wins, so URLSession-backed providers release their request
+/// instead of continuing to hold the setup/start flow open.
+enum SessionFinalizationTimeout {
+    static func run<Value: Sendable>(
+        _ duration: Duration,
+        operation: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
+        try await withThrowingTaskGroup(of: Value.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(for: duration)
+                throw SessionFinalizationTimeoutError.exceeded
+            }
+
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else {
+                throw SessionFinalizationTimeoutError.exceeded
+            }
+            return result
+        }
+    }
+}
+
 /// Puts the AI coach behind the existing rule-engine finalize seam (design
 /// spec §2.2, §8): one well-orchestrated tool-loop call, `FinalizeGuardrail`-
 /// checked, one retry with the violation fed back, then the deterministic
@@ -85,11 +117,16 @@ struct SessionFinalizeCoordinator: SessionFinalizing {
         for _ in 0..<2 {
             let user = lastViolationSummary.map { "\(baseUser)\n\nYour previous attempt was rejected: \($0). Try again, staying within safe bounds." } ?? baseUser
             do {
-                let loopResult: ToolLoopResult<FinalizeDTO> = try await ToolLoopRunner().run(
-                    system: system, initialUser: user,
-                    finalSchema: FinalizePromptBuilder.finalSchema,
-                    tools: tools, provider: provider
-                )
+                // Session start is an interactive path. Never make the athlete
+                // wait on a slow reasoning model or a dead network indefinitely;
+                // the catch below falls through to the deterministic finalizer.
+                let loopResult: ToolLoopResult<FinalizeDTO> = try await SessionFinalizationTimeout.run(.seconds(4)) {
+                    try await ToolLoopRunner().run(
+                        system: system, initialUser: user,
+                        finalSchema: FinalizePromptBuilder.finalSchema,
+                        tools: tools, provider: provider
+                    )
+                }
                 allCalls += loopResult.calls
                 let dto = loopResult.value
                 let candidate = dto.toDomain(originalSession: planned)
