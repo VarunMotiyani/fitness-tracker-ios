@@ -1,7 +1,13 @@
 import Foundation
 import LLMKit
+import os
 
 nonisolated struct GeminiProvider: LLMProvider {
+    /// Was silently missing — a Gemini failure had no Console trail at all,
+    /// unlike every other adapter (`OpenAICompatibleProvider` logs every
+    /// request/error). Same subsystem/category shape as that adapter's log.
+    private static let log = Logger(subsystem: "com.varunmotiyani.TrainSage", category: "LLMProvider")
+
     let apiKey: String
     let modelID: String
     let session: URLSession
@@ -25,15 +31,20 @@ nonisolated struct GeminiProvider: LLMProvider {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        Self.log.debug("POST generateContent model=\(modelID, privacy: .public) keyLen=\(apiKey.count, privacy: .public) fields=\(body.keys.sorted().joined(separator: ","), privacy: .public)")
 
         let (data, response): (Data, URLResponse)
         do { (data, response) = try await session.data(for: request) }
-        catch { throw LLMError.transport(error.localizedDescription) }
+        catch {
+            Self.log.error("transport failure model=\(modelID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            throw LLMError.transport(error.localizedDescription)
+        }
         guard let http = response as? HTTPURLResponse else { throw LLMError.transport("no HTTP response") }
         guard (200...299).contains(http.statusCode) else {
-            let body = OpenAICompatibleProvider.redactSecrets(
-                String(decoding: data.prefix(300), as: UTF8.self))
-            throw LLMError.transport("HTTP \(http.statusCode): \(body)")
+            let full = OpenAICompatibleProvider.redactSecrets(String(decoding: data, as: UTF8.self))
+            Self.log.error("HTTP \(http.statusCode) model=\(modelID, privacy: .public) body=\(full, privacy: .public)")
+            let snippet = OpenAICompatibleProvider.redactSecrets(String(decoding: data.prefix(300), as: UTF8.self))
+            throw LLMError.transport("HTTP \(http.statusCode): \(snippet)")
         }
         return data
     }
@@ -43,7 +54,7 @@ nonisolated struct GeminiProvider: LLMProvider {
                                                as type: Value.Type) async throws -> LLMResult<Value> {
         // Gemini's `Schema` proto has no `additionalProperties`; sending it
         // (the shared schema sets it for OpenAI strict mode) yields a 400.
-        let schemaObject = Self.sanitizeSchema(
+        let schemaObject = Self.normalizeSchema(
             try JSONSerialization.jsonObject(with: Data(schema.json.utf8)))
         let body: [String: Any] = [
             "system_instruction": ["parts": [["text": system]]],
@@ -51,6 +62,7 @@ nonisolated struct GeminiProvider: LLMProvider {
             "generationConfig": [
                 "responseMimeType": "application/json",
                 "responseSchema": schemaObject,
+                "thinkingConfig": ["thinkingLevel": "low"],
             ],
         ]
         let data = try await send(body: body)
@@ -78,7 +90,7 @@ nonisolated struct GeminiProvider: LLMProvider {
     func completeWithImage<Value: Decodable & Sendable>(system: String, user: String,
                                                         image: ImagePayload, schema: JSONSchema,
                                                         as type: Value.Type) async throws -> LLMResult<Value> {
-        let schemaObject = Self.sanitizeSchema(
+        let schemaObject = Self.normalizeSchema(
             try JSONSerialization.jsonObject(with: Data(schema.json.utf8)))
         let body: [String: Any] = [
             "system_instruction": ["parts": [["text": system]]],
@@ -92,6 +104,7 @@ nonisolated struct GeminiProvider: LLMProvider {
             "generationConfig": [
                 "responseMimeType": "application/json",
                 "responseSchema": schemaObject,
+                "thinkingConfig": ["thinkingLevel": "low"],
             ],
         ]
         let data = try await send(body: body)
@@ -141,7 +154,11 @@ nonisolated struct GeminiProvider: LLMProvider {
                 if let calls = message.toolCalls, !calls.isEmpty {
                     contents.append(["role": "model", "parts": calls.map { call -> [String: Any] in
                         let args = (try? JSONSerialization.jsonObject(with: Data(call.argumentsJSON.utf8))) ?? [String: Any]()
-                        return ["functionCall": ["name": call.name, "args": args]]
+                        var functionCall: [String: Any] = ["name": call.name, "args": args]
+                        if !call.id.isEmpty { functionCall["id"] = call.id }
+                        var part: [String: Any] = ["functionCall": functionCall]
+                        if let signature = call.thoughtSignature { part["thoughtSignature"] = signature }
+                        return part
                     }])
                 } else {
                     contents.append(["role": "model", "parts": [["text": message.content ?? ""]]])
@@ -149,24 +166,37 @@ nonisolated struct GeminiProvider: LLMProvider {
             case .tool:
                 let responseObject = (try? JSONSerialization.jsonObject(with: Data((message.content ?? "{}").utf8)))
                     ?? ["result": message.content ?? ""]
-                contents.append(["role": "user", "parts": [[
-                    "functionResponse": ["name": message.toolCallID ?? "", "response": responseObject],
-                ]]])
+                var functionResponse: [String: Any] = [
+                    "name": message.toolName ?? message.toolCallID ?? "",
+                    "response": responseObject,
+                ]
+                if let id = message.toolCallID, !id.isEmpty { functionResponse["id"] = id }
+                contents.append(["role": "user", "parts": [["functionResponse": functionResponse]]])
             }
         }
 
         let wireTools: [[String: Any]] = tools.map { tool in
-            let schemaObject = (try? Self.sanitizeSchema(
-                JSONSerialization.jsonObject(with: Data(tool.argsSchemaJSON.utf8)))) ?? ["type": "object"]
+            let schemaObject = (try? Self.normalizeSchema(
+                JSONSerialization.jsonObject(with: Data(tool.argsSchemaJSON.utf8)), uppercaseTypes: false))
+                ?? ["type": "object"]
             return ["name": tool.name, "description": tool.description, "parameters": schemaObject]
         }
 
         var body: [String: Any] = [
             "system_instruction": ["parts": [["text": system + "\n\nWhen you are finished calling tools, reply with a JSON object matching: " + finalSchema.json]]],
             "contents": contents,
+            "generationConfig": ["thinkingConfig": ["thinkingLevel": "low"]],
         ]
         if !wireTools.isEmpty {
             body["tools"] = [["functionDeclarations": wireTools]]
+            body["toolConfig"] = ["functionCallingConfig": ["mode": "AUTO"]]
+        } else {
+            body["generationConfig"] = [
+                "responseMimeType": "application/json",
+                "responseSchema": (try? Self.normalizeSchema(
+                    JSONSerialization.jsonObject(with: Data(finalSchema.json.utf8)))) ?? [String: Any](),
+                "thinkingConfig": ["thinkingLevel": "low"],
+            ]
         }
 
         let data = try await send(body: body)
@@ -176,18 +206,22 @@ nonisolated struct GeminiProvider: LLMProvider {
         catch { throw LLMError.decoding("tool envelope: \(error)") }
         guard let parts = envelope.candidates.first?.content.parts else { throw LLMError.emptyResponse }
 
-        let functionCalls = parts.compactMap(\.functionCall)
+        let functionCalls = parts.compactMap { part in
+            part.functionCall.map { ($0, part.thoughtSignature) }
+        }
         let turn: NativeToolTurn<Final>
         if !functionCalls.isEmpty {
-            turn = .toolCalls(functionCalls.map { call in
+            turn = .toolCalls(functionCalls.map { call, signature in
                 let args = call.args?.reduce(into: [String: Any]()) { result, entry in
                     result[entry.key] = entry.value.value
                 } ?? [:]
                 let argsJSON = (try? JSONSerialization.data(withJSONObject: args))
                     .map { String(decoding: $0, as: UTF8.self) } ?? "{}"
-                // Gemini doesn't hand back a call id; the function name is
-                // stable enough to correlate the matching functionResponse.
-                return NativeToolCall(id: call.name, name: call.name, argumentsJSON: argsJSON)
+                return NativeToolCall(
+                    id: call.id ?? "",
+                    name: call.name,
+                    argumentsJSON: argsJSON,
+                    thoughtSignature: signature)
             })
         } else if let text = parts.compactMap(\.text).first {
             do { turn = .final(try OpenAICompatibleProvider.decodeFinal(Final.self, from: text)) }
@@ -203,26 +237,96 @@ nonisolated struct GeminiProvider: LLMProvider {
             cachedTokens: envelope.usageMetadata?.cachedContentTokenCount ?? 0)
     }
 
-    /// Recursively drops every `additionalProperties` key (at any depth) from a
-    /// parsed JSON-schema object so it is accepted by Gemini's `responseSchema`
-    /// / function-declaration `parameters`.
-    private static func sanitizeSchema(_ obj: Any) -> Any {
+    /// Converts both standard JSON Schema and this app's compact prompt schema
+    /// (`{"reply":"string"}` / `[{"name":"string"}]`) to Gemini's Schema
+    /// wire format. Response schemas use the protobuf enum spelling (OBJECT,
+    /// STRING, ...); function-declaration parameters use JSON-schema spelling.
+    /// Gemini rejects `additionalProperties`, so it is intentionally omitted.
+    static func normalizeSchema(_ obj: Any, uppercaseTypes: Bool = true) -> Any {
+        let objectType = uppercaseTypes ? "OBJECT" : "object"
+        let arrayType = uppercaseTypes ? "ARRAY" : "array"
         if let dict = obj as? [String: Any] {
-            var out: [String: Any] = [:]
-            for (key, value) in dict where key != "additionalProperties" {
-                out[key] = sanitizeSchema(value)
+            if let rawType = dict["type"] as? String {
+                var out: [String: Any] = [:]
+                for (key, value) in dict where key != "type" && key != "additionalProperties" {
+                    switch key {
+                    case "properties":
+                        if let properties = value as? [String: Any] {
+                            out[key] = properties.mapValues { normalizeSchema($0, uppercaseTypes: uppercaseTypes) }
+                        }
+                    case "items":
+                        out[key] = normalizeSchema(value, uppercaseTypes: uppercaseTypes)
+                    case "anyOf", "oneOf":
+                        if let schemas = value as? [Any] {
+                            out[key] = schemas.map { normalizeSchema($0, uppercaseTypes: uppercaseTypes) }
+                        }
+                    default:
+                        // `required`, `enum`, descriptions, limits, and nullable
+                        // are already represented in the correct JSON shape.
+                        out[key] = value
+                    }
+                }
+                out["type"] = geminiType(rawType, uppercaseTypes: uppercaseTypes)
+                return out
             }
+
+            let properties = dict.filter { !$0.key.hasPrefix("_") }
+                .mapValues { normalizeSchema($0, uppercaseTypes: uppercaseTypes) }
+            var out: [String: Any] = ["type": objectType, "properties": properties]
+            if !properties.isEmpty { out["required"] = properties.keys.sorted() }
             return out
         }
         if let array = obj as? [Any] {
-            return array.map { sanitizeSchema($0) }
+            guard array.count == 1 else { return array }
+            return ["type": arrayType, "items": normalizeSchema(array[0], uppercaseTypes: uppercaseTypes)]
+        }
+        if let compact = obj as? String {
+            return compactStringSchema(compact, uppercaseTypes: uppercaseTypes)
         }
         return obj
     }
 
+    private static func geminiType(_ raw: String, uppercaseTypes: Bool) -> String {
+        let lower = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let token = lower.split { $0 == " " || $0 == "," || $0 == "?" || $0 == "—" }.first.map(String.init) ?? lower
+        let canonical: String
+        switch token {
+        case "bool", "boolean": canonical = "boolean"
+        case "int", "integer": canonical = "integer"
+        case "float", "double", "number": canonical = "number"
+        case "array", "list": canonical = "array"
+        case "object", "dictionary", "map": canonical = "object"
+        case "null": canonical = "null"
+        default: canonical = "string"
+        }
+        return uppercaseTypes ? canonical.uppercased() : canonical
+    }
+
+    private static func compactStringSchema(_ raw: String, uppercaseTypes: Bool) -> [String: Any] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pieces = trimmed.split(separator: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let nonNull = pieces.filter { $0.lowercased() != "null" }
+        let nullable = pieces.count != nonNull.count || trimmed.hasSuffix("?")
+        let first = nonNull.first ?? "string"
+        let known = ["string", "number", "integer", "int", "float", "double", "boolean", "bool", "array", "list", "object", "dictionary", "map"]
+        let token = first.lowercased().split { $0 == " " || $0 == "," || $0 == "?" || $0 == "—" }.first.map(String.init) ?? "string"
+        if known.contains(token) {
+            var schema: [String: Any] = ["type": geminiType(token, uppercaseTypes: uppercaseTypes)]
+            if nullable { schema["nullable"] = true }
+            return schema
+        }
+        if nonNull.count > 1 {
+            return ["type": uppercaseTypes ? "STRING" : "string", "enum": nonNull]
+        }
+        return ["type": uppercaseTypes ? "STRING" : "string", "description": trimmed]
+    }
+
     private struct Envelope: Decodable {
         struct Candidate: Decodable {
-            struct Content: Decodable { struct Part: Decodable { let text: String }; let parts: [Part] }
+            struct Content: Decodable {
+                struct Part: Decodable { let text: String; let thoughtSignature: String? }
+                let parts: [Part]
+            }
             let content: Content
         }
         struct Usage: Decodable {
@@ -242,10 +346,12 @@ nonisolated struct GeminiProvider: LLMProvider {
         struct Part: Decodable {
             struct FunctionCall: Decodable {
                 let name: String
+                let id: String?
                 let args: [String: AnyDecodableValue]?
             }
             let text: String?
             let functionCall: FunctionCall?
+            let thoughtSignature: String?
         }
         let candidates: [Candidate]
         let usageMetadata: Envelope.Usage?

@@ -126,7 +126,8 @@ struct ToolLoopRunner {
                 for call in toolCalls {
                     let output = tools.execute(ToolCallRequest(name: call.name, argsJSON: call.argumentsJSON))
                     Self.logTool(call.name, args: call.argumentsJSON, result: output)
-                    messages.append(ToolChatMessage(role: .tool, content: output, toolCallID: call.id))
+                    messages.append(ToolChatMessage(role: .tool, content: output,
+                                                     toolCallID: call.id, toolName: call.name))
                 }
             }
         }

@@ -519,6 +519,7 @@ private struct AthleteProfileEditorView: View {
                         .disabled(isSaving)
                 }
             }
+            .keyboardHandling()
         }
     }
 

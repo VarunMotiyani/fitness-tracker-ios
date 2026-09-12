@@ -43,6 +43,7 @@ struct StatsView: View {
     // Sheets
     @State private var showHistorySheet = false
     @State private var selectedSessionForDetail: CompletedSessionModel? = nil
+    @State private var selectedDayItem: DayActivityItem? = nil
 
     // `sessionSnapshots` feeds recovery, streak, effort, trend, histogram and
     // per-exercise analytics — six-plus computed props, each recomputed on
@@ -256,6 +257,7 @@ struct StatsView: View {
                     recentWorkoutsSection
                     }
                     .padding(.horizontal, 16)
+                    .padding(.top, 8)
                     .padding(.bottom, 100)
                 }
             }
@@ -265,6 +267,19 @@ struct StatsView: View {
             }
             .sheet(item: $selectedSessionForDetail) { session in
                 WorkoutDetailSheet(session: session, catalog: catalog)
+            }
+            .sheet(item: $selectedDayItem) { item in
+                DayActivitySheet(
+                    date: item.date,
+                    plan: plan,
+                    catalog: catalog,
+                    onSelectSession: { session in
+                        selectedDayItem = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            selectedSessionForDetail = session
+                        }
+                    }
+                )
             }
             .sheet(isPresented: $showLogWeightSheet) {
                 LogWeightSheet()
@@ -289,11 +304,11 @@ struct StatsView: View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Stats")
-                    .font(.system(size: 32, weight: .bold))
+                    .font(.largeTitle.weight(.bold))
                     .foregroundStyle(GymTheme.label)
                 Text("Progress & history")
                     .font(.subheadline.weight(.regular))
-                    .foregroundStyle(Color(white: 0.60))
+                    .foregroundStyle(GymTheme.label2)
             }
             Spacer()
             Button {
@@ -308,7 +323,7 @@ struct StatsView: View {
             .accessibilityLabel("Workout history")
         }
         .padding(.top, 12)
-        .padding(.bottom, 2)
+        .padding(.horizontal, 16)
     }
 
     // MARK: - 4 Metric Tiles Grid
@@ -366,11 +381,29 @@ struct StatsView: View {
                     .foregroundStyle(Color(white: 0.60))
             }
 
-            ActivityHeatmapView(activityDays: activityDays)
-                .accessibilityLabel("Activity heatmap, last 12 months. \(activityDays.count) days with training. Current streak \(streakSummary.currentStreakWeeks) weeks.")
+            ActivityHeatmapView(
+                activityDays: activityDays,
+                accentColor: activeAccent,
+                onDay: { date in
+                    handleHeatmapDayTapped(date)
+                }
+            )
+            .accessibilityLabel("Activity heatmap, last 12 months. \(activityDays.count) days with training. Current streak \(streakSummary.currentStreakWeeks) weeks.")
         }
         .padding(16)
         .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func handleHeatmapDayTapped(_ date: Date) {
+        let cal = Calendar.appWeek
+        let daySessions = completedSessions.filter {
+            $0.finishedAt != nil && cal.isDate($0.startedAt, inSameDayAs: date)
+        }
+        if daySessions.count == 1, let session = daySessions.first {
+            selectedSessionForDetail = session
+        } else {
+            selectedDayItem = DayActivityItem(date: date)
+        }
     }
 
     // MARK: - Body Map Analytics Card

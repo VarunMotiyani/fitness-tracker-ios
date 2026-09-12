@@ -102,7 +102,7 @@ struct SessionContainerView: View {
                                  onPrepare: { editedPlan, minutes in
                     runner?.prepare(planned: editedPlan, energy: .normal,
                                     timeAvailableMin: minutes)
-                }) { editedPlan, minutes in
+                }, onClose: onFinished) { editedPlan, minutes in
                     // Energy is collected after setup by the check-in flow. Keep
                     // the legacy runner contract neutral here while passing the
                     // edited, session-scoped plan through unchanged.

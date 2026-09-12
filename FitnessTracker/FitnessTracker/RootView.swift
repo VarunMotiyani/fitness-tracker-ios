@@ -100,6 +100,9 @@ struct RootView: View {
 
     // Main five-tab navigation state
     @State private var selectedTab: AppTab = .home
+    /// Continuous indicator position for the custom bottom bar. Unlike the
+    /// committed selection, this value can remain between pages during a drag.
+    @State private var tabIndicatorPosition: CGFloat = 0
 
     init() {
         // The app draws its own floating glass `CustomTabBar`; make the system
@@ -148,6 +151,12 @@ struct RootView: View {
         return mergedCatalogCache.catalog(base: catalog, custom: customExercises)
     }
 
+    /// Browse order for the page-style pager and its bottom-bar progress.
+    /// Start remains a central action rather than a swipe destination.
+    private var swipeNavigationTabs: [AppTab] {
+        [.home, .plan, .stats, .exercises]
+    }
+
     /// Resolved the same way `SessionContainerView`/`generateAndStore` do —
     /// `try? LLMProviderFactory.make(from:)` off the active `ProviderProfile`
     /// — kept in one place here rather than duplicated a third time.
@@ -189,6 +198,7 @@ struct RootView: View {
             if profiles.first != nil, let plan = try? plans.first?.decodedPlan() {
                 CustomTabBar(
                     selectedTab: $selectedTab,
+                    indicatorPosition: $tabIndicatorPosition,
                     isWorkoutActive: activePlannedSession != nil,
                     onStartPressed: {
                         if let session = WorkoutScheduleStore.effectiveSession(for: .now, in: plan)
@@ -210,7 +220,18 @@ struct RootView: View {
         .sheet(isPresented: $notificationResponder.showWeeklySummary) {
             WeeklySummaryView()
         }
-        .onChange(of: selectedTab) { _, _ in
+        .onChange(of: selectedTab) { oldTab, newTab in
+            guard oldTab != newTab else { return }
+            // One subtle confirmation tap for both swipe paging and bottom-bar
+            // taps, matching the lightweight page-change feedback users know
+            // from Instagram. The tab button itself stays silent to avoid a
+            // double haptic on direct taps.
+            Haptics.impactLight()
+            if let index = swipeNavigationTabs.firstIndex(of: newTab) {
+                withAnimation(reduceMotion ? nil : .interactiveSpring(response: 0.32, dampingFraction: 0.86)) {
+                    tabIndicatorPosition = CGFloat(index)
+                }
+            }
             if showSettings {
                 showSettings = false
             }
@@ -325,10 +346,9 @@ struct RootView: View {
                 SettingsView(onClose: { showSettings = false })
             }
         } else if let profile = profiles.first, let plan = try? plans.first?.decodedPlan(), let catalog = effectiveCatalog {
-            // `TabView` keeps every tab mounted, so switching is a visibility
-            // toggle (instant) rather than a teardown + rebuild. Each screen's
-            // heavy computes are memoized so the one-time build on first visit
-            // stays cheap and off-screen graph updates are light.
+            // The four browse sections are a native page-style TabView so a
+            // horizontal swipe tracks the finger continuously. Start is not a
+            // page: it remains the raised action in the custom tab bar.
             TabView(selection: $selectedTab) {
                 HomeView(
                     profile: profile,
@@ -361,13 +381,6 @@ struct RootView: View {
                 )
                 .tag(AppTab.plan)
 
-                WorkoutTabView(
-                    plan: plan,
-                    catalog: catalog,
-                    onStartSession: { session in activePlannedSession = session }
-                )
-                .tag(AppTab.start)
-
                 StatsView(plan: plan, catalog: catalog)
                     .tag(AppTab.stats)
 
@@ -384,6 +397,45 @@ struct RootView: View {
 
             }
             .toolbar(.hidden, for: .tabBar)
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            // Observe the same horizontal drag as the page-style TabView so
+            // the bottom selection pill tracks the user's finger in real time.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 8)
+                    .onChanged { value in
+                        let horizontal = value.translation.width
+                        let vertical = abs(value.translation.height)
+                        guard abs(horizontal) > vertical * 1.2,
+                              swipeNavigationTabs.contains(selectedTab),
+                              let currentIndex = swipeNavigationTabs.firstIndex(of: selectedTab) else {
+                            return
+                        }
+
+                        // Native paging advances on a leftward finger drag;
+                        // negate the translation so positive progress means the
+                        // next tab and negative progress means the previous one.
+                        let pageWidth = max(UIScreen.main.bounds.width, 1)
+                        let progress = min(max(-horizontal / pageWidth, -1), 1)
+                        var transaction = Transaction()
+                        transaction.animation = nil
+                        withTransaction(transaction) {
+                            tabIndicatorPosition = CGFloat(currentIndex) + progress
+                        }
+                    }
+                    .onEnded { value in
+                        let pageWidth = max(UIScreen.main.bounds.width, 1)
+                        let progress = min(max(-value.translation.width / pageWidth, -1), 1)
+                        let atPagerEdge =
+                            (selectedTab == .home && progress < 0) ||
+                            (selectedTab == .exercises && progress > 0)
+                        if abs(progress) < 0.45 || atPagerEdge,
+                           let currentIndex = swipeNavigationTabs.firstIndex(of: selectedTab) {
+                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
+                                tabIndicatorPosition = CGFloat(currentIndex)
+                            }
+                        }
+                    }
+            )
         } else if planDecodeFailed {
             // The plan row exists but won't decode (schema drift, interrupted
             // write). Previously a permanent silent spinner — now an explicit

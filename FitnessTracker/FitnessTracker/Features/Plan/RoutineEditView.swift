@@ -237,6 +237,7 @@ public struct RoutineEditView: View {
         } message: {
             Text("This action cannot be undone.")
         }
+        .keyboardHandling()
     }
 
     private func summaryLine(for config: ExerciseConfig) -> String {

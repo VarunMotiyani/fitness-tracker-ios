@@ -12,6 +12,7 @@ struct SessionStartView: View {
     let planned: PlannedSession
     let catalog: CatalogStore
     let onPrepare: (PlannedSession, Int) -> Void
+    let onClose: () -> Void
     let onStart: (PlannedSession, Int) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -30,11 +31,13 @@ struct SessionStartView: View {
         planned: PlannedSession,
         catalog: CatalogStore,
         onPrepare: @escaping (PlannedSession, Int) -> Void = { _, _ in },
+        onClose: @escaping () -> Void = {},
         onStart: @escaping (PlannedSession, Int) -> Void
     ) {
         self.planned = planned
         self.catalog = catalog
         self.onPrepare = onPrepare
+        self.onClose = onClose
         self.onStart = onStart
         _draft = State(initialValue: SessionStartDraft(items: planned.items))
     }
@@ -74,7 +77,15 @@ struct SessionStartView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { dismiss() } label: {
+                Button {
+                    if SessionExitPolicy.startScreenRequiresConfirmation {
+                        dismiss()
+                    } else {
+                        // Explicitly dismiss the full-screen session rather
+                        // than relying on the nested NavigationStack's dismiss.
+                        onClose()
+                    }
+                } label: {
                     Image(systemName: "xmark")
                 }
                 .accessibilityLabel("Close workout setup")

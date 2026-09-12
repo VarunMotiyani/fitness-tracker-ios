@@ -21,6 +21,10 @@ enum TabBarMetrics {
 /// Start action raised on its own disc in the exact centre.
 struct CustomTabBar: View {
     @Binding var selectedTab: AppTab
+    /// Absolute fractional position supplied by `RootView` while the user
+    /// drags between browse sections. Keeping this separate from the committed
+    /// tab prevents the pill from jumping when the pager settles.
+    @Binding var indicatorPosition: CGFloat
     let isWorkoutActive: Bool
     let onStartPressed: () -> Void
 
@@ -28,7 +32,6 @@ struct CustomTabBar: View {
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @Namespace private var pillNamespace
     @State private var resumePulse = false
 
     private let tabs: [(tab: AppTab, icon: String, label: String)] = [
@@ -54,6 +57,11 @@ struct CustomTabBar: View {
             .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75))
             // Liquid Glass carries its own contact shadow — no manual .shadow()
             // here, which was stacking a second one under the capsule.
+            .overlay {
+                GeometryReader { geometry in
+                    selectionPill(in: geometry.size)
+                }
+            }
 
             // 2 — Start disc: dead-centre of the ZStack (= centre of the capsule),
             // drawn last so it sits on top of the glass.
@@ -68,8 +76,6 @@ struct CustomTabBar: View {
     private func tabItem(_ item: (tab: AppTab, icon: String, label: String)) -> some View {
         let isSelected = selectedTab == item.tab
         Button {
-            let generator = UIImpactFeedbackGenerator(style: .light)
-            generator.impactOccurred()
             withAnimation(.snappy(duration: 0.25)) { selectedTab = item.tab }
         } label: {
             Image(systemName: item.icon)
@@ -79,20 +85,42 @@ struct CustomTabBar: View {
                 // Full capsule height is the hit area (≥44 pt); the visual pill
                 // stays pillHeight tall, centred inside it.
                 .frame(height: TabBarMetrics.capsuleHeight)
-                .background {
-                    if isSelected {
-                        Capsule()
-                            .fill(activeAccent.opacity(0.16))
-                            .overlay(Capsule().strokeBorder(activeAccent.opacity(0.28), lineWidth: 0.75))
-                            .matchedGeometryEffect(id: "pill", in: pillNamespace)
-                            .padding(.vertical, (TabBarMetrics.capsuleHeight - TabBarMetrics.pillHeight) / 2)
-                    }
-                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.label)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// Draw one stable indicator and interpolate its center between tab slots.
+    /// Keeping a single capsule alive avoids the handoff hitch that occurs when
+    /// a matched-geometry view is removed from one button and inserted in the
+    /// next at the exact moment `TabView` commits a page.
+    @ViewBuilder
+    private func selectionPill(in size: CGSize) -> some View {
+        let centerGap = TabBarMetrics.startDiameter + 20
+        let contentWidth = max(size.width - 16, 1) // HStack's 8pt side padding
+        let slotWidth = max((contentWidth - centerGap) / 4, 1)
+        let leading = 8 + slotWidth / 2
+        let centers: [CGFloat] = [
+            leading,
+            leading + slotWidth,
+            leading + (slotWidth * 2) + centerGap,
+            leading + (slotWidth * 3) + centerGap,
+        ]
+        let position = min(max(indicatorPosition, 0), CGFloat(centers.count - 1))
+        let lowerIndex = min(Int(position.rounded(.down)), centers.count - 1)
+        let upperIndex = min(lowerIndex + 1, centers.count - 1)
+        let interpolation = position - CGFloat(lowerIndex)
+        let x = centers[lowerIndex] +
+            (centers[upperIndex] - centers[lowerIndex]) * interpolation
+
+        Capsule()
+            .fill(activeAccent.opacity(0.16))
+            .overlay(Capsule().strokeBorder(activeAccent.opacity(0.28), lineWidth: 0.75))
+            .frame(width: slotWidth, height: TabBarMetrics.pillHeight)
+            .position(x: x, y: TabBarMetrics.capsuleHeight / 2)
+            .allowsHitTesting(false)
     }
 
     @ViewBuilder

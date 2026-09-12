@@ -390,6 +390,11 @@ struct HomeView: View {
                 activeProfile: activeProviderProfile,
                 onClose: { showCoachInbox = false }
             )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.hidden)
+            .presentationContentInteraction(.scrolls)
+            .interactiveDismissDisabled(true)
+            .presentationBackground(GymTheme.bg)
         }
         .fullScreenCover(isPresented: $showProfile) {
             AthleteProfileView(profile: profile, catalog: catalog, onOpenPlan: onOpenPlan)
@@ -414,15 +419,16 @@ struct HomeView: View {
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 32, height: 32)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .accessibilityHidden(true)
 
                     Text("TrainSage")
-                        .font(.system(size: 34, weight: .bold))
+                        .font(.largeTitle.weight(.bold))
                         .foregroundStyle(GymTheme.label)
                 }
 
                 Text(Date().formatted(.dateTime.weekday(.wide).day().month(.wide)))
-                    .font(.body.weight(.regular))
-                    .foregroundStyle(Color(white: 0.65))
+                    .font(.subheadline.weight(.regular))
+                    .foregroundStyle(GymTheme.label2)
             }
 
             Spacer()
@@ -436,7 +442,7 @@ struct HomeView: View {
                 Image(systemName: "person.crop.circle.fill")
                     .font(.body)
                     .foregroundStyle(activeAccent)
-                    .frame(width: 38, height: 38)
+                    .frame(minWidth: 44, minHeight: 44)
                     .background(GymTheme.surface, in: Circle())
             }
             .buttonStyle(.plain)
@@ -452,7 +458,7 @@ struct HomeView: View {
                     Image(systemName: "bubble.left.and.bubble.right.fill")
                         .font(.body)
                         .foregroundStyle(Color(white: 0.70))
-                        .frame(width: 38, height: 38)
+                        .frame(minWidth: 44, minHeight: 44)
                         .background(GymTheme.surface, in: Circle())
 
                     if unreadCoachNotes.count > 0 {
@@ -478,13 +484,13 @@ struct HomeView: View {
                 Image(systemName: "gearshape.fill")
                     .font(.body)
                     .foregroundStyle(Color(white: 0.70))
-                    .frame(width: 38, height: 38)
+                    .frame(minWidth: 44, minHeight: 44)
                     .background(GymTheme.surface, in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Settings")
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 16)
         .padding(.top, 12)
     }
 

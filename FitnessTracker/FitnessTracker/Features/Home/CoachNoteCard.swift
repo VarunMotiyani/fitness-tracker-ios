@@ -379,6 +379,7 @@ struct CoachInboxView: View {
     let activeProfile: ProviderProfile?
     var onClose: (() -> Void)? = nil
 
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @Query(sort: \CoachNoteModel.createdAt, order: .reverse)
     private var notes: [CoachNoteModel]
@@ -444,6 +445,8 @@ struct CoachInboxView: View {
             }
         }
         .background(GymTheme.bg.ignoresSafeArea())
+        // The hub has one deliberate exit: the header X button.
+        .interactiveDismissDisabled(true)
         .onAppear(perform: markVisibleNotesRead)
     }
 
@@ -489,19 +492,26 @@ struct CoachInboxView: View {
 
             Spacer()
 
-            if let onClose {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color(white: 0.70))
-                        .frame(width: 44, height: 44)
-                        .background(GymTheme.surface, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close coach insights")
+            Button(action: close) {
+                Image(systemName: "xmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(white: 0.70))
+                    .frame(width: 44, height: 44)
+                    .background(GymTheme.surface, in: Circle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close coach insights")
+            .accessibilityHint("Returns to the previous screen")
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
+    }
+
+    private func close() {
+        if let onClose {
+            onClose()
+        } else {
+            dismiss()
+        }
     }
 }

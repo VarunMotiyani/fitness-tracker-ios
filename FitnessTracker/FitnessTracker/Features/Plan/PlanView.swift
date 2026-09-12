@@ -75,6 +75,8 @@ struct PlanView: View {
                 // 3. Weekly Volume Targets from AI
                 targetsSection
                 }
+                // Keep the title-to-content rhythm identical to Home, Stats,
+                // and Exercises while the header remains pinned.
                 .padding(.top, 8)
                 .padding(.bottom, 100) // Pad for custom tab bar
             }
@@ -141,6 +143,11 @@ struct PlanView: View {
         }
         .sheet(isPresented: $showChat) {
             ChatView(catalog: catalog, provider: chatProvider, activeProfile: activeProviderProfile, onClose: { showChat = false })
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
+                .presentationContentInteraction(.scrolls)
+                .interactiveDismissDisabled(true)
+                .presentationBackground(GymTheme.bg)
         }
         .onAppear {
             loadRoutines()
@@ -197,12 +204,12 @@ struct PlanView: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Plan")
-                    .font(.system(size: 34, weight: .bold))
+                    .font(.largeTitle.weight(.bold))
                     .foregroundStyle(GymTheme.label)
 
                 Text("Your weekly routine")
-                    .font(.body.weight(.regular))
-                    .foregroundStyle(Color(white: 0.65))
+                    .font(.subheadline.weight(.regular))
+                    .foregroundStyle(GymTheme.label2)
             }
 
             Spacer()
@@ -215,7 +222,7 @@ struct PlanView: View {
                 Image(systemName: "bubble.left.and.bubble.right.fill")
                     .font(.body)
                     .foregroundStyle(Color(white: 0.70))
-                    .frame(width: 38, height: 38)
+                    .frame(minWidth: 44, minHeight: 44)
                     .background(GymTheme.surface, in: Circle())
             }
             .buttonStyle(.plain)
@@ -228,7 +235,7 @@ struct PlanView: View {
                 Image(systemName: "square.and.arrow.up")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(GymTheme.green)
-                    .frame(width: 38, height: 38)
+                    .frame(minWidth: 44, minHeight: 44)
                     .background(GymTheme.surface, in: Circle())
             }
             .buttonStyle(.plain)

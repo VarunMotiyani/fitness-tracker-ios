@@ -19,25 +19,33 @@ public struct ActivityDay: Identifiable, Sendable {
 
 public struct ActivityHeatmapView: View {
     public var accentColor: Color
+    public var onDay: ((Date) -> Void)?
 
     // Precomputed once per instance. Previously these were computed properties
     // hit once per grid cell (52×7 = 364 cells) on every body pass — each call
     // rebuilding a dictionary and running String(format:) — which dominated the
     // Stats tab's CPU time.
+    private let calendar: Calendar
+    private let now: Date
     private let weeks: [[Date]]
     /// Intensity (0…1) per grid cell, parallel to `weeks`. Precomputed so the
     /// 364-cell body doesn't run `String(format:)` + a dictionary lookup per
     /// cell on every render.
     private let cellIntensities: [[Double]]
     private let totalWorkoutsThisYear: Int
+    private let monthLabels: [Int: String]
 
     public init(
         activityDays: [Date: (count: Int, volume: Double)] = [:],
         calendar: Calendar = .appWeek,
         now: Date = .now,
-        accentColor: Color = GymTheme.green
+        accentColor: Color = GymTheme.green,
+        onDay: ((Date) -> Void)? = nil
     ) {
         self.accentColor = accentColor
+        self.onDay = onDay
+        self.calendar = calendar
+        self.now = now
 
         var weekGrid: [[Date]] = []
         let currentWeekStart = WeekKey.startOfWeek(now, weekStart: .monday, calendar: calendar)
@@ -70,6 +78,19 @@ public struct ActivityHeatmapView: View {
                 return max(0.35, 0.35 + volFrac * 0.65)
             }
         }
+
+        var labels: [Int: String] = [:]
+        var lastMonth: Int? = nil
+        let shortMonths = calendar.shortStandaloneMonthSymbols
+        for wi in 0..<weekGrid.count {
+            guard let firstDay = weekGrid[wi].first else { continue }
+            let m = calendar.component(.month, from: firstDay)
+            if m != lastMonth {
+                labels[wi] = shortMonths[m - 1]
+                lastMonth = m
+            }
+        }
+        self.monthLabels = labels
     }
 
     private static func key(_ date: Date, _ calendar: Calendar) -> String {
@@ -78,32 +99,55 @@ public struct ActivityHeatmapView: View {
     }
     
     public var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Workout Activity")
-                        .font(.headline)
-                    Text("\(totalWorkoutsThisYear) sessions in past 52 weeks")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text("\(totalWorkoutsThisYear) sessions in past 52 weeks")
+                    .font(.footnote)
+                    .foregroundStyle(Color(white: 0.60))
                 Spacer()
             }
             
-            // 52-week horizontal scrollable grid
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 3) {
-                    ForEach(cellIntensities.indices, id: \.self) { wi in
-                        VStack(spacing: 3) {
-                            ForEach(cellIntensities[wi].indices, id: \.self) { di in
-                                RoundedRectangle(cornerRadius: 2.5)
-                                    .fill(shade(for: cellIntensities[wi][di]))
-                                    .frame(width: 11, height: 11)
+            // 52-week horizontal scrollable grid anchored to latest week
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        // Month timeline labels
+                        HStack(spacing: 3) {
+                            ForEach(weeks.indices, id: \.self) { wi in
+                                ZStack(alignment: .leading) {
+                                    if let label = monthLabels[wi] {
+                                        Text(label)
+                                            .font(.system(size: 9, weight: .semibold))
+                                            .foregroundStyle(Color(white: 0.60))
+                                            .fixedSize()
+                                    }
+                                }
+                                .frame(width: 11, height: 12, alignment: .leading)
+                            }
+                        }
+
+                        // 7x52 Grid
+                        HStack(spacing: 3) {
+                            ForEach(cellIntensities.indices, id: \.self) { wi in
+                                VStack(spacing: 3) {
+                                    ForEach(cellIntensities[wi].indices, id: \.self) { di in
+                                        dayCell(weekIndex: wi, dayIndex: di)
+                                    }
+                                }
+                                .id(wi)
                             }
                         }
                     }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
+                .defaultScrollAnchor(.trailing)
+                .onAppear {
+                    if let lastIndex = cellIntensities.indices.last {
+                        DispatchQueue.main.async {
+                            proxy.scrollTo(lastIndex, anchor: .trailing)
+                        }
+                    }
+                }
             }
             
             // Legend (5-level intensity gradient)
@@ -116,13 +160,56 @@ public struct ActivityHeatmapView: View {
                         .frame(width: 10, height: 10)
                         .clipShape(RoundedRectangle(cornerRadius: 2))
                 }
+                Text("More time")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Spacer()
             }
         }
-        .padding()
-        .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    @ViewBuilder
+    private func dayCell(weekIndex wi: Int, dayIndex di: Int) -> some View {
+        let day = weeks[wi][di]
+        let intensity = cellIntensities[wi][di]
+        let isToday = calendar.isDateInToday(day)
+        let isFuture = day > now && !isToday
+
+        Button {
+            guard !isFuture else { return }
+            #if canImport(UIKit)
+            let generator = UIImpactFeedbackGenerator(style: .light)
+            generator.impactOccurred()
+            #endif
+            onDay?(day)
+        } label: {
+            RoundedRectangle(cornerRadius: 2.5)
+                .fill(isFuture ? GymTheme.surface3.opacity(0.3) : shade(for: intensity))
+                .frame(width: 11, height: 11)
+                .overlay(
+                    isToday ? RoundedRectangle(cornerRadius: 2.5).stroke(Color.white, lineWidth: 1.5) : nil
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isFuture)
+        .contextMenu {
+            if !isFuture {
+                Text(day.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
+                    .font(.headline)
+                if intensity > 0 {
+                    Label("Trained Day", systemImage: "dumbbell.fill")
+                } else {
+                    Label("Rest Day", systemImage: "moon.stars.fill")
+                }
+                Divider()
+                Button {
+                    onDay?(day)
+                } label: {
+                    Label("View Day Activity", systemImage: "calendar.badge.clock")
+                }
+            }
+        }
     }
 
     private func shade(for level: Double) -> Color {

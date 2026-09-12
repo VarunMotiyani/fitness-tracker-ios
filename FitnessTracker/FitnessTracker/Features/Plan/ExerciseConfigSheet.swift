@@ -72,6 +72,7 @@ public struct ExerciseConfigSheet: View {
                 }
             }
         }
+        .keyboardHandling()
     }
 
     @ViewBuilder

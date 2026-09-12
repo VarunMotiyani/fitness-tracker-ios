@@ -45,6 +45,7 @@ struct SessionSummaryView: View {
             }
             .padding()
         }
+        .keyboardHandling()
     }
 
     // MARK: - Stage 1: capture

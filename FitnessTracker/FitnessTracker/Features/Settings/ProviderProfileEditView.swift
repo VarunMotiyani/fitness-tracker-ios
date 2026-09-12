@@ -116,14 +116,20 @@ struct ProviderProfileEditView: View {
         _displayName = State(initialValue: profile?.displayName ?? "")
         let kind = profile?.adapterKind ?? .openAICompatible
         _kind = State(initialValue: kind)
-        _modelID = State(initialValue: profile?.modelID ?? "")
+        let configuredModelID = profile?.modelID ?? ""
+        let modelID = (kind == .gemini || kind == .vertexAI) &&
+            !GeminiModelCatalog.isSupported(configuredModelID)
+            ? GeminiModelCatalog.defaultModelID
+            : configuredModelID
+        _modelID = State(initialValue: modelID)
         let preset = kind == .openAICompatible ? KnownOpenAICompatibleHost.matching(baseURL: profile?.baseURL) : .openAI
         _hostPreset = State(initialValue: preset)
         _baseURL = State(initialValue: profile?.baseURL ?? preset.baseURL ?? "")
         let vertex = VertexAIURL.parse(profile?.baseURL)
         _gcpProjectID = State(initialValue: vertex.project)
         _gcpLocation = State(initialValue: vertex.location)
-        _supportsVision = State(initialValue: profile?.supportsVision ?? false)
+        _supportsVision = State(initialValue: profile?.supportsVision ??
+            (kind == .gemini || kind == .vertexAI))
         _priceIn = State(initialValue: profile?.pricePerMTokIn ?? 0)
         _priceOut = State(initialValue: profile?.pricePerMTokOut ?? 0)
         _priceCached = State(initialValue: profile?.pricePerMTokCached ?? 0)
@@ -148,7 +154,8 @@ struct ProviderProfileEditView: View {
 
     private var apiKeyFieldLabel: String {
         switch kind {
-        case .gemini, .vertexAI: "API key"
+        case .gemini: "API key"
+        case .vertexAI: "OAuth2 access token"
         case .bedrock: "Credentials JSON"
         default: "API key (optional)"
         }
@@ -182,6 +189,15 @@ struct ProviderProfileEditView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+                } else if kind == .gemini || kind == .vertexAI {
+                    Picker("Model", selection: $modelID) {
+                        ForEach(GeminiModelCatalog.options) { option in
+                            Text(option.name).tag(option.id)
+                        }
+                    }
+                    Text("Thinking level: low · multimodal text, image, audio, video, and PDF · native tools")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 } else if showsModelIDField {
                     TextField("Model ID", text: $modelID)
                         .textInputAutocapitalization(.never)
@@ -287,6 +303,7 @@ struct ProviderProfileEditView: View {
                 }
             }
         }
+        .keyboardHandling()
         .navigationTitle(isEditing ? "Edit Provider" : "New Provider")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: kind) {
@@ -306,6 +323,14 @@ struct ProviderProfileEditView: View {
         }
         .onChange(of: hostPreset) {
             if let url = hostPreset.baseURL { baseURL = url }
+        }
+        .onChange(of: kind) { _, newKind in
+            if (newKind == .gemini || newKind == .vertexAI) && !GeminiModelCatalog.isSupported(modelID) {
+                modelID = GeminiModelCatalog.defaultModelID
+            }
+            if newKind == .gemini || newKind == .vertexAI {
+                supportsVision = true
+            }
         }
         .onChange(of: modelID) {
             // OpenRouter's /models already reports live per-token pricing;

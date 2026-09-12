@@ -110,5 +110,6 @@ public struct ExerciseNoteSheet: View {
                 }
             }
         }
+        .keyboardHandling()
     }
 }

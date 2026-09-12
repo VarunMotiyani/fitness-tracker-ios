@@ -104,6 +104,7 @@ struct HevyAPISyncSheet: View {
                 }
             }
         }
+        .keyboardHandling()
     }
 
     private func startSync() {

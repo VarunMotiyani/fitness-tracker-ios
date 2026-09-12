@@ -215,11 +215,14 @@ struct LibraryView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-            }
+                }
+                // Match the fixed header rhythm used by the other primary tabs.
+                .padding(.top, 8)
                 .padding(.bottom, 100)
             }
         }
         .background(GymTheme.bg.ignoresSafeArea())
+        .keyboardHandling()
         .sheet(item: $selectedExerciseForDetail) { ex in
             if let intent = exerciseLibraryIntent {
                 ExerciseDetailSheet(
@@ -260,14 +263,18 @@ struct LibraryView: View {
     private var libraryHeaderSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(exerciseLibraryIntent == nil ? "Exercises" : "Editing today’s \(WorkoutDayPresentation.title(for: exerciseLibraryIntent!.session))")
-                .font(.system(size: 32, weight: .bold))
+                .font(.largeTitle.weight(.bold))
                 .foregroundStyle(GymTheme.label)
             Text(exerciseLibraryIntent == nil
                  ? "\(visibleCatalog.all.count) exercises \(mediaSource == .freeStatic ? "with photos & instructions" : "with animations")"
                  : "Choose a push-compatible exercise. It changes today only.")
                 .font(.subheadline.weight(.regular))
-                .foregroundStyle(Color(white: 0.60))
+                .foregroundStyle(GymTheme.label2)
         }
+        // The page-style TabView centers views that report only their
+        // intrinsic width. Expand the header so its title shares the same
+        // leading gutter as the search/filter content below.
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.top, 12)
     }

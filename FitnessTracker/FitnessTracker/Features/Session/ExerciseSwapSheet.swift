@@ -122,6 +122,7 @@ struct ExerciseSwapSheet: View {
             .onAppear {
                 selectedMuscle = currentExercise.primaryMuscle
             }
+            .keyboardHandling()
         }
     }
 

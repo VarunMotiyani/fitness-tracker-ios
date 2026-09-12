@@ -13,7 +13,8 @@ public struct SessionNoteSheet: View {
 
     public var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 14) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
                 Text("Session Reflection & Notes")
                     .font(.headline)
                     .foregroundStyle(GymTheme.label)
@@ -32,8 +33,10 @@ public struct SessionNoteSheet: View {
                 }
 
                 Spacer()
+                }
+                .padding(16)
+                .padding(.bottom, 24)
             }
-            .padding(16)
             .background(GymTheme.bg.ignoresSafeArea())
             .navigationTitle("Workout Notes")
             .navigationBarTitleDisplayMode(.inline)
@@ -47,5 +50,6 @@ public struct SessionNoteSheet: View {
                 }
             }
         }
+        .keyboardHandling()
     }
 }

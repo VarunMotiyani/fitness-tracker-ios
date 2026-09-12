@@ -28,7 +28,8 @@ struct CheckinEntryView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
             // Title
             VStack(alignment: .leading, spacing: 4) {
                 Text("Daily check-in")
@@ -71,12 +72,14 @@ struct CheckinEntryView: View {
             }
             .buttonStyle(.plain)
             .padding(.top, 4)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 24)
         .background(GymTheme.bgElevated.ignoresSafeArea())
         .presentationDetents([.height(430)])
         .presentationDragIndicator(.visible)
+        .keyboardHandling()
         .onAppear(perform: prefillFromToday)
         .alert("Couldn't save check-in", isPresented: Binding(
             get: { saveError != nil },

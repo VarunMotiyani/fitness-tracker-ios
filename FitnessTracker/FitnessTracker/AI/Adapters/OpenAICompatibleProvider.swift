@@ -255,12 +255,35 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
     /// Decodes the model's final answer, tolerating a model that wraps it in the
     /// prompt-lane envelope (`{"final": <obj>}` or `{"decision":"final","final":
     /// <obj>}`) — the shared Ask Coach system prompt teaches that shape for the
-    /// prompt lane, so a native-lane model on the same prompt sometimes emits it.
+    /// prompt lane, so a native-lane model on the same prompt sometimes emits it
+    /// — and a model that wraps its JSON in a markdown code fence. The native
+    /// tool lane can't combine `tools` with schema-enforced JSON output on
+    /// several providers (Gemini included), so the final answer only has a
+    /// plain-text instruction behind it, and a chat-tuned model left to its own
+    /// formatting defaults to fencing JSON in ```/```json exactly like it would
+    /// in a normal chat reply.
     static func decodeFinal<F: Decodable>(_ type: F.Type, from json: String) throws -> F {
-        let data = Data(json.utf8)
+        let data = Data(stripMarkdownFence(json).utf8)
         if let value = try? JSONDecoder().decode(F.self, from: data) { return value }
         if let wrapped = try? JSONDecoder().decode(PromptEnvelopeWrapper<F>.self, from: data) { return wrapped.final }
         return try JSONDecoder().decode(F.self, from: data)
+    }
+
+    /// Strips a leading/trailing ``` or ```json (or any single-word language
+    /// tag) code fence, if the whole string is wrapped in one. Leaves
+    /// unfenced text untouched.
+    static func stripMarkdownFence(_ text: String) -> String {
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("```"), trimmed.hasSuffix("```"), trimmed.count > 6 else { return text }
+        trimmed.removeFirst(3)
+        trimmed.removeLast(3)
+        if let firstLineEnd = trimmed.firstIndex(of: "\n") {
+            let firstLine = trimmed[trimmed.startIndex..<firstLineEnd]
+            if !firstLine.isEmpty, !firstLine.contains(where: { $0 == "{" || $0 == "[" }) {
+                trimmed.removeSubrange(trimmed.startIndex..<trimmed.index(after: firstLineEnd))
+            }
+        }
+        return trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Strips anything shaped like an OpenAI (`sk-…`) or Google (`AIza…`) key from
@@ -270,17 +293,28 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
             .replacing(/AIza[A-Za-z0-9_-]{8,}/, with: "«redacted»")
     }
 
-    /// Groq GPT-OSS returns reasoning in a separate field by default. Keep
-    /// this vendor/model-specific so other OpenAI-compatible servers never
-    /// receive Groq-only request fields.
-    private var requiresGPTOSSReasoningExclusion: Bool {
-        guard baseURL.host?.caseInsensitiveCompare("api.groq.com") == .orderedSame else { return false }
+    /// gpt-oss (OpenAI's open-weight Harmony-format model) needs the native
+    /// tool lane and the synthetic-final-tool-call handling below regardless
+    /// of which OpenAI-compatible host actually serves it — Groq, OpenRouter,
+    /// Together, Fireworks, and a self-hosted vLLM all run the identical
+    /// weights with the identical Harmony quirks. This used to be gated to
+    /// `api.groq.com` as well as the model ID, which meant the exact same
+    /// model running through any other host (OpenRouter included) silently
+    /// lost this handling — a real gap, not a hardening nicety, since the
+    /// quirk is a property of the model, not of who's hosting it.
+    private var isGPTOSSModel: Bool {
         let id = modelID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return id == "openai/gpt-oss-20b" || id == "openai/gpt-oss-120b"
+        return id.hasSuffix("gpt-oss-20b") || id.hasSuffix("gpt-oss-120b")
     }
 
-    private var requiresGPTOSSNativeTools: Bool {
-        requiresGPTOSSReasoningExclusion
+    private var requiresGPTOSSNativeTools: Bool { isGPTOSSModel }
+
+    /// `include_reasoning` is Groq's own API extension, not part of the
+    /// OpenAI-compatible spec — only Groq's endpoint understands it, so this
+    /// (unlike the native-tool-lane detection above) stays host-gated.
+    private var requiresGPTOSSReasoningExclusion: Bool {
+        guard baseURL.host?.caseInsensitiveCompare("api.groq.com") == .orderedSame else { return false }
+        return isGPTOSSModel
     }
 
     private struct Envelope: Decodable {

@@ -6,6 +6,33 @@ import LLMKit
 struct OpenAICompatibleProviderTests {
     private struct Dummy: Codable, Sendable, Equatable { let ok: Bool }
 
+    // Reproduces the reported bug: a native tool-turn final answer (no schema
+    // enforcement possible alongside `tools` on several providers, Gemini
+    // included) came back fenced like a normal chat reply and failed to
+    // decode with "Unexpected character '`'".
+    @Test func decodeFinalStripsMarkdownCodeFence() throws {
+        let fenced = "```json\n{\"ok\":true}\n```"
+        let value = try OpenAICompatibleProvider.decodeFinal(Dummy.self, from: fenced)
+        #expect(value == Dummy(ok: true))
+    }
+
+    @Test func decodeFinalStripsBareFenceWithoutLanguageTag() throws {
+        let fenced = "```\n{\"ok\":true}\n```"
+        let value = try OpenAICompatibleProvider.decodeFinal(Dummy.self, from: fenced)
+        #expect(value == Dummy(ok: true))
+    }
+
+    @Test func decodeFinalLeavesUnfencedJSONUntouched() throws {
+        let value = try OpenAICompatibleProvider.decodeFinal(Dummy.self, from: #"{"ok":true}"#)
+        #expect(value == Dummy(ok: true))
+    }
+
+    @Test func decodeFinalStillUnwrapsPromptEnvelopeInsideAFence() throws {
+        let fenced = "```json\n{\"decision\":\"final\",\"final\":{\"ok\":true}}\n```"
+        let value = try OpenAICompatibleProvider.decodeFinal(Dummy.self, from: fenced)
+        #expect(value == Dummy(ok: true))
+    }
+
     @Test func parsesContentAndUsage() async throws {
         let captured = Locked<URLRequest?>(nil)
         let session = StubURLProtocol.session { req in

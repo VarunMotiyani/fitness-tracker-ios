@@ -23,9 +23,16 @@ nonisolated struct OpenRouterProvider: LLMProvider {
             ])
     }
 
-    var capabilities: ProviderCapabilities {
-        ProviderCapabilities(structuredOutput: .jsonObject, toolCalling: .viaPrompt)
-    }
+    // Delegates to `inner` rather than a hardcoded `.viaPrompt` — this was
+    // reporting every OpenRouter model as prompt-lane-only regardless of
+    // what it actually is, which mattered for two real reasons: (1) it hid
+    // `OpenAICompatibleProvider`'s gpt-oss native-tool-lane detection behind
+    // a value nothing ever read, and (2) a user who manually set "Native"
+    // tool calling on an OpenRouter profile in Settings got a capabilities
+    // value that *lied* about matching reality — `completeToolTurn` below
+    // needed to exist regardless, but the mismatch made the override useless
+    // as a signal of what would actually work.
+    var capabilities: ProviderCapabilities { inner.capabilities }
 
     func complete<Value: Decodable & Sendable>(system: String, user: String,
                                                schema: JSONSchema,
@@ -37,6 +44,24 @@ nonisolated struct OpenRouterProvider: LLMProvider {
                                                         image: ImagePayload, schema: JSONSchema,
                                                         as type: Value.Type) async throws -> LLMResult<Value> {
         try await inner.completeWithImage(system: system, user: user, image: image, schema: schema, as: type)
+    }
+
+    /// Was missing entirely — with no override, `completeToolTurn` fell
+    /// through to the `LLMProvider` protocol's default, which unconditionally
+    /// throws `.unsupported("native tool calling")`. That meant any OpenRouter
+    /// profile with the Settings "Native (function calling)" override picked
+    /// — a choice the UI explicitly offers and recommends for OpenRouter
+    /// models — was guaranteed to fail every tool-calling turn, not just an
+    /// edge case for gpt-oss.
+    func completeToolTurn<Final: Decodable & Sendable>(
+        system: String,
+        messages: [ToolChatMessage],
+        tools: [ToolDescriptor],
+        finalSchema: JSONSchema,
+        as type: Final.Type
+    ) async throws -> NativeToolTurnResult<Final> {
+        try await inner.completeToolTurn(system: system, messages: messages, tools: tools,
+                                         finalSchema: finalSchema, as: type)
     }
 
     /// A compact, display-ready model returned by OpenRouter's `/models` API.

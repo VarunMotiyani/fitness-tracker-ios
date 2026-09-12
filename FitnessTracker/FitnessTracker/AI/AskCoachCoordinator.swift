@@ -26,7 +26,10 @@ struct AskCoachCoordinator {
     let provider: (any LLMProvider)?
     let activeProfile: ProviderProfile?
 
-    func send(_ text: String) async -> AskCoachReply {
+    /// Sends a message, optionally preserving the message a user swiped to
+    /// reply to. The stored transcript remains clean; the reply context is
+    /// injected only into the model turn.
+    func send(_ text: String, replyingTo replyContext: String? = nil) async -> AskCoachReply {
         guard let provider else {
             return AskCoachReply(text: "Set up an AI provider in Settings to talk to your coach.", isError: true)
         }
@@ -51,12 +54,19 @@ struct AskCoachCoordinator {
             .makeUserContext().availableEquipment.map(\.rawValue).sorted().joined(separator: ", ") ?? ""
 
         let system = AskCoachPromptBuilder.system()
+        let modelMessage: String
+        if let replyContext, !replyContext.isEmpty {
+            modelMessage = "Replying to this earlier message from the coach:\n\"\(replyContext)\"\n\nNew message:\n\(text)"
+        } else {
+            modelMessage = text
+        }
+
         let user = AskCoachPromptBuilder.user(
             recentMessages: Array(recentMessages), summary: summary,
             memoryDigest: memoryDigestWithIDs(from: recalled.selected),
             equipmentSummary: equipment,
             scheduleContext: WorkoutScheduleStore.scheduleDescription(),
-            newMessage: text
+            newMessage: modelMessage
         )
 
         let tools = ToolRegistry(tools: buildTools())

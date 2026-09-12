@@ -64,4 +64,41 @@ struct OpenRouterProviderTests {
         #expect(provider.capabilities.structuredOutput == .jsonObject)
         #expect(provider.capabilities.toolCalling == .viaPrompt)
     }
+
+    // gpt-oss's Harmony native-tool-lane quirk is a property of the model
+    // weights, not of who's hosting it — it must not be gated to Groq's own
+    // hostname, since the identical model is also served over OpenRouter.
+    @Test func gptOSSAdvertisesNativeToolCallingOnOpenRouterToo() {
+        let provider = OpenRouterProvider(apiKey: "sk-or", modelID: "openai/gpt-oss-120b", session: .shared)
+        #expect(provider.capabilities.toolCalling == .native)
+    }
+
+    // `completeToolTurn` used to have no override at all here, so it fell
+    // through to the `LLMProvider` protocol default — which unconditionally
+    // throws `.unsupported` — for every OpenRouter model regardless of
+    // capabilities. Confirms it now actually delegates and works end to end.
+    @Test func completeToolTurnDelegatesToInnerProvider() async throws {
+        let session = StubURLProtocol.session { request in
+            let body = """
+            {"choices":[{"message":{"content":null,"tool_calls":[
+                {"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\\"q\\":\\"today\\"}"}}
+            ]}}]}
+            """
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(body.utf8))
+        }
+        let provider = OpenRouterProvider(apiKey: "sk-or", modelID: "openai/gpt-oss-120b", session: session)
+        let result: NativeToolTurnResult<Dummy> = try await provider.completeToolTurn(
+            system: "s",
+            messages: [ToolChatMessage(role: .user, content: "hi")],
+            tools: [ToolDescriptor(name: "lookup", description: "look something up", argsSchemaJSON: "{}")],
+            finalSchema: JSONSchema(json: #"{"ok":"boolean"}"#),
+            as: Dummy.self)
+
+        guard case .toolCalls(let calls) = result.turn else {
+            Issue.record("expected a tool call, got \(result.turn)")
+            return
+        }
+        #expect(calls.first?.name == "lookup")
+    }
 }

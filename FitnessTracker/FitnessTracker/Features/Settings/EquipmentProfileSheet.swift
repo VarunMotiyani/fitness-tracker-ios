@@ -102,6 +102,7 @@ struct EquipmentProfileSheet: View {
                 }
                 Button("Cancel", role: .cancel) {}
             }
+            .keyboardHandling()
         }
     }
 
@@ -180,6 +181,7 @@ struct EditEquipmentProfileSheet: View {
                     .foregroundStyle(GymTheme.green)
                 }
             }
+            .keyboardHandling()
         }
     }
 }

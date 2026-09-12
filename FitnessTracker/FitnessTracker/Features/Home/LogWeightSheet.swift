@@ -43,7 +43,8 @@ struct LogWeightSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
             // Drag Indicator spacing + Title
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -149,9 +150,10 @@ struct LogWeightSheet: View {
                     }
                 }
             }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 24)
         .background(GymTheme.bgElevated.ignoresSafeArea())
         .onAppear {
             loadSelectedReading()
@@ -159,6 +161,7 @@ struct LogWeightSheet: View {
         .onChange(of: selectedSlot) { _, _ in loadSelectedReading() }
         .presentationDetents([.height(calculatedHeight)])
         .presentationDragIndicator(.visible)
+        .keyboardHandling()
         .alert("Couldn't save weight", isPresented: Binding(
             get: { saveError != nil },
             set: { if !$0 { saveError = nil } })) {

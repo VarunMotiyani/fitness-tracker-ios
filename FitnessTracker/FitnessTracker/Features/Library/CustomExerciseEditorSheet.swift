@@ -156,6 +156,7 @@ struct CustomExerciseEditorSheet: View {
                 Text(errorMessage ?? "Try again.")
             }
         }
+        .keyboardHandling()
     }
 
     private func save() {

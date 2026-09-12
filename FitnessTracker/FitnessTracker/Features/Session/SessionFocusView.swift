@@ -209,7 +209,11 @@ struct SessionFocusView: View {
         HStack(spacing: 12) {
             // Close / Minimize ✕ button
             Button {
-                showExitDialog = true
+                if SessionExitPolicy.activeWorkoutRequiresConfirmation {
+                    showExitDialog = true
+                } else {
+                    dismiss()
+                }
             } label: {
                 Image(systemName: "xmark")
                     .font(.body.weight(.bold))
