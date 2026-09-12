@@ -5,7 +5,7 @@ struct CostChip: View {
     let summary: CostSummary
 
     var body: some View {
-        Text("\(summary.monthToDateUSD, format: .currency(code: "USD")) this month")
+        Text("\(summary.monthToDateDisplay) this month")
             .font(.caption)
             .monospacedDigit()
             .fixedSize()

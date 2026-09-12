@@ -1,5 +1,6 @@
 import Foundation
 import LLMKit
+import os
 
 /// Wraps a provider with bounded retry on transient failures (`rateLimited`,
 /// 5xx / network / timeout `transport` errors) and, optionally, one-shot
@@ -14,6 +15,8 @@ import LLMKit
 /// isn't separately billed — `LLMError` doesn't carry usage, so its cost (if
 /// any, e.g. a 200 that failed to decode) can't be recovered here.
 nonisolated struct ResilientProvider: LLMProvider {
+    private static let log = Logger(subsystem: "com.varunmotiyani.TrainSage", category: "LLMProvider")
+
     let wrapped: any LLMProvider
     let fallback: (any LLMProvider)?
     let capabilitiesOverride: ProviderCapabilities?
@@ -98,10 +101,21 @@ nonisolated struct ResilientProvider: LLMProvider {
         } catch is CancellationError {
             throw CancellationError()
         } catch let primaryError {
-            guard let fb else { throw primaryError }
-            do { return (try await fb(), true) }
+            guard let fb else {
+                Self.log.error("provider exhausted without fallback: \(Self.describe(primaryError), privacy: .public)")
+                throw primaryError
+            }
+            Self.log.error("primary provider exhausted; trying configured fallback: \(Self.describe(primaryError), privacy: .public)")
+            do {
+                let result = try await fb()
+                Self.log.info("configured fallback provider completed the request")
+                return (result, true)
+            }
             catch is CancellationError { throw CancellationError() }
-            catch { throw primaryError }
+            catch {
+                Self.log.error("configured fallback provider failed; surfacing primary error: \(Self.describe(error), privacy: .public)")
+                throw primaryError
+            }
         }
     }
 
@@ -113,10 +127,34 @@ nonisolated struct ResilientProvider: LLMProvider {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                guard attempt < maxRetries, Self.isRetryable(error) else { throw error }
+                let retryable = Self.isRetryable(error)
+                guard attempt < maxRetries, retryable else {
+                    Self.log.error("provider attempt \(attempt + 1, privacy: .public) failed; no retry: \(Self.describe(error), privacy: .public)")
+                    throw error
+                }
                 attempt += 1
+                Self.log.error("provider attempt \(attempt, privacy: .public) failed; retrying: \(Self.describe(error), privacy: .public)")
                 try await Task.sleep(for: baseDelay * (1 << (attempt - 1)))  // 0.5s, 1s, …
             }
+        }
+    }
+
+    private static func describe(_ error: Error) -> String {
+        switch error as? LLMError {
+        case .visionUnsupported:
+            return "vision unsupported"
+        case .emptyResponse:
+            return "empty response"
+        case .rateLimited:
+            return "rate limited"
+        case .transport(let message):
+            return "transport: \(message)"
+        case .decoding(let message):
+            return "decoding: \(message)"
+        case .unsupported(let message):
+            return "unsupported: \(message)"
+        case .none:
+            return String(describing: error)
         }
     }
 

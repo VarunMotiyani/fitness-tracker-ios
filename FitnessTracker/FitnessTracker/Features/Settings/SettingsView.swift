@@ -54,7 +54,8 @@ struct SettingsView: View {
     @State private var exportURL: URL?
 
     private var summary: CostSummary {
-        CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp, costUSD: $0.costUSD) },
+        CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp,
+                                                    costUSD: AICallRecord.billedCost(for: $0, profiles: allProviderProfiles)) },
                          now: .now)
     }
 
@@ -224,10 +225,31 @@ struct SettingsView: View {
                 }
             }
 
-            HStack {
-                Text("This month")
-                Spacer()
-                Text(summary.monthToDateUSD.formatted(.currency(code: "USD")))
+            NavigationLink {
+                AICallLogView()
+            } label: {
+                HStack {
+                    Text("This month")
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(summary.monthToDateDisplay)
+                        if summary.monthToDateUSD == 0, summary.allTimeUSD > 0 {
+                            Text("All time \(summary.allTimeDisplay)")
+                                .font(.caption)
+                                .foregroundStyle(Color(white: 0.48))
+                        }
+                    }
+                    .foregroundStyle(Color(white: 0.60))
+                }
+            }
+
+            if let active = activeProfiles.first,
+               active.adapterKind != .appleOnDevice,
+               active.pricePerMTokIn == 0,
+               active.pricePerMTokOut == 0,
+               active.pricePerMTokCached == 0 {
+                Label("Token pricing is not configured; recorded usage appears as $0.00.", systemImage: "info.circle")
+                    .font(.footnote)
                     .foregroundStyle(Color(white: 0.60))
             }
 

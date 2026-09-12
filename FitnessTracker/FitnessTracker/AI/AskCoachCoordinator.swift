@@ -106,7 +106,8 @@ struct AskCoachCoordinator {
         // Same call that wrote the reply also decided what's worth
         // remembering — no separate memory-keeper round trip for chat any
         // more (see MemoryKeeperCoordinator's doc comment).
-        MemoryCandidateApplication.applyMemoryCandidates(dto.memoryCandidates, existing: existingMemories, context: context)
+        let memoryChanged = MemoryCandidateApplication.applyMemoryCandidates(
+            dto.memoryCandidates, existing: existingMemories, context: context)
         MemoryCandidateApplication.applyMeasurementCandidates(dto.measurementCandidates, sessionID: nil, context: context)
 
         // Every action the model actually performed gets its own card message
@@ -140,6 +141,18 @@ struct AskCoachCoordinator {
 
         Task {
             await ChatSummarizer(context: context, provider: provider, activeProfile: activeProfile).summarizeIfNeeded()
+            // React right away instead of waiting for the next app
+            // open/background — same check `ProactiveCoordinator.runDueChecks`
+            // already runs, just triggered by the memory write itself. Still
+            // a no-op for almost every write: it only ever fires for a
+            // high-confidence "responsePattern" memory, and only once per
+            // pattern per 14 days (runPatternNudges' own cooldown).
+            if memoryChanged, ProactiveSettingsStore.current().patternOn {
+                await ProactiveCoordinator(
+                    context: context, catalog: catalog, provider: provider,
+                    activeProfile: activeProfile, settings: ProactiveSettingsStore.current()
+                ).runPatternNudges()
+            }
         }
 
         if let regenerationCard {

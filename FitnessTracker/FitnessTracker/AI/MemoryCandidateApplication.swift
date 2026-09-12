@@ -9,11 +9,17 @@ import CoachMemory
 /// one `reconcile`/`MeasurementGuardrail` call path to trust.
 @MainActor
 enum MemoryCandidateApplication {
-    static func applyMemoryCandidates(_ dtos: [MemoryCandidateDTO], existing: [CoachMemory], context: ModelContext) {
+    /// Returns whether anything actually changed — callers use this to decide
+    /// whether it's worth reacting (e.g. an immediate pattern-nudge check)
+    /// rather than firing on every call regardless of whether the model
+    /// proposed nothing or proposed a duplicate that `reconcile` dropped.
+    @discardableResult
+    static func applyMemoryCandidates(_ dtos: [MemoryCandidateDTO], existing: [CoachMemory], context: ModelContext) -> Bool {
         let candidates = dtos.compactMap { $0.toDomain() }
-        guard !candidates.isEmpty else { return }
+        guard !candidates.isEmpty else { return false }
 
         let result = MemoryConsolidation.reconcile(existing: existing, candidates: candidates, now: .now)
+        guard !result.writes.isEmpty || !result.updated.isEmpty || !result.retired.isEmpty else { return false }
 
         for memory in result.writes {
             context.insert(coachMemoryModel(from: memory))
@@ -27,6 +33,7 @@ enum MemoryCandidateApplication {
             model.supersededBy = memory.supersededBy
             model.retiredByCap = memory.retiredByCap
         }
+        return true
     }
 
     static func applyMeasurementCandidates(_ dtos: [MeasurementCandidateDTO], sessionID: UUID?, context: ModelContext) {

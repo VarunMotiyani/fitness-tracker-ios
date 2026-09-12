@@ -4,6 +4,9 @@ import FitnessDomain
 import ExerciseCatalog
 import LLMKit
 import CoachMemory
+import os
+
+private let planGenerationLog = Logger(subsystem: "com.varunmotiyani.TrainSage", category: "PlanGeneration")
 
 /// Outcome of a plan-generation attempt. Carries a user-facing `note` so the UI
 /// can tell "AI succeeded" / "validated then fell back" / "provider misconfigured"
@@ -45,15 +48,23 @@ func generateAndStore(context: UserContext,
     var provider: (any LLMProvider)?
     var providerErrorReason: String?
     if let activeProfile {
+        planGenerationLog.info("plan provider selected adapter=\(activeProfile.adapterKind.rawValue, privacy: .public) display=\(activeProfile.displayName, privacy: .public) model=\(activeProfile.modelID, privacy: .public)")
         do {
             let allProfiles = (try? modelContext.fetch(FetchDescriptor<ProviderProfile>())) ?? []
             provider = try LLMProviderFactory.make(
                 from: activeProfile,
                 fallback: activeProfile.resolvedFallback(in: allProfiles))
+            if let provider {
+                let capabilities = provider.capabilities
+                planGenerationLog.debug("plan provider ready structured=\(capabilities.structuredOutput.rawValue, privacy: .public) tools=\(capabilities.toolCalling.rawValue, privacy: .public) streaming=\(capabilities.streaming, privacy: .public)")
+            }
         } catch {
             provider = nil
             providerErrorReason = factoryErrorReason(error)
+            planGenerationLog.error("plan provider construction failed adapter=\(activeProfile.adapterKind.rawValue, privacy: .public) model=\(activeProfile.modelID, privacy: .public) reason=\(providerErrorReason ?? "unknown", privacy: .public)")
         }
+    } else {
+        planGenerationLog.info("plan generation has no active provider profile; using local rule engine")
     }
 
     let existingMemories = ((try? modelContext.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []).map { $0.toDomain() }
@@ -61,6 +72,7 @@ func generateAndStore(context: UserContext,
 
     let result = await PlanCoordinator(provider: provider, catalog: catalog)
         .makePlan(context: context, weekStartDate: .now, memoryDigest: recalled.digest)
+    planGenerationLog.info("plan generation finished source=\(result.source.rawValue, privacy: .public) calls=\(result.calls.count, privacy: .public) validationIssues=\(result.issues.count, privacy: .public)")
 
     if let stored = try? StoredPlan(plan: result.plan,
                                     hadValidationIssues: !result.issues.isEmpty) {
@@ -107,6 +119,7 @@ func generateAndStore(context: UserContext,
     _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
 
     if let providerErrorReason {
+        planGenerationLog.error("plan generation fallback reason=provider configuration: \(providerErrorReason, privacy: .public)")
         return .providerError(providerErrorReason)
     }
     switch result.source {
@@ -116,7 +129,11 @@ func generateAndStore(context: UserContext,
         // No completed call means the provider threw before returning a plan
         // (transport error, rate limit, network down) rather than the model
         // producing a plan that failed validation.
-        return result.calls.isEmpty ? .aiUnavailable : .validatedFellBack(costUSD: totalCostUSD)
+        if result.calls.isEmpty {
+            planGenerationLog.error("plan generation fallback reason=AI request failed before a completed call")
+            return .aiUnavailable
+        }
+        return .validatedFellBack(costUSD: totalCostUSD)
     case .ruleEngine:
         return .noProvider
     }

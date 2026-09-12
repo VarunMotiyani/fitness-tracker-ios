@@ -93,9 +93,22 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
         }
 
         recordCalls(calls)
-        MemoryCandidateApplication.applyMemoryCandidates(dto.memoryCandidates, existing: existingMemories, context: context)
+        let memoryChanged = MemoryCandidateApplication.applyMemoryCandidates(
+            dto.memoryCandidates, existing: existingMemories, context: context)
         MemoryCandidateApplication.applyMeasurementCandidates(dto.measurementCandidates, sessionID: sessionID, context: context)
         _ = PersistenceReporter.attemptSave(context, operation: "persist context")
+
+        // Same immediate-reaction wiring as AskCoachCoordinator's chat path —
+        // react to a memory write now instead of waiting for the next app
+        // open/background. `run(session:)`'s own caller already treats this
+        // whole call as fire-and-forget, so awaiting here inline adds no
+        // blocking the athlete would notice.
+        if memoryChanged, ProactiveSettingsStore.current().patternOn {
+            await ProactiveCoordinator(
+                context: context, catalog: catalog, provider: provider,
+                activeProfile: activeProfile, settings: ProactiveSettingsStore.current()
+            ).runPatternNudges()
+        }
     }
 
     private func recordCalls(_ calls: [CallOutcome]) {

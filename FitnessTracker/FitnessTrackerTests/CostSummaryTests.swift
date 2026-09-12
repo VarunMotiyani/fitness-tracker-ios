@@ -19,4 +19,10 @@ struct CostSummaryTests {
         #expect(abs(s.allTimeUSD - 1.15) < 1e-9)
         #expect(s.callCount == 3)
     }
+
+    @Test func formatsSubCentSpendWithoutShowingZero() {
+        let summary = CostSummary(monthToDateUSD: 0.0034, allTimeUSD: 0.0034, callCount: 17)
+        #expect(summary.monthToDateDisplay == "$0.0034")
+        #expect(summary.allTimeDisplay == "$0.0034")
+    }
 }

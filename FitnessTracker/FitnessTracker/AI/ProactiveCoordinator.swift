@@ -529,7 +529,10 @@ struct ProactiveCoordinator {
         }
     }
 
-    private func runPatternNudges() async {
+    /// Not `private` — also called immediately after a memory write from
+    /// `AskCoachCoordinator`/`MemoryKeeperCoordinator`, instead of only on
+    /// `runDueChecks`'s own app-open/background schedule.
+    func runPatternNudges() async {
         guard let provider else { return }
         let candidates = ((try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? [])
             .filter { $0.kindRaw == "responsePattern" && $0.confidence >= 0.6 && $0.supersededBy == nil && !$0.retiredByCap }

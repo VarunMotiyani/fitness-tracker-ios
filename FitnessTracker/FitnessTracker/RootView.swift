@@ -142,7 +142,8 @@ struct RootView: View {
     @AppStorage("gym_reminder_minute") private var reminderMinute: Int = 0
 
     private var summary: CostSummary {
-        CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp, costUSD: $0.costUSD) },
+        CostSummary.from(records: calls.map { .init(timestamp: $0.timestamp,
+                                                    costUSD: AICallRecord.billedCost(for: $0, profiles: allProviderProfiles)) },
                          now: .now)
     }
 

@@ -11,6 +11,26 @@ struct AICallRecordTests {
         #expect(abs(c - (0.15 + 0.25)) < 1e-9)
     }
 
+    @Test func preservesMicroscopicButNonzeroUsageCost() {
+        let c = AICallRecord.cost(inputTokens: 1, outputTokens: 0, cachedTokens: 0,
+                                  pricePerMTokIn: 0.10, pricePerMTokOut: 0, pricePerMTokCached: 0)
+        #expect(c > 0)
+    }
+
+    @Test func reestimatesHistoricalZeroFromMatchingProfile() {
+        let profile = ProviderProfile(displayName: "Gemini", adapterKind: .gemini,
+                                      baseURL: nil, modelID: "gemini-3.8-flash",
+                                      apiKeyRef: nil, supportsVision: true,
+                                      pricePerMTokIn: 0.10, pricePerMTokOut: 0.40,
+                                      pricePerMTokCached: 0)
+        let record = AICallRecord(callType: "askCoach", providerDisplayName: "Gemini",
+                                  modelID: "gemini-3.8-flash", inputTokens: 10_000,
+                                  outputTokens: 2_000, cachedTokens: 0, costUSD: 0,
+                                  success: true, usedFallback: false)
+        let estimated = AICallRecord.billedCost(for: record, profiles: [profile])
+        #expect(abs(estimated - 0.0018) < 1e-9)
+    }
+
     @Test func persists() throws {
         let container = try ModelContainer(for: AICallRecord.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true))
