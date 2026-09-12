@@ -237,6 +237,15 @@ struct RootView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            // `AppDelegate.applicationDidEnterBackground` never fires here —
+            // once an app has a scene (every default SwiftUI WindowGroup
+            // app does), UIKit stops calling that app-level method entirely
+            // in favor of scene-phase transitions. `scenePhase` is the real
+            // hook for both directions.
+            if phase == .background {
+                ProactiveBackgroundScheduler.scheduleNext()
+                return
+            }
             guard phase == .active, let catalog else { return }
             WorkoutScheduleStore.refresh(completedSessions: persistedCompletedSessions())
             runProactive(catalog: catalog)

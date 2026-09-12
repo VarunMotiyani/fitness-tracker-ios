@@ -19,6 +19,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = notificationResponder
+        // Must happen before this method returns — BGTaskScheduler asserts
+        // on a registration made any later than app launch.
+        ProactiveBackgroundScheduler.register()
         return true
     }
 }

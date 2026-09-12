@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged into the GENERATE_INFOPLIST_FILE=YES auto-generated Info.plist
+	     (via the INFOPLIST_FILE build setting) purely for the two array-typed
+	     keys Xcode's INFOPLIST_KEY_* mechanism can't express. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.varunmotiyani.FitnessTracker.proactiveRefresh</string>
+	</array>
+</dict>
+</plist>

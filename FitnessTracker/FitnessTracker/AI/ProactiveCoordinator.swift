@@ -21,6 +21,32 @@ nonisolated struct ProactiveSettings: Sendable {
     var reminderMinute: Int
 }
 
+/// Reads the exact same `UserDefaults` keys/defaults `RootView`'s
+/// `@AppStorage` properties do, for the one caller that has no SwiftUI
+/// environment to read them from: `ProactiveBackgroundScheduler`'s task
+/// handler. `@AppStorage` is itself just a `UserDefaults.standard` wrapper,
+/// so this reads the same live values RootView would show, not a stale copy.
+nonisolated enum ProactiveSettingsStore {
+    static func current() -> ProactiveSettings {
+        let d = UserDefaults.standard
+        func bool(_ key: String, default def: Bool) -> Bool {
+            d.object(forKey: key) == nil ? def : d.bool(forKey: key)
+        }
+        func int(_ key: String, default def: Int) -> Int {
+            d.object(forKey: key) == nil ? def : d.integer(forKey: key)
+        }
+        return ProactiveSettings(
+            dailyOn: bool("proactive.settings.daily", default: true),
+            weeklyOn: bool("proactive.settings.weekly", default: true),
+            inbodyOn: bool("proactive.settings.inbody", default: true),
+            checkinOn: bool("proactive.settings.checkin", default: true),
+            patternOn: bool("proactive.settings.pattern", default: true),
+            reminderHour: int("gym_reminder_hour", default: 18),
+            reminderMinute: int("gym_reminder_minute", default: 0)
+        )
+    }
+}
+
 /// The proactive layer (design spec §3). Run from `RootView` on every
 /// app-foreground. Generates LLM text while the app is open and bakes it into
 /// scheduled notifications, since iOS can't call an LLM at fire time.

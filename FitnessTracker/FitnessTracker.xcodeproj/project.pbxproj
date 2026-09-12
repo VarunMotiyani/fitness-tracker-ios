@@ -40,9 +40,22 @@
 		F5BB88F23040E30000B68BD1 /* FitnessTrackerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FitnessTrackerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		F5BB88FF3040E30000B68BE1 /* Exceptions for "FitnessTracker" folder in "FitnessTracker" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Info-BackgroundModes.plist",
+			);
+			target = F5BB88DA3040E2FF00B68BD1 /* FitnessTracker */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		F5BB88DD3040E2FF00B68BD1 /* FitnessTracker */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F5BB88FF3040E30000B68BE1 /* Exceptions for "FitnessTracker" folder in "FitnessTracker" target */,
+			);
 			path = FitnessTracker;
 			sourceTree = "<group>";
 		};
@@ -435,6 +448,7 @@
 				DEVELOPMENT_TEAM = 9VGKVSRVU7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FitnessTracker/Info-BackgroundModes.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -473,6 +487,7 @@
 				DEVELOPMENT_TEAM = 9VGKVSRVU7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FitnessTracker/Info-BackgroundModes.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
