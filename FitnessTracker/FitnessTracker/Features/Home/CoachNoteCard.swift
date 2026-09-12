@@ -386,7 +386,17 @@ struct CoachInboxView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \CoachNoteModel.createdAt, order: .reverse)
     private var notes: [CoachNoteModel]
+    @Query private var chatMessages: [ChatMessageModel]
+    @Query private var chatSummaries: [ChatSummaryModel]
     @State private var selectedSection: CoachSection = .insights
+    @State private var showClearChatConfirmation = false
+    @State private var exportURL: URL?
+    @State private var showExportShare = false
+    @AppStorage("coach.activeConversationID") private var activeConversationID: String = "default"
+
+    private var activeConversationMessages: [ChatMessageModel] {
+        chatMessages.filter { $0.conversationID == activeConversationID }
+    }
 
     /// Keep the inbox useful at a glance: one current daily note, one current
     /// weekly recap, and the latest distinct reactive insight types.
@@ -452,6 +462,17 @@ struct CoachInboxView: View {
         .background(GymTheme.bg.ignoresSafeArea())
         // The hub has one deliberate exit: the header X button.
         .interactiveDismissDisabled(true)
+        .confirmationDialog("Chat actions", isPresented: $showClearChatConfirmation, titleVisibility: .visible) {
+            Button("Clear this chat", role: .destructive) { clearCurrentConversation() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the messages and summary from the current conversation.")
+        }
+        .sheet(isPresented: $showExportShare) {
+            if let exportURL {
+                ShareSheet(items: [exportURL])
+            }
+        }
         .onAppear(perform: markVisibleNotesRead)
     }
 
@@ -497,6 +518,10 @@ struct CoachInboxView: View {
 
             Spacer()
 
+            if selectedSection == .chat {
+                chatHeaderActions
+            }
+
             Button(action: close) {
                 Image(systemName: "xmark")
                     .font(.subheadline.weight(.semibold))
@@ -510,6 +535,61 @@ struct CoachInboxView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
+    }
+
+    private var chatHeaderActions: some View {
+        HStack(spacing: 4) {
+            Button {
+                activeConversationID = UUID().uuidString
+            } label: {
+                Image(systemName: "square.and.pencil")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(GymTheme.lime)
+                    .frame(width: 44, height: 44)
+                    .background(GymTheme.surface, in: Circle().inset(by: 3))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Start a new chat")
+            .accessibilityHint("Opens a blank conversation and keeps this chat available")
+
+            if !activeConversationMessages.isEmpty {
+                Menu {
+                    Button {
+                        exportChat()
+                    } label: {
+                        Label("Export Chat", systemImage: "square.and.arrow.up")
+                    }
+                    Button(role: .destructive) {
+                        showClearChatConfirmation = true
+                    } label: {
+                        Label("Clear Chat", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(GymTheme.lime)
+                        .frame(width: 44, height: 44)
+                        .background(GymTheme.surface, in: Circle().inset(by: 3))
+                }
+                .accessibilityLabel("More chat actions")
+            }
+        }
+    }
+
+    private func exportChat() {
+        guard let url = ChatTranscriptExporter.writeToTempFile(activeConversationMessages) else { return }
+        exportURL = url
+        showExportShare = true
+    }
+
+    private func clearCurrentConversation() {
+        for message in chatMessages where message.conversationID == activeConversationID {
+            context.delete(message)
+        }
+        for summary in chatSummaries where summary.conversationID == activeConversationID {
+            context.delete(summary)
+        }
+        _ = PersistenceReporter.attemptSave(context, operation: "clear chat conversation")
     }
 
     private func close() {

@@ -9,13 +9,17 @@ import UIKit
 /// floating accessory control. The system still owns keyboard insets and focus
 /// scrolling; we do not hard-code keyboard heights.
 struct KeyboardHandling: ViewModifier {
+    /// The window-level pan observer is useful for forms with no scrolling
+    /// surface, but it competes with a chat transcript's own scroll gesture.
+    var includesInteractivePan = true
+
     func body(content: Content) -> some View {
         content
             // Attach one lightweight recognizer to the containing window so a
             // tap anywhere outside a text editor/field dismisses the keyboard.
             // Keeping the recognizer at window level avoids adding competing
             // SwiftUI tap gestures to every form and preserves control taps.
-            .background(WindowKeyboardDismissViewRepresentable())
+            .background(WindowKeyboardDismissViewRepresentable(includesPan: includesInteractivePan))
             .scrollDismissesKeyboard(.interactively)
     }
 }
@@ -26,18 +30,31 @@ struct KeyboardHandling: ViewModifier {
 /// responder. This complements `.scrollDismissesKeyboard(.interactively)` for
 /// forms with a large amount of empty space around the inputs.
 private struct WindowKeyboardDismissViewRepresentable: UIViewRepresentable {
+    let includesPan: Bool
+
     func makeUIView(context: Context) -> WindowKeyboardDismissView {
-        WindowKeyboardDismissView()
+        WindowKeyboardDismissView(includesPan: includesPan)
     }
 
-    func updateUIView(_ uiView: WindowKeyboardDismissView, context: Context) {}
+    func updateUIView(_ uiView: WindowKeyboardDismissView, context: Context) {
+        uiView.setIncludesPan(includesPan)
+    }
 }
 
 private final class WindowKeyboardDismissView: UIView, UIGestureRecognizerDelegate {
+    private var includesPan: Bool
     private weak var installedWindow: UIWindow?
     private var tapGesture: UITapGestureRecognizer?
     private var panGesture: UIPanGestureRecognizer?
     private var didDismissDuringPan = false
+
+    init(includesPan: Bool) {
+        self.includesPan = includesPan
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -59,6 +76,23 @@ private final class WindowKeyboardDismissView: UIView, UIGestureRecognizerDelega
         window.addGestureRecognizer(tap)
         tapGesture = tap
 
+        installPanIfNeeded(on: window)
+    }
+
+    func setIncludesPan(_ newValue: Bool) {
+        guard includesPan != newValue else { return }
+        includesPan = newValue
+        guard let installedWindow else { return }
+        if includesPan {
+            installPanIfNeeded(on: installedWindow)
+        } else if let panGesture {
+            installedWindow.removeGestureRecognizer(panGesture)
+            self.panGesture = nil
+        }
+    }
+
+    private func installPanIfNeeded(on window: UIWindow) {
+        guard includesPan, panGesture == nil else { return }
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         pan.cancelsTouchesInView = false
         pan.delegate = self
@@ -134,5 +168,11 @@ extension View {
     /// Applies the app-wide iPhone keyboard contract to a form or input screen.
     func keyboardHandling() -> some View {
         modifier(KeyboardHandling())
+    }
+
+    /// Chat transcripts already own an interactive scroll gesture. Keep
+    /// outside-tap dismissal, but avoid adding a second window-level pan.
+    func keyboardHandlingWithoutWindowPan() -> some View {
+        modifier(KeyboardHandling(includesInteractivePan: false))
     }
 }

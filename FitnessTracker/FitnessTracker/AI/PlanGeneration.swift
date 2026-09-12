@@ -112,7 +112,8 @@ func generateAndStore(context: UserContext,
                                   cachedTokens: call.cachedTokens,
                                   costUSD: costUSD,
                                   success: call.succeeded,
-                                  usedFallback: (result.source == .fallback && isLast) || call.usedFallback)
+                                  usedFallback: (result.source == .fallback && isLast) || call.usedFallback,
+                                  durationMs: call.durationMs)
         modelContext.insert(record)
     }
 

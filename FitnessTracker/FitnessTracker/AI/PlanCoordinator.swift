@@ -14,6 +14,10 @@ nonisolated struct CallOutcome: Sendable, Equatable {
     /// True when this call was served by the profile's fallback provider
     /// rather than the primary (`ResilientProvider` failover).
     var usedFallback: Bool = false
+    /// Wall-clock time for this one call, including any `ResilientProvider`
+    /// retry/backoff — the number the athlete actually waited, not just the
+    /// final successful attempt's own duration.
+    var durationMs: Int = 0
 }
 
 nonisolated struct CoordinatorResult: Sendable {
@@ -55,19 +59,22 @@ nonisolated struct PlanCoordinator {
         }
 
         do {
+            let start = Date()
             let result = try await completeWithTimeout(
                 provider: provider,
                 system: prompts.system(),
                 user: prompts.user(context: context, memoryDigest: memoryDigest),
                 schema: WeeklyPlanDTO.planJSONSchema,
                 as: WeeklyPlanDTO.self)
+            let durationMs = Int(Date().timeIntervalSince(start) * 1000)
             let plan = result.value.toDomain(weekStartDate: weekStartDate, source: .ai)
             let complaints = describe(validator.validate(plan, context: context))
                 + structuralComplaints(plan, context: context)
             let call = CallOutcome(inputTokens: result.inputTokens,
                                    outputTokens: result.outputTokens,
                                    cachedTokens: result.cachedTokens,
-                                   succeeded: complaints.isEmpty)
+                                   succeeded: complaints.isEmpty,
+                                   durationMs: durationMs)
             var calls = [call]
             if complaints.isEmpty {
                 Self.log.info("plan AI request succeeded and passed validation; calls=1")
@@ -77,17 +84,20 @@ nonisolated struct PlanCoordinator {
             // one retry with the problems (validation + structural) fed back
             let retryUser = prompts.user(context: context, priorIssues: complaints, memoryDigest: memoryDigest)
             do {
+                let retryStart = Date()
                 let retry = try await completeWithTimeout(
                     provider: provider,
                     system: prompts.system(), user: retryUser,
                     schema: WeeklyPlanDTO.planJSONSchema, as: WeeklyPlanDTO.self)
+                let retryDurationMs = Int(Date().timeIntervalSince(retryStart) * 1000)
                 let retryPlan = retry.value.toDomain(weekStartDate: weekStartDate, source: .ai)
                 let retryComplaints = describe(validator.validate(retryPlan, context: context))
                     + structuralComplaints(retryPlan, context: context)
                 let retryCall = CallOutcome(inputTokens: retry.inputTokens,
                                             outputTokens: retry.outputTokens,
                                             cachedTokens: retry.cachedTokens,
-                                            succeeded: retryComplaints.isEmpty)
+                                            succeeded: retryComplaints.isEmpty,
+                                            durationMs: retryDurationMs)
                 calls.append(retryCall)
                 if retryComplaints.isEmpty {
                     Self.log.info("plan AI retry succeeded and passed validation; calls=2")

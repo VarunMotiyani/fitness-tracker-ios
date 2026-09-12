@@ -13,10 +13,14 @@ final class AICallRecord {
     var costUSD: Double
     var success: Bool
     var usedFallback: Bool
+    /// Wall-clock time for this one call. Property default keeps this an
+    /// additive migration for existing rows (they show as 0 / "—", not a
+    /// crash). 0 on any row recorded before this field existed.
+    var durationMs: Int = 0
 
     init(callType: String, providerDisplayName: String, modelID: String,
          inputTokens: Int, outputTokens: Int, cachedTokens: Int,
-         costUSD: Double, success: Bool, usedFallback: Bool) {
+         costUSD: Double, success: Bool, usedFallback: Bool, durationMs: Int = 0) {
         self.timestamp = .now
         self.callType = callType
         self.providerDisplayName = providerDisplayName
@@ -27,6 +31,7 @@ final class AICallRecord {
         self.costUSD = costUSD
         self.success = success
         self.usedFallback = usedFallback
+        self.durationMs = durationMs
     }
 
     nonisolated static func cost(inputTokens: Int, outputTokens: Int, cachedTokens: Int,

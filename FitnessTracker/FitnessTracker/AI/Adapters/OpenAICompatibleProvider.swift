@@ -105,6 +105,17 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
             // that field so JSON mode remains a clean decodable response.
             body["include_reasoning"] = false
         }
+        if isGPTOSSModel {
+            // A single Ask Coach turn can chain 2-3 sequential tool-call round
+            // trips (get_upcoming_sessions -> start_workout -> final, say),
+            // and gpt-oss burns real, visible-to-the-user seconds on hidden
+            // reasoning tokens before every one of them by default. "low" is
+            // part of the model's own Harmony format (a real inference-time
+            // control, not a made-up param) — every host that actually serves
+            // gpt-oss (Groq, OpenRouter, Fireworks, Together, vLLM) accepts
+            // this top-level key.
+            body["reasoning_effort"] = "low"
+        }
         let data = try await send(body: body)
 
         let envelope: Envelope
@@ -216,6 +227,9 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
             // Keep native tool responses free of the separate reasoning field
             // as well; the model's tool arguments/content remain unchanged.
             body["include_reasoning"] = false
+        }
+        if isGPTOSSModel {
+            body["reasoning_effort"] = "low"
         }
 
         let data = try await send(body: body)

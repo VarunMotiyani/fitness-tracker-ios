@@ -97,9 +97,20 @@ private struct AICallLogRow: View {
                 Text(call.timestamp, format: .dateTime.hour().minute())
                     .font(.caption2)
                     .foregroundStyle(GymTheme.label4)
+                if call.durationMs > 0 {
+                    Text(durationDisplay)
+                        .font(.caption2)
+                        .foregroundStyle(call.durationMs > 8000 ? GymTheme.orange : GymTheme.label4)
+                }
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// 0 shows as nothing (row predates this field, see `AICallRecord.durationMs`'s
+    /// doc comment) rather than a misleading "0.0s".
+    private var durationDisplay: String {
+        String(format: "%.1fs", Double(call.durationMs) / 1000)
     }
 
     private var tokenSummary: String {

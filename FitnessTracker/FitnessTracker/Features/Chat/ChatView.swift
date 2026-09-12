@@ -26,6 +26,7 @@ struct ChatView: View {
 
     @Environment(\.modelContext) private var context
     @Query(sort: \ChatMessageModel.timestamp) private var messages: [ChatMessageModel]
+    @Query private var chatSummaries: [ChatSummaryModel]
     /// Both small, unfiltered — feeds `ChatCardView`'s suggestion-accept path
     /// and its live "already resolved?" check, mirroring what `HomeView`'s own
     /// `SuggestionCard` usage already queries.
@@ -33,15 +34,26 @@ struct ChatView: View {
     @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var storedPlans: [StoredPlan]
     @State private var draft = ""
     @State private var isSending = false
+    /// Live "Checking your schedule…"-style status while a turn's tool-call
+    /// loop runs, in place of a static "Coach is thinking…" for however many
+    /// sequential calls a multi-step request actually takes.
+    @StateObject private var progress = CoachProgress()
     @State private var errorText: String?
     @State private var lastSentText: String?
     @State private var lastReplyContext: String?
     @State private var replyTarget: ChatMessageModel?
     @State private var showScrollToLatest = false
+    @State private var showClearConfirmation = false
+    @State private var exportURL: URL?
+    @State private var showExportShare = false
     @FocusState private var composerFocused
 
     @AppStorage("gym_accent_color") private var accentColorKey: String = "lime"
+    @AppStorage("coach.activeConversationID") private var activeConversationID: String = "default"
     private var activeAccent: Color { GymTheme.accent(for: accentColorKey) }
+    private var conversationMessages: [ChatMessageModel] {
+        messages.filter { $0.conversationID == activeConversationID }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -60,11 +72,11 @@ struct ChatView: View {
                     ZStack(alignment: .bottomTrailing) {
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 12) {
-                                if messages.isEmpty {
+                                if conversationMessages.isEmpty {
                                     emptyState
                                 }
 
-                                ForEach(messages) { message in
+                                ForEach(conversationMessages) { message in
                                     messageBubble(message)
                                 }
 
@@ -73,7 +85,7 @@ struct ChatView: View {
                                         ProgressView()
                                             .controlSize(.small)
                                             .tint(activeAccent)
-                                        Text("Coach is thinking…")
+                                        Text(progress.stepText ?? "Coach is thinking…")
                                     }
                                     .font(.footnote)
                                     .foregroundStyle(GymTheme.label3)
@@ -117,11 +129,17 @@ struct ChatView: View {
                             let contentBottom = geometry.contentSize.height + geometry.contentInsets.bottom
                             return contentBottom - visibleBottom > 80
                         }, action: { _, isAwayFromLatest in
-                            showScrollToLatest = isAwayFromLatest && messages.count > 1
+                            showScrollToLatest = isAwayFromLatest && conversationMessages.count > 1
                         })
-                        .onAppear { scrollToLatest(using: proxy, animated: false) }
-                        .onChange(of: messages.count) { _, _ in
-                            scrollToLatest(using: proxy)
+                        .onAppear { scheduleScrollToLatest(using: proxy, animated: false) }
+                        .onChange(of: conversationMessages.count) { _, _ in
+                            scheduleScrollToLatest(using: proxy)
+                        }
+                        .onChange(of: conversationMessages.last?.id) { _, _ in
+                            scheduleScrollToLatest(using: proxy)
+                        }
+                        .onChange(of: activeConversationID) { _, _ in
+                            scheduleScrollToLatest(using: proxy, animated: false)
                         }
 
                         if showScrollToLatest {
@@ -151,14 +169,25 @@ struct ChatView: View {
         // sheet while preserving interactive keyboard dismissal on the scroll
         // view above.
         .interactiveDismissDisabled(true)
-        .keyboardHandling()
+        .keyboardHandlingWithoutWindowPan()
+        .confirmationDialog("Chat actions", isPresented: $showClearConfirmation, titleVisibility: .visible) {
+            Button("Clear this chat", role: .destructive) { clearCurrentConversation() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the messages and summary from the current conversation.")
+        }
+        .sheet(isPresented: $showExportShare) {
+            if let exportURL {
+                ShareSheet(items: [exportURL])
+            }
+        }
     }
 
     // MARK: - Header
 
     @ViewBuilder
     private var headerSection: some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Coach")
                     .font(.largeTitle.weight(.bold))
@@ -169,23 +198,73 @@ struct ChatView: View {
                     .foregroundStyle(GymTheme.label2)
             }
 
-            Spacer()
+            Spacer(minLength: 4)
 
-            if let onClose {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(GymTheme.label2)
-                        .frame(width: 44, height: 44)
-                        .background(GymTheme.surface, in: Circle().inset(by: 3))
+            HStack(spacing: 4) {
+                chatUtilityLinks
+
+                if let onClose {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(GymTheme.label2)
+                            .frame(width: 44, height: 44)
+                            .background(GymTheme.surface, in: Circle().inset(by: 3))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close coach chat")
+                    .accessibilityHint("Returns to the previous screen")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close coach chat")
-                .accessibilityHint("Returns to the previous screen")
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
+    }
+
+    /// Compact, familiar iOS actions in the title row. The system symbols are
+    /// paired with accessibility labels; Clear is conditional so an empty
+    /// conversation has no dead control.
+    private var chatUtilityLinks: some View {
+        HStack(spacing: 2) {
+            Button {
+                startNewConversation()
+            } label: {
+                Image(systemName: "square.and.pencil")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(activeAccent)
+                    .frame(width: 44, height: 44)
+                    .background(GymTheme.surface, in: Circle().inset(by: 3))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Start a new chat")
+            .accessibilityHint("Opens a blank conversation and keeps this chat available")
+
+            if !conversationMessages.isEmpty {
+                // Export + Clear behind one overflow menu rather than two more
+                // fixed 44pt circles — four of those plus the title text
+                // overflowed the header row on-device, which is why Export
+                // wasn't actually visible despite being in the view tree.
+                Menu {
+                    Button {
+                        exportChat()
+                    } label: {
+                        Label("Export Chat", systemImage: "square.and.arrow.up")
+                    }
+                    Button(role: .destructive) {
+                        showClearConfirmation = true
+                    } label: {
+                        Label("Clear Chat", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(activeAccent)
+                        .frame(width: 44, height: 44)
+                        .background(GymTheme.surface, in: Circle().inset(by: 3))
+                }
+                .accessibilityLabel("More chat actions")
+            }
+        }
     }
 
     // MARK: - Messages
@@ -332,7 +411,7 @@ struct ChatView: View {
     }
 
     private func scrollToLatest(using proxy: ScrollViewProxy, animated: Bool = true) {
-        guard let last = messages.last else { return }
+        guard let last = conversationMessages.last else { return }
         if animated {
             withAnimation(.easeOut(duration: 0.2)) {
                 proxy.scrollTo(last.id, anchor: .bottom)
@@ -341,6 +420,53 @@ struct ChatView: View {
             proxy.scrollTo(last.id, anchor: .bottom)
         }
         showScrollToLatest = false
+    }
+
+    /// Wait for the message insertion transaction to lay out before asking
+    /// ScrollViewReader to resolve the new row's ID. Calling scrollTo in the
+    /// same update that inserts a message can be ignored or visibly lag one
+    /// reply behind.
+    private func scheduleScrollToLatest(using proxy: ScrollViewProxy, animated: Bool = true) {
+        Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            scrollToLatest(using: proxy, animated: animated)
+        }
+    }
+
+    private func startNewConversation() {
+        activeConversationID = UUID().uuidString
+        draft = ""
+        replyTarget = nil
+        errorText = nil
+        lastSentText = nil
+        lastReplyContext = nil
+        composerFocused = false
+    }
+
+    private func clearCurrentConversation() {
+        for message in messages where message.conversationID == activeConversationID {
+            context.delete(message)
+        }
+        for summary in chatSummaries where summary.conversationID == activeConversationID {
+            context.delete(summary)
+        }
+        _ = PersistenceReporter.attemptSave(context, operation: "clear chat conversation")
+        draft = ""
+        replyTarget = nil
+        errorText = nil
+        lastSentText = nil
+        lastReplyContext = nil
+        composerFocused = false
+    }
+
+    private func exportChat() {
+        guard let url = ChatTranscriptExporter.writeToTempFile(conversationMessages) else {
+            errorText = "Couldn't export chat."
+            return
+        }
+        exportURL = url
+        showExportShare = true
     }
 
     private func send(_ resentText: String? = nil) {
@@ -353,9 +479,13 @@ struct ChatView: View {
         replyTarget = nil
         isSending = true
         errorText = nil
+        progress.stepText = nil
 
         Task { @MainActor in
-            let coordinator = AskCoachCoordinator(catalog: catalog, context: context, provider: provider, activeProfile: activeProfile)
+            let coordinator = AskCoachCoordinator(catalog: catalog, context: context, provider: provider,
+                                                  activeProfile: activeProfile,
+                                                  conversationID: activeConversationID,
+                                                  progress: progress)
             let result = await coordinator.send(text, replyingTo: replyContext)
             if result.isError {
                 errorText = result.text
@@ -369,6 +499,15 @@ struct ChatView: View {
             // the athlete actually taps it, not the instant the reply arrives.
             isSending = false
         }
+    }
+}
+
+/// The transcript's reply gesture must never steal a predominantly vertical
+/// scroll. The policy is kept pure so the diagonal-drag regression is covered
+/// without needing to drive UIKit gesture recognizers in a test.
+enum ChatGesturePolicy {
+    static func shouldReply(width: CGFloat, height: CGFloat, horizontalIntent: Bool) -> Bool {
+        horizontalIntent && width > 56 && width > abs(height)
     }
 }
 
@@ -386,6 +525,34 @@ private struct CoachChatBubble: View {
 
     private var isUser: Bool { message.role == "user" }
 
+    /// The coach's replies routinely include `**bold**` and numbered lists
+    /// (real examples from device logs: "1. **2026-09-13 (Sunday)** –
+    /// Push-focused…") — `Text(String)` never parses that, so it rendered as
+    /// literal asterisks/hashes cluttering every reply. `.full` handles both
+    /// inline emphasis and list structure; a message that fails to parse
+    /// (stray markdown-like characters in ordinary prose) falls back to the
+    /// original plain text rather than showing nothing.
+    private func renderedLine(_ line: String) -> AttributedString {
+        var options = AttributedString.MarkdownParsingOptions()
+        options.interpretedSyntax = .full
+        if let parsed = try? AttributedString(markdown: line, options: options) {
+            return parsed
+        }
+        return AttributedString(line)
+    }
+
+    /// One `Text` per source line rather than one giant block — `Text`'s own
+    /// markdown rendering parses list/bold syntax correctly but still lays
+    /// everything out as one dense paragraph with no breathing room between
+    /// list items, which is exactly what read as "just a wall of text."
+    /// Splitting gives each numbered item/paragraph its own line with real
+    /// spacing, without needing a full markdown block-layout engine.
+    private var paragraphs: [AttributedString] {
+        message.text
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { renderedLine(String($0).trimmingCharacters(in: .whitespaces)) }
+    }
+
     var body: some View {
         ZStack(alignment: .leading) {
             if horizontalOffset > 0 {
@@ -399,35 +566,41 @@ private struct CoachChatBubble: View {
             HStack {
                 if isUser { Spacer(minLength: 40) }
 
-                Text(message.text)
-                    .font(.subheadline)
-                    .foregroundStyle(GymTheme.label)
-                    .lineSpacing(2)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(
-                        isUser ? accent.opacity(0.22) : GymTheme.surface2,
-                        in: RoundedRectangle(cornerRadius: 14)
-                    )
-                    .offset(x: horizontalOffset)
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.subheadline)
+                            .foregroundStyle(GymTheme.label)
+                            .lineSpacing(3)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    isUser ? accent.opacity(0.22) : GymTheme.surface2,
+                    in: RoundedRectangle(cornerRadius: 14)
+                )
+                .offset(x: horizontalOffset)
 
                 if !isUser { Spacer(minLength: 40) }
             }
         }
         .contentShape(Rectangle())
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 16)
-                .onChanged { value in
-                    guard value.translation.width > abs(value.translation.height) else { return }
-                    horizontalOffset = min(max(value.translation.width, 0), 92)
-                }
-                .onEnded { value in
-                    let shouldReply = value.translation.width > 56
+        // A UIKit directional pan rejects vertical motion in
+        // `gestureRecognizerShouldBegin`, so the enclosing ScrollView owns
+        // the touch stream immediately instead of competing with it.
+        .overlay {
+            HorizontalReplyGestureView(
+                onChanged: { translation in
+                    horizontalOffset = translation
+                },
+                onEnded: { shouldReply in
                     let animation: Animation? = reduceMotion ? nil : .easeOut(duration: 0.2)
                     withAnimation(animation) { horizontalOffset = 0 }
                     if shouldReply { onReply() }
                 }
-        )
+            )
+        }
         .contextMenu {
             Button(action: onReply) {
                 Label("Reply", systemImage: "arrowshape.turn.up.left")
@@ -440,5 +613,70 @@ private struct CoachChatBubble: View {
         .accessibilityLabel(isUser ? "You" : "Coach")
         .accessibilityValue(message.text)
         .accessibilityHint("Swipe right or use the context menu to reply")
+    }
+}
+
+/// Direction-locked reply recognizer. SwiftUI's DragGesture cannot fail early
+/// based on axis, which lets a child bubble compete with a vertical ScrollView
+/// drag. UIKit's `shouldBegin` gives the scroll view an unambiguous winner.
+private struct HorizontalReplyGestureView: UIViewRepresentable {
+    let onChanged: (CGFloat) -> Void
+    let onEnded: (Bool) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChanged: onChanged, onEnded: onEnded)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.backgroundColor = .clear
+
+        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
+        pan.cancelsTouchesInView = false
+        pan.delegate = context.coordinator
+        view.addGestureRecognizer(pan)
+        context.coordinator.pan = pan
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onChanged = onChanged
+        context.coordinator.onEnded = onEnded
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onChanged: (CGFloat) -> Void
+        var onEnded: (Bool) -> Void
+        weak var pan: UIPanGestureRecognizer?
+
+        init(onChanged: @escaping (CGFloat) -> Void, onEnded: @escaping (Bool) -> Void) {
+            self.onChanged = onChanged
+            self.onEnded = onEnded
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
+            let velocity = pan.velocity(in: pan.view)
+            return velocity.x > 0 && abs(velocity.x) > abs(velocity.y)
+        }
+
+        @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
+            let translation = gesture.translation(in: gesture.view)
+            switch gesture.state {
+            case .changed:
+                onChanged(min(max(translation.x, 0), 92))
+            case .ended:
+                onEnded(ChatGesturePolicy.shouldReply(
+                    width: translation.x,
+                    height: translation.y,
+                    horizontalIntent: true
+                ))
+            case .cancelled, .failed:
+                onEnded(false)
+            default:
+                break
+            }
+        }
     }
 }

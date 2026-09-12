@@ -129,7 +129,7 @@ struct GetUpcomingSessionsTool: CoachTool {
     var descriptor: ToolDescriptor {
         ToolDescriptor(
             name: "get_upcoming_sessions",
-            description: "Lists this week's planned sessions (id, focus muscles, exercises) so you can find the plannedSessionID for a propose_* call.",
+            description: "Lists the athlete's planned sessions, each with its next actual scheduled date, soonest first — so you can find the plannedSessionID for a propose_*/apply_*/start_workout call.",
             argsSchemaJSON: "{}"
         )
     }
@@ -139,32 +139,45 @@ struct GetUpcomingSessionsTool: CoachTool {
             return "{\"error\": \"no plan\"}"
         }
         let cal = WorkoutScheduleStore.calendar
-        let weekStart = cal.dateInterval(of: .weekOfYear, for: .now)?.start ?? cal.startOfDay(for: .now)
-        // Keep the effective session (one-day exercise edits applied), not just
-        // its id — the payload's exercise list must reflect what's actually
-        // scheduled for the date, not the recurring routine.
-        var scheduledByID: [UUID: (date: String, state: String, session: PlannedSession)] = [:]
-        for offset in 0..<7 {
-            guard let date = cal.date(byAdding: .day, value: offset, to: weekStart),
-                  let session = WorkoutScheduleStore.effectiveSession(for: date, in: plan) else { continue }
+        let today = cal.startOfDay(for: .now)
+        // Scan forward from *today*, not the start of the current Mon-Sun
+        // calendar week — asking "what's next" partway through the week used
+        // to return earlier days in that same week (already past) mixed in
+        // with the real upcoming ones, in routine order rather than date
+        // order. Two weeks covers every distinct session even on a split
+        // with fewer training days than 7.
+        var scheduledByID: [UUID: (date: String, weekday: String, state: String, session: PlannedSession, sortDate: Date)] = [:]
+        for offset in 0..<14 {
+            guard let date = cal.date(byAdding: .day, value: offset, to: today),
+                  let session = WorkoutScheduleStore.effectiveSession(for: date, in: plan)
+            else { continue }
+            guard scheduledByID[session.id] == nil else { continue } // keep only its next occurrence
             let key = Scheduling.isoDateKey(date, calendar: cal)
-            scheduledByID[session.id] = (key, WorkoutScheduleStore.isRescheduled(for: date) ? "rescheduled" : "scheduled", session)
+            let weekday = date.formatted(.dateTime.weekday(.wide))
+            scheduledByID[session.id] = (key, weekday, WorkoutScheduleStore.isRescheduled(for: date) ? "rescheduled" : "scheduled", session, date)
         }
-        let payload = plan.sessions.map { planSession -> [String: Any] in
-            let scheduled = scheduledByID[planSession.id]
-            let session = scheduled?.session ?? planSession
-            var item: [String: Any] = [
-                "plannedSessionID": session.id.uuidString,
-                "order": session.order,
-                "focusMuscles": session.focusMuscles.map(\.rawValue),
-                "exercises": session.items.map { catalog.exercise(id: $0.exerciseID)?.name ?? $0.exerciseID }
-            ]
-            if let scheduled {
-                item["scheduledDate"] = scheduled.date
-                item["scheduleState"] = scheduled.state
+        let payload = plan.sessions
+            .map { planSession -> (sortDate: Date, item: [String: Any]) in
+                let scheduled = scheduledByID[planSession.id]
+                let session = scheduled?.session ?? planSession
+                var item: [String: Any] = [
+                    "plannedSessionID": session.id.uuidString,
+                    "order": session.order,
+                    "focusMuscles": session.focusMuscles.map(\.rawValue),
+                    "exercises": session.items.map { catalog.exercise(id: $0.exerciseID)?.name ?? $0.exerciseID }
+                ]
+                if let scheduled {
+                    item["scheduledDate"] = scheduled.date
+                    item["scheduledWeekday"] = scheduled.weekday
+                    item["scheduleState"] = scheduled.state
+                }
+                // A session with no resolvable date in the next two weeks
+                // (e.g. it's rest every day in that window) sorts last rather
+                // than dropping out — tools still need its plannedSessionID.
+                return (scheduled?.sortDate ?? .distantFuture, item)
             }
-            return item
-        }
+            .sorted { $0.sortDate < $1.sortDate }
+            .map(\.item)
         return encodeJSONObject(["sessions": payload])
     }
 }

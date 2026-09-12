@@ -49,21 +49,22 @@ struct ToolLoopRunner {
         finalSchema: JSONSchema,
         tools: ToolRegistry,
         provider: any LLMProvider,
-        maxIterations: Int = 4
+        maxIterations: Int = 4,
+        onStep: ((String) -> Void)? = nil
     ) async throws -> ToolLoopResult<Final> {
         if provider.capabilities.toolCalling == .native {
             return try await runNative(system: system, initialUser: initialUser, finalSchema: finalSchema,
-                                       tools: tools, provider: provider, maxIterations: maxIterations)
+                                       tools: tools, provider: provider, maxIterations: maxIterations, onStep: onStep)
         }
         return try await runPrompt(system: system, initialUser: initialUser, finalSchema: finalSchema,
-                                   tools: tools, provider: provider, maxIterations: maxIterations)
+                                   tools: tools, provider: provider, maxIterations: maxIterations, onStep: onStep)
     }
 
     // MARK: - Prompt lane (any provider): the model emits a JSON envelope.
 
     private func runPrompt<Final: Codable & Sendable>(
         system: String, initialUser: String, finalSchema: JSONSchema,
-        tools: ToolRegistry, provider: any LLMProvider, maxIterations: Int
+        tools: ToolRegistry, provider: any LLMProvider, maxIterations: Int, onStep: ((String) -> Void)?
     ) async throws -> ToolLoopResult<Final> {
         let schema = ToolLoopTurn<Final>.schema(finalSchema: finalSchema, tools: tools.descriptors())
         var user = initialUser
@@ -71,21 +72,23 @@ struct ToolLoopRunner {
 
         for _ in 0..<maxIterations {
             let result: LLMResult<ToolLoopTurn<Final>>
+            let start = Date()
             do {
                 result = try await provider.complete(
                     system: system, user: user, schema: schema, as: ToolLoopTurn<Final>.self)
             } catch {
-                throw Self.classify(error, calls: &calls)
+                throw Self.classify(error, calls: &calls, durationMs: Self.elapsedMs(since: start))
             }
             calls.append(CallOutcome(inputTokens: result.inputTokens, outputTokens: result.outputTokens,
                                      cachedTokens: result.cachedTokens, succeeded: true,
-                                     usedFallback: result.usedFallback))
+                                     usedFallback: result.usedFallback, durationMs: Self.elapsedMs(since: start)))
 
             switch result.value {
             case .final(let value):
                 Self.log.debug("prompt lane: final answer after \(calls.count) call(s)")
                 return ToolLoopResult(value: value, calls: calls)
             case .toolCall(let request):
+                onStep?(coachToolStepLabel(for: request.name))
                 let toolResult = tools.execute(request)
                 Self.logTool(request.name, args: request.argsJSON, result: toolResult)
                 user += "\n\nTool '\(request.name)' returned: \(toolResult)\n\nContinue: call another tool, or give your final answer."
@@ -98,7 +101,7 @@ struct ToolLoopRunner {
 
     private func runNative<Final: Codable & Sendable>(
         system: String, initialUser: String, finalSchema: JSONSchema,
-        tools: ToolRegistry, provider: any LLMProvider, maxIterations: Int
+        tools: ToolRegistry, provider: any LLMProvider, maxIterations: Int, onStep: ((String) -> Void)?
     ) async throws -> ToolLoopResult<Final> {
         var messages: [ToolChatMessage] = [ToolChatMessage(role: .user, content: initialUser)]
         let descriptors = tools.descriptors()
@@ -106,16 +109,17 @@ struct ToolLoopRunner {
 
         for _ in 0..<maxIterations {
             let result: NativeToolTurnResult<Final>
+            let start = Date()
             do {
                 result = try await provider.completeToolTurn(
                     system: system, messages: messages, tools: descriptors,
                     finalSchema: finalSchema, as: Final.self)
             } catch {
-                throw Self.classify(error, calls: &calls)
+                throw Self.classify(error, calls: &calls, durationMs: Self.elapsedMs(since: start))
             }
             calls.append(CallOutcome(inputTokens: result.inputTokens, outputTokens: result.outputTokens,
                                      cachedTokens: result.cachedTokens, succeeded: true,
-                                     usedFallback: result.usedFallback))
+                                     usedFallback: result.usedFallback, durationMs: Self.elapsedMs(since: start)))
 
             switch result.turn {
             case .final(let value):
@@ -124,6 +128,7 @@ struct ToolLoopRunner {
             case .toolCalls(let toolCalls):
                 messages.append(ToolChatMessage(role: .assistant, toolCalls: toolCalls))
                 for call in toolCalls {
+                    onStep?(coachToolStepLabel(for: call.name))
                     let output = tools.execute(ToolCallRequest(name: call.name, argsJSON: call.argumentsJSON))
                     Self.logTool(call.name, args: call.argumentsJSON, result: output)
                     messages.append(ToolChatMessage(role: .tool, content: output,
@@ -134,13 +139,17 @@ struct ToolLoopRunner {
         throw ToolLoopError.exceededMaxIterations(calls: calls)
     }
 
+    private static func elapsedMs(since start: Date) -> Int {
+        Int(Date().timeIntervalSince(start) * 1000)
+    }
+
     /// Records the failed attempt in `calls` and maps the provider error to the
     /// right `ToolLoopError` — preserving a safe provider diagnostic for the
     /// interactive coach screen. Decode failures are included too: a 2xx
     /// response can still be unusable when a provider returns a different
     /// envelope/content shape.
-    private static func classify(_ error: Error, calls: inout [CallOutcome]) -> ToolLoopError {
-        calls.append(CallOutcome(inputTokens: 0, outputTokens: 0, cachedTokens: 0, succeeded: false))
+    private static func classify(_ error: Error, calls: inout [CallOutcome], durationMs: Int) -> ToolLoopError {
+        calls.append(CallOutcome(inputTokens: 0, outputTokens: 0, cachedTokens: 0, succeeded: false, durationMs: durationMs))
         if let llmError = error as? LLMError {
             switch llmError {
             case .transport(let message):

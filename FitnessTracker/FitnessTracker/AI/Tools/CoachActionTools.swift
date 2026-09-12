@@ -271,3 +271,168 @@ struct LogBodyweightTool: CoachTool {
         }
     }
 }
+
+// MARK: - Update athlete profile
+
+struct UpdateProfileArgs: Decodable {
+    let goal: String?
+    let experience: String?
+    let sessionsPerWeek: Int?
+    let sessionLengthMinutes: Int?
+    let addEquipment: [String]?
+    let removeEquipment: [String]?
+    let excludeMuscles: [String]?
+    let includeMuscles: [String]?
+}
+
+/// The missing piece `regenerate_plan` needed: regeneration (AI or the
+/// rule-engine fallback) reads the athlete's *stored* `UserProfile` — never
+/// the free-text `reason` string passed to `regenerate_plan`. Asking to
+/// "switch to 5 days a week" without this tool updating `sessionsPerWeek`
+/// first meant the reason was purely decorative and the resulting plan
+/// reflected whatever the profile already said, which is exactly why a
+/// structural change request could silently do nothing. The system prompt
+/// tells the model to call this before regenerate_plan whenever the change
+/// is a specific profile fact.
+@MainActor
+struct UpdateProfileTool: CoachTool {
+    let context: ModelContext
+    let sink: CoachActionSink
+
+    var descriptor: ToolDescriptor {
+        ToolDescriptor(
+            name: "update_profile",
+            description: "Update one or more athlete profile facts directly — goal, experience, sessions/week, session length, or equipment/excluded-muscle lists. Omit anything you're not changing. Call this BEFORE regenerate_plan whenever the requested change is a specific profile fact (days per week, goal, equipment) — regenerate_plan reads the profile as it is, not the reason you give it.",
+            argsSchemaJSON: """
+            {"goal": "loseFat|buildMuscle|getStronger|generalFitness|null",
+             "experience": "beginner|intermediate|advanced|null",
+             "sessionsPerWeek": "number 1-7|null",
+             "sessionLengthMinutes": "number 10-240|null",
+             "addEquipment": ["barbell|dumbbell|cable|machine|bodyweight|kettlebell|bands|ezBar|smithMachine|leverageMachine|stabilityBall|medicineBall|sled|rope|roller|cardioMachine|other"],
+             "removeEquipment": ["string"],
+             "excludeMuscles": ["chest|back|lowerBack|traps|shoulders|biceps|triceps|forearms|quads|hamstrings|glutes|calves|abs"],
+             "includeMuscles": ["string"]}
+            """
+        )
+    }
+
+    func run(argsJSON: String) -> String {
+        guard let args = decodeArgs(argsJSON, as: UpdateProfileArgs.self) else {
+            return "{\"error\": \"bad args\"}"
+        }
+        guard let profile = (try? context.fetch(FetchDescriptor<UserProfile>()))?.first else {
+            return "{\"error\": \"no athlete profile found\"}"
+        }
+
+        var changes: [String] = []
+
+        if let goal = args.goal {
+            guard let parsed = Goal(rawValue: goal) else {
+                return "{\"error\": \"unknown goal '\(goal)' — use one of: \(Goal.allCases.map(\.rawValue).joined(separator: ", "))\"}"
+            }
+            profile.goalRaw = parsed.rawValue
+            changes.append("goal → \(parsed.rawValue)")
+        }
+        if let experience = args.experience {
+            guard let parsed = ExperienceLevel(rawValue: experience) else {
+                return "{\"error\": \"unknown experience '\(experience)' — use one of: \(ExperienceLevel.allCases.map(\.rawValue).joined(separator: ", "))\"}"
+            }
+            profile.experienceRaw = parsed.rawValue
+            changes.append("experience → \(parsed.rawValue)")
+        }
+        if let sessions = args.sessionsPerWeek {
+            guard (1...7).contains(sessions) else { return "{\"error\": \"implausible sessionsPerWeek\"}" }
+            profile.sessionsPerWeek = sessions
+            changes.append("sessions/week → \(sessions)")
+        }
+        if let minutes = args.sessionLengthMinutes {
+            guard (10...240).contains(minutes) else { return "{\"error\": \"implausible sessionLengthMinutes\"}" }
+            profile.sessionLengthMinutes = minutes
+            changes.append("session length → \(minutes)m")
+        }
+        if let toAdd = args.addEquipment, !toAdd.isEmpty {
+            var parsed: [Equipment] = []
+            for raw in toAdd {
+                guard let equipment = Equipment(rawValue: raw) else {
+                    return "{\"error\": \"unknown equipment '\(raw)'\"}"
+                }
+                parsed.append(equipment)
+            }
+            let existing = Set(profile.availableEquipmentRaws)
+            profile.availableEquipmentRaws += parsed.map(\.rawValue).filter { !existing.contains($0) }
+            changes.append("added equipment: \(parsed.map(\.rawValue).joined(separator: ", "))")
+        }
+        if let toRemove = args.removeEquipment, !toRemove.isEmpty {
+            profile.availableEquipmentRaws.removeAll { toRemove.contains($0) }
+            changes.append("removed equipment: \(toRemove.joined(separator: ", "))")
+        }
+        if let toExclude = args.excludeMuscles, !toExclude.isEmpty {
+            var parsed: [MuscleGroup] = []
+            for raw in toExclude {
+                guard let muscle = MuscleGroup(rawValue: raw) else {
+                    return "{\"error\": \"unknown muscle '\(raw)'\"}"
+                }
+                parsed.append(muscle)
+            }
+            let existing = Set(profile.excludedMuscleRaws)
+            profile.excludedMuscleRaws += parsed.map(\.rawValue).filter { !existing.contains($0) }
+            changes.append("excluded muscles: \(parsed.map(\.rawValue).joined(separator: ", "))")
+        }
+        if let toInclude = args.includeMuscles, !toInclude.isEmpty {
+            profile.excludedMuscleRaws.removeAll { toInclude.contains($0) }
+            changes.append("no longer excluding: \(toInclude.joined(separator: ", "))")
+        }
+
+        guard !changes.isEmpty else { return "{\"error\": \"nothing to update\"}" }
+
+        profile.updatedAt = .now
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
+        sink.addCard(.appliedChange, payload: AppliedChangeCardPayload(
+            icon: "person.text.rectangle.fill", title: "Profile updated",
+            detail: changes.joined(separator: ", ")))
+        return "{\"status\": \"updated\"}"
+    }
+}
+
+// MARK: - Clear all data (keep profile)
+
+struct ClearDataArgs: Decodable {
+    let confirmed: Bool
+}
+
+/// Deliberately gated on an explicit `confirmed` flag rather than firing on
+/// any single "clear my data" utterance — unlike every other direct-action
+/// tool here, this one can't be undone by a follow-up correction. The system
+/// prompt tells the model to only pass `confirmed: true` after the athlete
+/// has clearly confirmed they understand this is permanent.
+@MainActor
+struct ClearDataTool: CoachTool {
+    let context: ModelContext
+    let sink: CoachActionSink
+
+    var descriptor: ToolDescriptor {
+        ToolDescriptor(
+            name: "clear_data",
+            description: "Permanently erase all workout history, plans, chat history, coach memory, and logged bodyweight — everything except the athlete's profile and AI provider settings. IRREVERSIBLE. Only call with confirmed=true after the athlete has explicitly confirmed they understand this deletes everything and cannot be undone.",
+            argsSchemaJSON: "{\"confirmed\": \"boolean — true only after explicit athlete confirmation\"}"
+        )
+    }
+
+    func run(argsJSON: String) -> String {
+        guard let args = decodeArgs(argsJSON, as: ClearDataArgs.self) else {
+            return "{\"error\": \"bad args\"}"
+        }
+        guard args.confirmed else {
+            return "{\"error\": \"not confirmed — ask the athlete to explicitly confirm this permanently deletes everything, then call again with confirmed: true\"}"
+        }
+        do {
+            try BackupRestoreService.clearHistoryKeepingProfile(context: context)
+        } catch {
+            return "{\"error\": \"clear failed: \(error)\"}"
+        }
+        sink.addCard(.appliedChange, payload: AppliedChangeCardPayload(
+            icon: "trash.fill", title: "Data cleared",
+            detail: "Workout history, plans, chat, and memory were erased. Profile and AI settings stayed put."))
+        return "{\"status\": \"cleared\"}"
+    }
+}

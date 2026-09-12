@@ -160,6 +160,42 @@ private struct DummyFinal: Codable, Sendable, Equatable { let value: Int }
         #expect(stub.lastMessages.contains { $0.role == .tool && $0.content == "\"echo-result\"" })
     }
 
+    @Test func onStepFiresWithAFriendlyLabelBeforeEachToolExecutes() async throws {
+        let toolTurn = """
+        {"decision":"tool_call","toolCall":{"name":"get_upcoming_sessions","argsJSON":"{}"}}
+        """
+        let finalTurn = """
+        {"decision":"final","final":{"value":1}}
+        """
+        let provider = StubLLMProvider(responses: [.success(toolTurn), .success(finalTurn)])
+        let registry = ToolRegistry(tools: [UpcomingSessionsStubTool()])
+        let runner = ToolLoopRunner()
+        var steps: [String] = []
+
+        let _: ToolLoopResult<DummyFinal> = try await runner.run(
+            system: "test", initialUser: "test",
+            finalSchema: JSONSchema(json: "{\"value\":\"number\"}"),
+            tools: registry, provider: provider,
+            onStep: { steps.append($0) })
+
+        #expect(steps == ["Checking your schedule…"])
+    }
+
+    @Test func everyCallOutcomeCarriesAWallClockDuration() async throws {
+        let finalTurn = """
+        {"decision":"final","final":{"value":1}}
+        """
+        let provider = StubLLMProvider(responses: [.success(finalTurn)])
+        let runner = ToolLoopRunner()
+
+        let result: ToolLoopResult<DummyFinal> = try await runner.run(
+            system: "test", initialUser: "test",
+            finalSchema: JSONSchema(json: "{\"value\":\"number\"}"),
+            tools: ToolRegistry(tools: []), provider: provider)
+
+        #expect(result.calls.allSatisfy { $0.durationMs >= 0 })
+    }
+
     @Test func nativeLaneProviderFailurePreservesDiagnostic() async throws {
         let stub = NativeToolStub()
         stub.failFirstTurnWith = .transport("HTTP 400: bad tools")
@@ -181,6 +217,13 @@ private struct EchoTool: CoachTool {
         ToolDescriptor(name: "convert_test", description: "test tool", argsSchemaJSON: "{}")
     }
     func run(argsJSON: String) -> String { "\"echo-result\"" }
+}
+
+private struct UpcomingSessionsStubTool: CoachTool {
+    var descriptor: ToolDescriptor {
+        ToolDescriptor(name: "get_upcoming_sessions", description: "test tool", argsSchemaJSON: "{}")
+    }
+    func run(argsJSON: String) -> String { "[]" }
 }
 
 private final class NativeToolStub: LLMProvider, @unchecked Sendable {

@@ -48,6 +48,29 @@ func encodeResult<T: Encodable>(_ value: T) -> String {
     return str
 }
 
+/// Human-readable status text for the chat progress indicator while a tool
+/// runs — purely cosmetic, shown live in `ChatView` in place of a static
+/// "Coach is thinking…" for however long a multi-step turn takes. Never
+/// affects what the tool actually does.
+func coachToolStepLabel(for toolName: String) -> String {
+    switch toolName {
+    case "get_recovery_status": "Checking recovery status…"
+    case "get_muscle_balance": "Checking muscle balance…"
+    case "query_training_data": "Looking through your training history…"
+    case "get_upcoming_sessions": "Checking your schedule…"
+    case "propose_exercise_swap", "apply_exercise_swap": "Working out an exercise swap…"
+    case "propose_set_change", "apply_set_change": "Adjusting your sets…"
+    case "propose_routine_revision": "Noting a routine change…"
+    case "start_workout": "Starting your workout…"
+    case "regenerate_plan": "Rebuilding your plan…"
+    case "set_day_to_rest": "Updating your schedule…"
+    case "log_bodyweight": "Logging your weight…"
+    case "update_profile": "Updating your profile…"
+    case "clear_data": "Clearing your data…"
+    default: "Working on it…"
+    }
+}
+
 /// For tools whose result is a heterogeneous `[String: Any]` (mixing, say, a
 /// `Double` and a `[Double]`) rather than a uniform `Encodable` — `JSONSerialization`
 /// handles that shape directly where `Encodable` can't.

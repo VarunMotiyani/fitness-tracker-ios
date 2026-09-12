@@ -9,8 +9,22 @@ import RuleEngine
 @MainActor
 @Suite struct CoachActionToolsTests {
     private func container() throws -> ModelContainer {
-        try ModelContainer(for: StoredPlan.self, PendingCoachSuggestion.self, BodyweightEntryModel.self,
-                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        try ModelContainer(
+            for: StoredPlan.self, PendingCoachSuggestion.self, BodyweightEntryModel.self, UserProfile.self,
+            ChatMessageModel.self, ChatSummaryModel.self, AICallRecord.self, CompletedSessionModel.self,
+            CompletedEntryModel.self, LoggedSetModel.self, DailyCheckinModel.self, ObservationModel.self,
+            PersonalRecordModel.self, CoachMemoryModel.self, CoachNoteModel.self, WeeklySummaryModel.self,
+            CustomExerciseModel.self, ProviderProfile.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+    }
+
+    private func seedProfile(in ctx: ModelContext) -> UserProfile {
+        let profile = UserProfile(
+            goalRaw: "buildMuscle", experienceRaw: "intermediate", heightCm: 178, weightKg: 75,
+            birthYear: 2000, sexRaw: "male", sessionsPerWeek: 3, sessionLengthMinutes: 60,
+            availableEquipmentRaws: ["barbell"], excludedMuscleRaws: [], excludedExerciseIDs: [])
+        ctx.insert(profile)
+        return profile
     }
 
     private func exercise(_ id: String) -> Exercise {
@@ -208,5 +222,115 @@ import RuleEngine
         #expect(result.contains("error"))
         #expect(try ctx.fetch(FetchDescriptor<BodyweightEntryModel>()).isEmpty)
         #expect(sink.cardRequests.isEmpty)
+    }
+
+    // MARK: - update_profile
+
+    @Test func updateProfileAppliesSessionsPerWeekAndRecordsACard() throws {
+        let ctx = ModelContext(try container())
+        let profile = seedProfile(in: ctx)
+        let sink = CoachActionSink()
+        let tool = UpdateProfileTool(context: ctx, sink: sink)
+
+        let result = tool.run(argsJSON: "{\"sessionsPerWeek\": 5}")
+
+        #expect(!result.contains("error"))
+        #expect(profile.sessionsPerWeek == 5)
+        #expect(sink.cardRequests.count == 1)
+        let payload = try #require(decodeCardPayload(sink.cardRequests[0].payloadJSON, as: AppliedChangeCardPayload.self))
+        #expect(payload.detail.contains("sessions/week → 5"))
+    }
+
+    @Test func updateProfileAppliesGoalEquipmentAndMuscleExclusion() throws {
+        let ctx = ModelContext(try container())
+        let profile = seedProfile(in: ctx)
+        let sink = CoachActionSink()
+        let tool = UpdateProfileTool(context: ctx, sink: sink)
+
+        let result = tool.run(argsJSON: """
+        {"goal": "loseFat", "addEquipment": ["dumbbell"], "excludeMuscles": ["lowerBack"]}
+        """)
+
+        #expect(!result.contains("error"))
+        #expect(profile.goalRaw == "loseFat")
+        #expect(profile.availableEquipmentRaws.contains("dumbbell"))
+        #expect(profile.excludedMuscleRaws.contains("lowerBack"))
+    }
+
+    @Test func updateProfileRejectsUnknownGoal() throws {
+        let ctx = ModelContext(try container())
+        let profile = seedProfile(in: ctx)
+        let sink = CoachActionSink()
+        let tool = UpdateProfileTool(context: ctx, sink: sink)
+
+        let result = tool.run(argsJSON: "{\"goal\": \"getShredded\"}")
+
+        #expect(result.contains("error"))
+        #expect(profile.goalRaw == "buildMuscle") // unchanged
+        #expect(sink.cardRequests.isEmpty)
+    }
+
+    @Test func updateProfileRejectsEmptyArgs() throws {
+        let ctx = ModelContext(try container())
+        _ = seedProfile(in: ctx)
+        let sink = CoachActionSink()
+        let tool = UpdateProfileTool(context: ctx, sink: sink)
+
+        let result = tool.run(argsJSON: "{}")
+
+        #expect(result.contains("error"))
+        #expect(sink.cardRequests.isEmpty)
+    }
+
+    @Test func updateProfileRejectsWhenNoProfileExists() throws {
+        let ctx = ModelContext(try container())
+        let sink = CoachActionSink()
+        let tool = UpdateProfileTool(context: ctx, sink: sink)
+
+        let result = tool.run(argsJSON: "{\"sessionsPerWeek\": 4}")
+
+        #expect(result.contains("error"))
+    }
+
+    // MARK: - clear_data
+
+    @Test func clearDataRefusesWithoutExplicitConfirmation() throws {
+        let ctx = ModelContext(try container())
+        let profile = seedProfile(in: ctx)
+        ctx.insert(ChatMessageModel(role: "user", text: "clear my data"))
+        let sink = CoachActionSink()
+        let tool = ClearDataTool(context: ctx, sink: sink)
+
+        let result = tool.run(argsJSON: "{\"confirmed\": false}")
+
+        #expect(result.contains("error"))
+        #expect(try ctx.fetch(FetchDescriptor<ChatMessageModel>()).count == 1)
+        #expect(try ctx.fetch(FetchDescriptor<UserProfile>()).first?.id == profile.id)
+        #expect(sink.cardRequests.isEmpty)
+    }
+
+    @Test func clearDataWipesHistoryButKeepsProfileAndProviderSettings() throws {
+        let ctx = ModelContext(try container())
+        let profile = seedProfile(in: ctx)
+        let providerProfile = ProviderProfile(
+            displayName: "Gemini", adapterKind: .gemini, baseURL: nil, modelID: "gemini-3.8-flash",
+            apiKeyRef: nil, supportsVision: true, pricePerMTokIn: 0, pricePerMTokOut: 0, pricePerMTokCached: 0)
+        ctx.insert(providerProfile)
+        ctx.insert(ChatMessageModel(role: "assistant", text: "hey"))
+        ctx.insert(CoachMemoryModel(kindRaw: "preference", statement: "likes dumbbells", confidence: 0.5,
+                                    sourceKind: "agent", createdAt: .now, lastConfirmedAt: .now))
+        try ctx.save() // batch delete only sees persisted rows, not pending inserts
+        let sink = CoachActionSink()
+        let tool = ClearDataTool(context: ctx, sink: sink)
+
+        let result = tool.run(argsJSON: "{\"confirmed\": true}")
+
+        #expect(!result.contains("error"))
+        #expect(try ctx.fetch(FetchDescriptor<ChatMessageModel>()).isEmpty)
+        #expect(try ctx.fetch(FetchDescriptor<CoachMemoryModel>()).isEmpty)
+        #expect(try ctx.fetch(FetchDescriptor<UserProfile>()).first?.id == profile.id)
+        #expect(try ctx.fetch(FetchDescriptor<ProviderProfile>()).first?.id == providerProfile.id)
+        #expect(sink.cardRequests.count == 1)
+        #expect(sink.cardRequests.first?.kind == .appliedChange)
     }
 }

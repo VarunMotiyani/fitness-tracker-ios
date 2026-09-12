@@ -20,6 +20,15 @@ struct ChatSummarizer {
     let context: ModelContext
     let provider: (any LLMProvider)?
     let activeProfile: ProviderProfile?
+    let conversationID: String
+
+    init(context: ModelContext, provider: (any LLMProvider)?, activeProfile: ProviderProfile?,
+         conversationID: String = "default") {
+        self.context = context
+        self.provider = provider
+        self.activeProfile = activeProfile
+        self.conversationID = conversationID
+    }
 
     private static let threshold = 30
     private static let keepRecent = 10
@@ -32,13 +41,15 @@ struct ChatSummarizer {
         defer { Self.isRunning = false }
 
         let all = ((try? context.fetch(FetchDescriptor<ChatMessageModel>(sortBy: [SortDescriptor(\.timestamp)]))) ?? [])
+            .filter { $0.conversationID == conversationID }
         guard all.count > Self.threshold else { return }
 
         let toFold = Array(all.dropLast(Self.keepRecent))
         guard !toFold.isEmpty else { return }
 
-        let existing = (try? context.fetch(FetchDescriptor<ChatSummaryModel>()))?.first
-        let existingSummary = existing ?? ChatSummaryModel()
+        let existing = (try? context.fetch(FetchDescriptor<ChatSummaryModel>()))?
+            .first(where: { $0.conversationID == conversationID })
+        let existingSummary = existing ?? ChatSummaryModel(conversationID: conversationID)
         let system = ChatSummaryPromptBuilder.system()
         let user = ChatSummaryPromptBuilder.user(
             existingSummary: existingSummary.text,
@@ -94,7 +105,8 @@ struct ChatSummarizer {
                                         modelID: activeProfile?.modelID ?? "—",
                                         inputTokens: call.inputTokens, outputTokens: call.outputTokens,
                                         cachedTokens: call.cachedTokens, costUSD: costUSD,
-                                        success: call.succeeded, usedFallback: call.usedFallback))
+                                        success: call.succeeded, usedFallback: call.usedFallback,
+                                        durationMs: call.durationMs))
         }
     }
 }

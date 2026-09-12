@@ -128,6 +128,52 @@ struct OpenAICompatibleProviderTests {
         #expect(object["include_reasoning"] as? Bool == false)
     }
 
+    /// A single Ask Coach turn can chain several sequential tool-call round
+    /// trips, and gpt-oss burns real user-visible seconds on hidden reasoning
+    /// before each one by default — "low" is host-agnostic (Groq, OpenRouter,
+    /// Fireworks, Together, vLLM all understand it), unlike `include_reasoning`.
+    @Test func gptOSSRequestsLowReasoningEffort() async throws {
+        let captured = Locked<URLRequest?>(nil)
+        let session = StubURLProtocol.session { req in
+            captured.set(req)
+            let body = #"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (resp, Data(body.utf8))
+        }
+
+        let p = OpenAICompatibleProvider(
+            baseURL: URL(string: "https://openrouter.ai/api/v1")!,
+            apiKey: "test", modelID: "openai/gpt-oss-120b", session: session)
+        let _: LLMResult<Dummy> = try await p.complete(
+            system: "Return only JSON.", user: "hi",
+            schema: JSONSchema(json: #"{"ok":"bool"}"#), as: Dummy.self)
+
+        let requestBody = try #require(captured.get()?.capturedBody)
+        let object = try #require(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+        #expect(object["reasoning_effort"] as? String == "low")
+    }
+
+    @Test func nonGPTOSSModelGetsNoReasoningEffortParam() async throws {
+        let captured = Locked<URLRequest?>(nil)
+        let session = StubURLProtocol.session { req in
+            captured.set(req)
+            let body = #"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (resp, Data(body.utf8))
+        }
+
+        let p = OpenAICompatibleProvider(
+            baseURL: URL(string: "https://openrouter.ai/api/v1")!,
+            apiKey: "test", modelID: "qwen/qwen3-30b", session: session)
+        let _: LLMResult<Dummy> = try await p.complete(
+            system: "Return only JSON.", user: "hi",
+            schema: JSONSchema(json: #"{"ok":"bool"}"#), as: Dummy.self)
+
+        let requestBody = try #require(captured.get()?.capturedBody)
+        let object = try #require(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+        #expect(object["reasoning_effort"] == nil)
+    }
+
     @Test func usesJSONModeWhenPromptSchemaIsDescriptiveJSON() async throws {
         let captured = Locked<URLRequest?>(nil)
         let session = StubURLProtocol.session { req in

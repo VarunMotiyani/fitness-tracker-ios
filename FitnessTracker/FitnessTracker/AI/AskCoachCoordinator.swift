@@ -25,6 +25,22 @@ struct AskCoachCoordinator {
     let context: ModelContext
     let provider: (any LLMProvider)?
     let activeProfile: ProviderProfile?
+    let conversationID: String
+    /// Live "what's happening" text for the chat's typing indicator —
+    /// defaults to a throwaway instance so every existing call site (tests
+    /// included) compiles unchanged; only `ChatView` actually observes one.
+    let progress: CoachProgress
+
+    init(catalog: CatalogStore, context: ModelContext, provider: (any LLMProvider)?,
+         activeProfile: ProviderProfile?, conversationID: String = "default",
+         progress: CoachProgress = CoachProgress()) {
+        self.catalog = catalog
+        self.context = context
+        self.provider = provider
+        self.activeProfile = activeProfile
+        self.conversationID = conversationID
+        self.progress = progress
+    }
 
     /// Sends a message, optionally preserving the message a user swiped to
     /// reply to. The stored transcript remains clean; the reply context is
@@ -34,7 +50,7 @@ struct AskCoachCoordinator {
             return AskCoachReply(text: "Set up an AI provider in Settings to talk to your coach.", isError: true)
         }
 
-        let userMessage = ChatMessageModel(role: "user", text: text)
+        let userMessage = ChatMessageModel(role: "user", text: text, conversationID: conversationID)
         context.insert(userMessage)
         _ = PersistenceReporter.attemptSave(context, operation: "persist context")
 
@@ -42,10 +58,12 @@ struct AskCoachCoordinator {
         let recalled = MemoryRecall.select(from: existingMemories, context: RecallContext(), now: .now)
 
         let recentMessages = ((try? context.fetch(FetchDescriptor<ChatMessageModel>(sortBy: [SortDescriptor(\.timestamp, order: .reverse)]))) ?? [])
+            .filter { $0.conversationID == conversationID }
             .prefix(11).reversed()
             .filter { $0.id != userMessage.id }
             .map { (role: $0.role, text: $0.text) }
-        let summary = (try? context.fetch(FetchDescriptor<ChatSummaryModel>()))?.first?.text ?? ""
+        let summary = (try? context.fetch(FetchDescriptor<ChatSummaryModel>()))?
+            .first(where: { $0.conversationID == conversationID })?.text ?? ""
 
         // Equipment goes in the prompt rather than a `get_equipment_profile`
         // tool round trip — it's a small static list and every swap proposal
@@ -66,6 +84,8 @@ struct AskCoachCoordinator {
             memoryDigest: memoryDigestWithIDs(from: recalled.selected),
             equipmentSummary: equipment,
             scheduleContext: WorkoutScheduleStore.scheduleDescription(),
+            currentDateTime: Date.now.formatted(
+                .dateTime.weekday(.wide).month(.wide).day().year().hour().minute()),
             newMessage: modelMessage
         )
 
@@ -78,7 +98,8 @@ struct AskCoachCoordinator {
             let loopResult: ToolLoopResult<AskCoachDTO> = try await ToolLoopRunner().run(
                 system: system, initialUser: user,
                 finalSchema: AskCoachPromptBuilder.finalSchema,
-                tools: tools, provider: provider
+                tools: tools, provider: provider,
+                onStep: { [progress] step in progress.stepText = step }
             )
             calls = loopResult.calls
             dto = loopResult.value
@@ -100,7 +121,7 @@ struct AskCoachCoordinator {
         }
 
         recordCalls(calls)
-        let assistantMessage = ChatMessageModel(role: "assistant", text: dto.reply)
+        let assistantMessage = ChatMessageModel(role: "assistant", text: dto.reply, conversationID: conversationID)
         context.insert(assistantMessage)
 
         // Same call that wrote the reply also decided what's worth
@@ -116,7 +137,7 @@ struct AskCoachCoordinator {
         // outcome; a sentence claiming one happened is just the model's word
         // for it.
         for request in sink.cardRequests {
-            let cardMessage = ChatMessageModel(role: "assistant", text: "",
+            let cardMessage = ChatMessageModel(role: "assistant", text: "", conversationID: conversationID,
                                                cardKindRaw: request.kind.rawValue, cardPayloadJSON: request.payloadJSON)
             context.insert(cardMessage)
         }
@@ -132,7 +153,8 @@ struct AskCoachCoordinator {
         // already read `AskCoachReply.text`.
         var regenerationCard: ChatMessageModel?
         if sink.requestedPlanRegeneration {
-            let card = ChatMessageModel(role: "assistant", text: "", cardKindRaw: ChatCardKind.planRegeneration.rawValue)
+            let card = ChatMessageModel(role: "assistant", text: "", conversationID: conversationID,
+                                        cardKindRaw: ChatCardKind.planRegeneration.rawValue)
             card.setCardPayload(PlanRegenerationCardPayload(status: .pending, detail: nil))
             context.insert(card)
             regenerationCard = card
@@ -140,7 +162,8 @@ struct AskCoachCoordinator {
         _ = PersistenceReporter.attemptSave(context, operation: "persist context")
 
         Task {
-            await ChatSummarizer(context: context, provider: provider, activeProfile: activeProfile).summarizeIfNeeded()
+            await ChatSummarizer(context: context, provider: provider, activeProfile: activeProfile,
+                                 conversationID: conversationID).summarizeIfNeeded()
             // React right away instead of waiting for the next app
             // open/background — same check `ProactiveCoordinator.runDueChecks`
             // already runs, just triggered by the memory write itself. Still
@@ -202,7 +225,9 @@ struct AskCoachCoordinator {
             SetDayToRestTool(sink: sink),
             ApplyExerciseSwapTool(context: context, catalog: catalog, sink: sink),
             ApplySetChangeTool(context: context, catalog: catalog, sink: sink),
-            LogBodyweightTool(context: context, sink: sink)
+            LogBodyweightTool(context: context, sink: sink),
+            UpdateProfileTool(context: context, sink: sink),
+            ClearDataTool(context: context, sink: sink)
         ]
     }
 
@@ -224,7 +249,8 @@ struct AskCoachCoordinator {
                                       modelID: activeProfile?.modelID ?? "—",
                                       inputTokens: call.inputTokens, outputTokens: call.outputTokens,
                                       cachedTokens: call.cachedTokens, costUSD: costUSD,
-                                      success: call.succeeded, usedFallback: call.usedFallback)
+                                      success: call.succeeded, usedFallback: call.usedFallback,
+                                      durationMs: call.durationMs)
             context.insert(record)
         }
         _ = PersistenceReporter.attemptSave(context, operation: "persist context")
