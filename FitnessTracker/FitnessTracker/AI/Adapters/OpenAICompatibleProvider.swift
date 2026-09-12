@@ -269,15 +269,22 @@ nonisolated struct OpenAICompatibleProvider: LLMProvider {
         return try JSONDecoder().decode(F.self, from: data)
     }
 
-    /// Strips a leading/trailing ``` or ```json (or any single-word language
-    /// tag) code fence, if the whole string is wrapped in one. Leaves
-    /// unfenced text untouched.
+    /// Strips a leading/trailing run of backticks wrapping the whole string —
+    /// a ```/```json code fence, or a model treating a short JSON reply as an
+    /// inline-code span (a single ` on each side, no language tag). Matched
+    /// symmetrically (same backtick count each side) since a single-backtick
+    /// span is a different wrapper than a triple-backtick fence, not a
+    /// truncated one. Leaves unfenced text untouched.
     static func stripMarkdownFence(_ text: String) -> String {
         var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("```"), trimmed.hasSuffix("```"), trimmed.count > 6 else { return text }
-        trimmed.removeFirst(3)
-        trimmed.removeLast(3)
-        if let firstLineEnd = trimmed.firstIndex(of: "\n") {
+        let leading = trimmed.prefix { $0 == "`" }.count
+        let trailing = trimmed.reversed().prefix { $0 == "`" }.count
+        guard leading > 0, leading == trailing, trimmed.count > leading * 2 else { return text }
+        trimmed.removeFirst(leading)
+        trimmed.removeLast(leading)
+        // A language-tag line (```json\n...) only exists on a real fence — a
+        // single/double-backtick inline span never has one.
+        if leading >= 3, let firstLineEnd = trimmed.firstIndex(of: "\n") {
             let firstLine = trimmed[trimmed.startIndex..<firstLineEnd]
             if !firstLine.isEmpty, !firstLine.contains(where: { $0 == "{" || $0 == "[" }) {
                 trimmed.removeSubrange(trimmed.startIndex..<trimmed.index(after: firstLineEnd))

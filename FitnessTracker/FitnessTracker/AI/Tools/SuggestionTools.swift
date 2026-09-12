@@ -29,6 +29,7 @@ struct ProposeExerciseSwapArgs: Decodable {
 struct ProposeExerciseSwapTool: CoachTool {
     let context: ModelContext
     let catalog: CatalogStore
+    let sink: CoachActionSink
 
     var descriptor: ToolDescriptor {
         ToolDescriptor(
@@ -55,6 +56,11 @@ struct ProposeExerciseSwapTool: CoachTool {
         suggestion.sourceMemoryID = args.sourceMemoryId.flatMap { UUID(uuidString: $0) }
         context.insert(suggestion)
         _ = PersistenceReporter.attemptSave(context, operation: "persist context")
+        // The same `SuggestionCard` Home already shows, now inline in chat too
+        // — `SuggestionCardPayload` just carries the id, since ChatView reads
+        // the live `PendingCoachSuggestion` for everything else (including
+        // whether it's since been resolved from Home).
+        sink.addCard(.suggestion, payload: SuggestionCardPayload(suggestionID: suggestion.id))
         return "{\"status\": \"proposed\"}"
     }
 }
@@ -73,6 +79,7 @@ struct ProposeSetChangeArgs: Decodable {
 @MainActor
 struct ProposeSetChangeTool: CoachTool {
     let context: ModelContext
+    let sink: CoachActionSink
 
     var descriptor: ToolDescriptor {
         ToolDescriptor(
@@ -109,6 +116,7 @@ struct ProposeSetChangeTool: CoachTool {
         suggestion.sourceMemoryID = args.sourceMemoryId.flatMap { UUID(uuidString: $0) }
         context.insert(suggestion)
         _ = PersistenceReporter.attemptSave(context, operation: "persist context")
+        sink.addCard(.suggestion, payload: SuggestionCardPayload(suggestionID: suggestion.id))
         return "{\"status\": \"proposed\"}"
     }
 }

@@ -13,10 +13,6 @@ import LLMKit
 struct AskCoachReply: Sendable {
     let text: String
     let isError: Bool
-    /// Set when the coach called `start_workout` this turn. The coordinator
-    /// can't navigate the UI itself — whichever screen hosts the chat resolves
-    /// this against its own `WeeklyPlan` and starts the session.
-    var startSessionID: UUID? = nil
 }
 
 /// Ask Coach's orchestrator (design spec §3): read-only tools plus
@@ -106,6 +102,34 @@ struct AskCoachCoordinator {
         recordCalls(calls)
         let assistantMessage = ChatMessageModel(role: "assistant", text: dto.reply)
         context.insert(assistantMessage)
+
+        // Every action the model actually performed gets its own card message
+        // right after the reply, instead of the reply's prose being the only
+        // record of what happened — a card the athlete can see is a real
+        // outcome; a sentence claiming one happened is just the model's word
+        // for it.
+        for request in sink.cardRequests {
+            let cardMessage = ChatMessageModel(role: "assistant", text: "",
+                                               cardKindRaw: request.kind.rawValue, cardPayloadJSON: request.payloadJSON)
+            context.insert(cardMessage)
+        }
+
+        // `regenerate_plan` only records the request (a tool can't await); the
+        // actual generation needs the network and happens here, where `send()`
+        // is already in an async context — same `generateAndStore` path
+        // Settings/onboarding use, so it's billed and stored identically. The
+        // card is inserted `.pending` now (so the transcript shows a live
+        // status immediately) and mutated in place once generation settles —
+        // this used to append the outcome as plain text onto the reply, which
+        // silently vanished whenever the append happened after the caller had
+        // already read `AskCoachReply.text`.
+        var regenerationCard: ChatMessageModel?
+        if sink.requestedPlanRegeneration {
+            let card = ChatMessageModel(role: "assistant", text: "", cardKindRaw: ChatCardKind.planRegeneration.rawValue)
+            card.setCardPayload(PlanRegenerationCardPayload(status: .pending, detail: nil))
+            context.insert(card)
+            regenerationCard = card
+        }
         _ = PersistenceReporter.attemptSave(context, operation: "persist context")
 
         Task {
@@ -114,18 +138,24 @@ struct AskCoachCoordinator {
             await ChatSummarizer(context: context, provider: provider, activeProfile: activeProfile).summarizeIfNeeded()
         }
 
-        // `regenerate_plan` only records the request (a tool can't await);
-        // the actual generation needs the network and happens here, where
-        // `send()` is already in an async context — same `generateAndStore`
-        // path Settings/onboarding use, so it's billed and stored identically.
-        var replyText = dto.reply
-        if sink.requestedPlanRegeneration, let profile = (try? context.fetch(FetchDescriptor<UserProfile>()))?.first {
-            let outcome = await generateAndStore(context: profile.makeUserContext(), activeProfile: activeProfile,
-                                                 catalog: catalog, modelContext: context)
-            replyText += "\n\n" + outcome.note
+        if let regenerationCard {
+            if let profile = (try? context.fetch(FetchDescriptor<UserProfile>()))?.first {
+                // `generateAndStore` always ends in a stored plan — AI, or a
+                // rule-engine fallback when AI fails/is unavailable/misconfigured
+                // — there's no case where regeneration produces nothing, so this
+                // card's `.failed` state is reserved for this coordinator's own
+                // failure below (no profile), not for `GenerationOutcome`.
+                let outcome = await generateAndStore(context: profile.makeUserContext(), activeProfile: activeProfile,
+                                                     catalog: catalog, modelContext: context)
+                regenerationCard.setCardPayload(PlanRegenerationCardPayload(status: .succeeded, detail: outcome.note))
+            } else {
+                regenerationCard.setCardPayload(PlanRegenerationCardPayload(
+                    status: .failed, detail: "No athlete profile found."))
+            }
+            _ = PersistenceReporter.attemptSave(context, operation: "persist context")
         }
 
-        return AskCoachReply(text: replyText, isError: false, startSessionID: sink.startSessionID)
+        return AskCoachReply(text: dto.reply, isError: false)
     }
 
     private func buildTools(sink: CoachActionSink) -> [any CoachTool] {
@@ -146,16 +176,16 @@ struct AskCoachCoordinator {
             GetRecoveryStatusTool(statuses: recoveryStatuses),
             GetMuscleBalanceTool(load: load),
             QueryTrainingDataTool(context: context, catalog: catalog),
-            ProposeExerciseSwapTool(context: context, catalog: catalog),
-            ProposeSetChangeTool(context: context),
+            ProposeExerciseSwapTool(context: context, catalog: catalog, sink: sink),
+            ProposeSetChangeTool(context: context, sink: sink),
             GetUpcomingSessionsTool(context: context, catalog: catalog),
             ProposeRoutineRevisionTool(context: context),
             StartWorkoutTool(context: context, sink: sink),
             RegeneratePlanTool(sink: sink),
-            SetDayToRestTool(),
-            ApplyExerciseSwapTool(context: context, catalog: catalog),
-            ApplySetChangeTool(context: context),
-            LogBodyweightTool(context: context)
+            SetDayToRestTool(sink: sink),
+            ApplyExerciseSwapTool(context: context, catalog: catalog, sink: sink),
+            ApplySetChangeTool(context: context, catalog: catalog, sink: sink),
+            LogBodyweightTool(context: context, sink: sink)
         ]
     }
 

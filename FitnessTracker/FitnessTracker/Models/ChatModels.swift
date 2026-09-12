@@ -8,12 +8,23 @@ final class ChatMessageModel {
     var role: String
     var text: String
     var timestamp: Date
+    /// Raw `ChatCardKind`. `nil` (the default for every pre-existing row) means
+    /// this message renders as plain text, same as always — a card is opt-in
+    /// per message, never a required field, so this is a safe additive
+    /// SwiftData migration.
+    var cardKindRaw: String?
+    /// JSON payload for `cardKindRaw`'s shape — see `ChatCardKind` for which
+    /// struct decodes it. `nil` alongside `cardKindRaw == nil`.
+    var cardPayloadJSON: String?
 
-    init(role: String, text: String, timestamp: Date = .now) {
+    init(role: String, text: String, timestamp: Date = .now,
+         cardKindRaw: String? = nil, cardPayloadJSON: String? = nil) {
         self.id = UUID()
         self.role = role
         self.text = text
         self.timestamp = timestamp
+        self.cardKindRaw = cardKindRaw
+        self.cardPayloadJSON = cardPayloadJSON
     }
 }
 

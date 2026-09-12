@@ -37,7 +37,7 @@ import RuleEngine
     @Test func proposeExerciseSwapWritesPendingSuggestion() throws {
         let ctx = ModelContext(try container())
         let sessionID = try seedPlan(in: ctx)
-        let tool = ProposeExerciseSwapTool(context: ctx, catalog: catalog())
+        let tool = ProposeExerciseSwapTool(context: ctx, catalog: catalog(), sink: CoachActionSink())
 
         let args = "{\"plannedSessionID\": \"\(sessionID.uuidString)\", \"exerciseID\": \"bench\", \"replacementExerciseID\": \"incline_bench\", \"rationale\": \"shoulder discomfort\"}"
         let result = tool.run(argsJSON: args)
@@ -52,7 +52,7 @@ import RuleEngine
     @Test func proposeExerciseSwapRejectsUnknownReplacementExercise() throws {
         let ctx = ModelContext(try container())
         let sessionID = try seedPlan(in: ctx)
-        let tool = ProposeExerciseSwapTool(context: ctx, catalog: catalog())
+        let tool = ProposeExerciseSwapTool(context: ctx, catalog: catalog(), sink: CoachActionSink())
 
         let args = "{\"plannedSessionID\": \"\(sessionID.uuidString)\", \"exerciseID\": \"bench\", \"replacementExerciseID\": \"nonexistent\", \"rationale\": \"test\"}"
         let result = tool.run(argsJSON: args)
@@ -64,7 +64,7 @@ import RuleEngine
     @Test func proposeSetChangeWritesPendingSuggestion() throws {
         let ctx = ModelContext(try container())
         let sessionID = try seedPlan(in: ctx)
-        let tool = ProposeSetChangeTool(context: ctx)
+        let tool = ProposeSetChangeTool(context: ctx, sink: CoachActionSink())
 
         let args = "{\"plannedSessionID\": \"\(sessionID.uuidString)\", \"exerciseID\": \"bench\", \"targetSets\": 4, \"rationale\": \"add volume\"}"
         let result = tool.run(argsJSON: args)
@@ -77,7 +77,7 @@ import RuleEngine
     @Test func proposeSetChangeStoresSourceMemoryIdWhenGiven() throws {
         let ctx = ModelContext(try container())
         let sessionID = try seedPlan(in: ctx)
-        let tool = ProposeSetChangeTool(context: ctx)
+        let tool = ProposeSetChangeTool(context: ctx, sink: CoachActionSink())
         let memID = UUID()
 
         let args = "{\"plannedSessionID\": \"\(sessionID.uuidString)\", \"exerciseID\": \"bench\", \"targetSets\": 4, \"rationale\": \"add volume\", \"sourceMemoryId\": \"\(memID.uuidString)\"}"
@@ -91,7 +91,7 @@ import RuleEngine
     @Test func proposeSetChangeRejectsHallucinatedSession() throws {
         let ctx = ModelContext(try container())
         _ = try seedPlan(in: ctx)
-        let tool = ProposeSetChangeTool(context: ctx)
+        let tool = ProposeSetChangeTool(context: ctx, sink: CoachActionSink())
 
         let args = "{\"plannedSessionID\": \"\(UUID().uuidString)\", \"exerciseID\": \"bench\", \"targetSets\": 4, \"rationale\": \"test\"}"
         let result = tool.run(argsJSON: args)
@@ -103,7 +103,7 @@ import RuleEngine
     @Test func proposeSetChangeRejectsExerciseNotInSession() throws {
         let ctx = ModelContext(try container())
         let sessionID = try seedPlan(in: ctx)
-        let tool = ProposeSetChangeTool(context: ctx)
+        let tool = ProposeSetChangeTool(context: ctx, sink: CoachActionSink())
 
         let args = "{\"plannedSessionID\": \"\(sessionID.uuidString)\", \"exerciseID\": \"incline_bench\", \"targetSets\": 4, \"rationale\": \"test\"}"
         let result = tool.run(argsJSON: args)
@@ -115,7 +115,7 @@ import RuleEngine
     @Test func proposeSetChangeRejectsImplausibleSets() throws {
         let ctx = ModelContext(try container())
         let sessionID = try seedPlan(in: ctx)
-        let tool = ProposeSetChangeTool(context: ctx)
+        let tool = ProposeSetChangeTool(context: ctx, sink: CoachActionSink())
 
         let args = "{\"plannedSessionID\": \"\(sessionID.uuidString)\", \"exerciseID\": \"bench\", \"targetSets\": 99, \"rationale\": \"test\"}"
         let result = tool.run(argsJSON: args)

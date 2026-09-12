@@ -7,7 +7,10 @@ import RuleEngine
 
 /// Direct-action tools: unlike `propose_*` (which write a card the athlete
 /// must accept), these mutate state immediately — the whole point of asking
-/// for them in chat instead of tapping through the UI.
+/// for them in chat instead of tapping through the UI. Every successful one
+/// also records an `.appliedChange` card via `sink.addCard(...)` so the
+/// transcript shows a real confirmation, not just the model's own sentence
+/// claiming something happened.
 
 // MARK: - Start a workout
 
@@ -15,10 +18,10 @@ struct StartWorkoutArgs: Decodable {
     let plannedSessionID: String
 }
 
-/// Records the request; the coordinator can't navigate the UI itself, so
-/// `AskCoachReply.startSessionID` carries it out to whichever screen hosts
-/// this chat, which resolves it against its own `WeeklyPlan` and calls its
-/// existing `onStartSession`.
+/// Records a `.startWorkout` card — the coordinator can't navigate the UI
+/// itself, and doesn't try to: the card carries a "Start Now" button that
+/// whichever screen hosts this chat wires to its own `onStartSession`, so the
+/// athlete leaves chat only when they actually tap it.
 @MainActor
 struct StartWorkoutTool: CoachTool {
     let context: ModelContext
@@ -37,9 +40,10 @@ struct StartWorkoutTool: CoachTool {
               let sessionID = UUID(uuidString: args.plannedSessionID)
         else { return "{\"error\": \"bad args\"}" }
         guard let plan = mostRecentStoredPlan(in: context)?.decodedPlanOrNil(),
-              plan.sessions.contains(where: { $0.id == sessionID })
+              let session = plan.sessions.first(where: { $0.id == sessionID })
         else { return "{\"error\": \"unknown session — call get_upcoming_sessions first\"}" }
-        sink.requestStartSession(sessionID)
+        sink.addCard(.startWorkout, payload: StartWorkoutCardPayload(
+            plannedSessionID: sessionID, sessionName: RoutineNaming.dayName(for: session.focusMuscles)))
         return "{\"status\": \"starting\"}"
     }
 }
@@ -53,7 +57,9 @@ struct RegeneratePlanArgs: Decodable {
 /// Only records the request (`CoachTool.run` is synchronous, and plan
 /// generation needs the network) — `AskCoachCoordinator.send()` awaits the
 /// actual regeneration itself once the tool loop finishes, reusing the exact
-/// `generateAndStore` path Settings and onboarding already use.
+/// `generateAndStore` path Settings and onboarding already use, and inserts/
+/// settles the `.planRegeneration` card itself (there's no "applied" fact yet
+/// at the point this tool runs, so it has nothing to put on a card).
 @MainActor
 struct RegeneratePlanTool: CoachTool {
     let sink: CoachActionSink
@@ -81,6 +87,8 @@ struct SetDayToRestArgs: Decodable {
 
 @MainActor
 struct SetDayToRestTool: CoachTool {
+    let sink: CoachActionSink
+
     var descriptor: ToolDescriptor {
         ToolDescriptor(
             name: "set_day_to_rest",
@@ -103,6 +111,8 @@ struct SetDayToRestTool: CoachTool {
         var updated = WorkoutScheduleStore.userDayPlan
         updated[key] = "rest"
         WorkoutScheduleStore.saveDayPlan(updated)
+        sink.addCard(.appliedChange, payload: AppliedChangeCardPayload(
+            icon: "moon.stars.fill", title: "Day set to rest", detail: args.date))
         return "{\"status\": \"set to rest\"}"
     }
 }
@@ -124,6 +134,7 @@ struct ApplyExerciseSwapArgs: Decodable {
 struct ApplyExerciseSwapTool: CoachTool {
     let context: ModelContext
     let catalog: CatalogStore
+    let sink: CoachActionSink
 
     var descriptor: ToolDescriptor {
         ToolDescriptor(
@@ -137,7 +148,7 @@ struct ApplyExerciseSwapTool: CoachTool {
         guard let args = decodeArgs(argsJSON, as: ApplyExerciseSwapArgs.self),
               let sessionID = UUID(uuidString: args.plannedSessionID)
         else { return "{\"error\": \"bad args\"}" }
-        guard catalog.exercise(id: args.replacementExerciseID) != nil else {
+        guard let replacement = catalog.exercise(id: args.replacementExerciseID) else {
             return "{\"error\": \"unknown replacement exercise\"}"
         }
         guard let storedPlan = mostRecentStoredPlan(in: context) else {
@@ -149,6 +160,10 @@ struct ApplyExerciseSwapTool: CoachTool {
         do {
             try SuggestionApplier.apply(suggestion, storedPlan: storedPlan, context: context)
             _ = PersistenceReporter.attemptSave(context, operation: "persist context")
+            let originalName = catalog.exercise(id: args.exerciseID)?.name ?? args.exerciseID
+            sink.addCard(.appliedChange, payload: AppliedChangeCardPayload(
+                icon: "arrow.left.arrow.right", title: "Exercise swapped",
+                detail: "\(originalName) → \(replacement.name)"))
             return "{\"status\": \"applied\"}"
         } catch {
             return "{\"error\": \"\(error)\"}"
@@ -169,6 +184,8 @@ struct ApplySetChangeArgs: Decodable {
 @MainActor
 struct ApplySetChangeTool: CoachTool {
     let context: ModelContext
+    let catalog: CatalogStore
+    let sink: CoachActionSink
 
     var descriptor: ToolDescriptor {
         ToolDescriptor(
@@ -198,6 +215,16 @@ struct ApplySetChangeTool: CoachTool {
         do {
             try SuggestionApplier.apply(suggestion, storedPlan: storedPlan, context: context)
             _ = PersistenceReporter.attemptSave(context, operation: "persist context")
+            var parts: [String] = []
+            if let sets = args.targetSets { parts.append("\(sets) sets") }
+            if args.targetRepsMin != nil || args.targetRepsMax != nil {
+                parts.append("\(args.targetRepsMin ?? 0)-\(args.targetRepsMax ?? 0) reps")
+            }
+            if let load = args.targetLoadKg { parts.append("\(Int(load))kg") }
+            let exerciseName = catalog.exercise(id: args.exerciseID)?.name ?? args.exerciseID
+            sink.addCard(.appliedChange, payload: AppliedChangeCardPayload(
+                icon: "slider.horizontal.3", title: "\(exerciseName) updated",
+                detail: parts.isEmpty ? "Updated" : parts.joined(separator: ", ")))
             return "{\"status\": \"applied\"}"
         } catch {
             return "{\"error\": \"\(error)\"}"
@@ -219,6 +246,7 @@ struct LogBodyweightArgs: Decodable {
 @MainActor
 struct LogBodyweightTool: CoachTool {
     let context: ModelContext
+    let sink: CoachActionSink
 
     var descriptor: ToolDescriptor {
         ToolDescriptor(
@@ -234,6 +262,9 @@ struct LogBodyweightTool: CoachTool {
         else { return "{\"error\": \"bad or implausible weight\"}" }
         do {
             _ = try BodyweightLogStore.recordSingle(args.kg, in: context)
+            sink.addCard(.appliedChange, payload: AppliedChangeCardPayload(
+                icon: "scalemass.fill", title: "Bodyweight logged",
+                detail: String(format: "%.1f kg", args.kg)))
             return "{\"status\": \"logged\"}"
         } catch {
             return "{\"error\": \"\(error)\"}"

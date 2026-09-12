@@ -82,6 +82,12 @@ import LLMKit
         #expect(pending.count == 1)
         #expect(pending[0].kind == "exerciseSwap")
         #expect(pending[0].replacementExerciseID == "incline_bench")
+        // Also lands inline in the transcript as a real card, not just the
+        // reply's prose claiming a proposal was made.
+        let messages = try ctx.fetch(FetchDescriptor<ChatMessageModel>(sortBy: [SortDescriptor(\.timestamp)]))
+        let cardMessage = try #require(messages.first { $0.cardKind == .suggestion })
+        let payload = try #require(cardMessage.decodedCardPayload(as: SuggestionCardPayload.self))
+        #expect(payload.suggestionID == pending[0].id)
     }
 
     @Test func sendExecutesProposeRoutineRevisionToolAndPersistsMemory() async throws {
@@ -131,14 +137,14 @@ import LLMKit
         #expect(try ctx.fetch(FetchDescriptor<ChatMessageModel>()).isEmpty)
     }
 
-    @Test func sendExecutesStartWorkoutToolAndSetsReplyStartSessionID() async throws {
+    @Test func sendExecutesStartWorkoutToolAndPersistsAStartWorkoutCard() async throws {
         let ctx = ModelContext(try container())
         let sessionID = try seedPlan(in: ctx)
         let toolTurn = """
         {"decision":"tool_call","toolCall":{"name":"start_workout","argsJSON":"{\\"plannedSessionID\\": \\"\(sessionID.uuidString)\\"}"}}
         """
         let finalTurn = """
-        {"decision":"final","final":{"reply":"Starting your session now."}}
+        {"decision":"final","final":{"reply":"Here's your session — tap Start when ready."}}
         """
         let provider = StubLLMProvider(responses: [.success(toolTurn), .success(finalTurn)])
         let coordinator = AskCoachCoordinator(catalog: catalog(), context: ctx, provider: provider, activeProfile: nil)
@@ -146,14 +152,21 @@ import LLMKit
         let reply = await coordinator.send("Start today's workout")
 
         #expect(reply.isError == false)
-        #expect(reply.startSessionID == sessionID)
+        // No auto-navigation side channel any more — the card (with its own
+        // "Start Now" button) is the only way the athlete actually starts it.
+        let messages = try ctx.fetch(FetchDescriptor<ChatMessageModel>(sortBy: [SortDescriptor(\.timestamp)]))
+        let cardMessage = try #require(messages.first { $0.cardKind == .startWorkout })
+        let payload = try #require(cardMessage.decodedCardPayload(as: StartWorkoutCardPayload.self))
+        #expect(payload.plannedSessionID == sessionID)
     }
 
     /// `regenerate_plan` can't await inside the synchronous tool call, so the
     /// coordinator does the actual generation itself after the tool loop
     /// finishes — with no active provider, `generateAndStore` falls back to
-    /// the rule engine, and its outcome note is appended to the reply text.
-    @Test func sendExecutesRegeneratePlanToolAndAppendsOutcomeNote() async throws {
+    /// the rule engine. The status lives on its own `.planRegeneration` card,
+    /// inserted `.pending` and settled to `.succeeded` once generation
+    /// finishes — not appended onto the reply's own text.
+    @Test func sendExecutesRegeneratePlanToolAndSettlesARegenerationCard() async throws {
         let ctx = ModelContext(try container())
         let profile = UserProfile(
             goalRaw: "buildMuscle", experienceRaw: "intermediate", heightCm: 178, weightKg: 75,
@@ -173,10 +186,15 @@ import LLMKit
         let reply = await coordinator.send("I want to switch to 5 days a week")
 
         #expect(reply.isError == false)
-        #expect(reply.text.hasPrefix("On it, rebuilding your plan."))
-        #expect(reply.text.contains("Coach updated (rule engine)"))
+        // The reply is exactly the model's own text now — no appended note.
+        #expect(reply.text == "On it, rebuilding your plan.")
         let plans = try ctx.fetch(FetchDescriptor<StoredPlan>())
         #expect(!plans.isEmpty)
+        let messages = try ctx.fetch(FetchDescriptor<ChatMessageModel>(sortBy: [SortDescriptor(\.timestamp)]))
+        let cardMessage = try #require(messages.first { $0.cardKind == .planRegeneration })
+        let payload = try #require(cardMessage.decodedCardPayload(as: PlanRegenerationCardPayload.self))
+        #expect(payload.status == .succeeded)
+        #expect(payload.detail == "Coach updated (rule engine)")
     }
 
     @Test func providerFailureReturnsErrorMessageButKeepsUserMessage() async throws {

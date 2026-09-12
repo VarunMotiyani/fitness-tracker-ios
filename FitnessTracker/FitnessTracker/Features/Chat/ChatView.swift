@@ -26,6 +26,11 @@ struct ChatView: View {
 
     @Environment(\.modelContext) private var context
     @Query(sort: \ChatMessageModel.timestamp) private var messages: [ChatMessageModel]
+    /// Both small, unfiltered — feeds `ChatCardView`'s suggestion-accept path
+    /// and its live "already resolved?" check, mirroring what `HomeView`'s own
+    /// `SuggestionCard` usage already queries.
+    @Query private var pendingSuggestions: [PendingCoachSuggestion]
+    @Query(sort: \StoredPlan.generatedAt, order: .reverse) private var storedPlans: [StoredPlan]
     @State private var draft = ""
     @State private var isSending = false
     @State private var errorText: String?
@@ -187,13 +192,26 @@ struct ChatView: View {
 
     @ViewBuilder
     private func messageBubble(_ message: ChatMessageModel) -> some View {
-        CoachChatBubble(
-            message: message,
-            accent: activeAccent,
-            onReply: { beginReply(to: message) },
-            onCopy: { UIPasteboard.general.string = message.text }
-        )
-        .id(message.id)
+        if message.cardKind != nil {
+            ChatCardView(
+                message: message,
+                catalog: catalog,
+                pendingSuggestions: pendingSuggestions,
+                storedPlan: storedPlans.first,
+                plan: plan,
+                onStartSession: onStartSession
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .id(message.id)
+        } else {
+            CoachChatBubble(
+                message: message,
+                accent: activeAccent,
+                onReply: { beginReply(to: message) },
+                onCopy: { UIPasteboard.general.string = message.text }
+            )
+            .id(message.id)
+        }
     }
 
     // MARK: - Composer
@@ -345,10 +363,10 @@ struct ChatView: View {
                 lastSentText = nil
                 lastReplyContext = nil
             }
-            if let sessionID = result.startSessionID,
-               let session = plan?.sessions.first(where: { $0.id == sessionID }) {
-                onStartSession?(session)
-            }
+            // No longer auto-navigates on `startSessionID` — `start_workout`
+            // now renders a real card with its own "Start Now" button
+            // (`StartWorkoutCardRow`), so leaving the chat happens only when
+            // the athlete actually taps it, not the instant the reply arrives.
             isSending = false
         }
     }
