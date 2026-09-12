@@ -103,6 +103,12 @@ struct AskCoachCoordinator {
         let assistantMessage = ChatMessageModel(role: "assistant", text: dto.reply)
         context.insert(assistantMessage)
 
+        // Same call that wrote the reply also decided what's worth
+        // remembering — no separate memory-keeper round trip for chat any
+        // more (see MemoryKeeperCoordinator's doc comment).
+        MemoryCandidateApplication.applyMemoryCandidates(dto.memoryCandidates, existing: existingMemories, context: context)
+        MemoryCandidateApplication.applyMeasurementCandidates(dto.measurementCandidates, sessionID: nil, context: context)
+
         // Every action the model actually performed gets its own card message
         // right after the reply, instead of the reply's prose being the only
         // record of what happened — a card the athlete can see is a real
@@ -133,8 +139,6 @@ struct AskCoachCoordinator {
         _ = PersistenceReporter.attemptSave(context, operation: "persist context")
 
         Task {
-            await MemoryKeeperCoordinator(catalog: catalog, context: context, provider: provider, activeProfile: activeProfile)
-                .run(chatExchange: text, assistantReply: dto.reply)
             await ChatSummarizer(context: context, provider: provider, activeProfile: activeProfile).summarizeIfNeeded()
         }
 

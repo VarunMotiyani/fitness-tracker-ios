@@ -197,6 +197,35 @@ import LLMKit
         #expect(payload.detail == "Coach updated (rule engine)")
     }
 
+    /// Memory extraction used to be a second, separately-billed round trip
+    /// through `MemoryKeeperCoordinator` after every chat message. It's now
+    /// folded into this same reply call's own JSON — no second call, no
+    /// second `AICallRecord`.
+    @Test func sendAppliesMemoryCandidatesFromTheSameReplyCallWithNoSecondCall() async throws {
+        let ctx = ModelContext(try container())
+        let finalTurn = """
+        {"decision":"final","final":{
+          "reply":"Noted, I'll favor dumbbell presses.",
+          "memoryCandidates":[{"kind":"preference","statement":"Prefers dumbbells over barbells.",
+            "action":null,"exerciseID":null,"muscle":null,"equipment":"dumbbell",
+            "freeTags":[],"relation":"new","relatedMemoryID":null}],
+          "measurementCandidates":[]
+        }}
+        """
+        let provider = StubLLMProvider(responses: [.success(finalTurn)])
+        let coordinator = AskCoachCoordinator(catalog: catalog(), context: ctx, provider: provider, activeProfile: nil)
+
+        let reply = await coordinator.send("I like dumbbells more than barbells for pressing")
+
+        #expect(reply.isError == false)
+        let memories = try ctx.fetch(FetchDescriptor<CoachMemoryModel>())
+        #expect(memories.count == 1)
+        #expect(memories[0].kindRaw == "preference")
+        let calls = try ctx.fetch(FetchDescriptor<AICallRecord>())
+        #expect(calls.count == 1)
+        #expect(calls[0].callType == "askCoach")
+    }
+
     @Test func providerFailureReturnsErrorMessageButKeepsUserMessage() async throws {
         let ctx = ModelContext(try container())
         let provider = StubLLMProvider(responses: [.failure(.emptyResponse)])

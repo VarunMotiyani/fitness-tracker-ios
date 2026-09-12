@@ -1,10 +1,22 @@
 import Foundation
+import Metrics
 import LLMKit
 
 nonisolated enum AskCoachPromptBuilder {
-    static let finalSchema = JSONSchema(json: """
-    {"reply": "string"}
-    """)
+    static var finalSchema: JSONSchema {
+        let kindEnum = MeasurementGuardrail.knownKinds.joined(separator: "|")
+        return JSONSchema(json: """
+        {
+          "reply": "string",
+          "memoryCandidates": [{"kind": "preference|constraint|observation|goal|responsePattern",
+                                "statement": "string", "action": "string|null",
+                                "exerciseID": "string|null", "muscle": "string|null",
+                                "equipment": "string|null", "freeTags": ["string"],
+                                "relation": "new|reinforces|contradicts", "relatedMemoryID": "string|null"}],
+          "measurementCandidates": [{"kind": "\(kindEnum)", "value": "number", "unit": "string"}]
+        }
+        """)
+    }
 
     static func system() -> String {
         """
@@ -50,11 +62,28 @@ nonisolated enum AskCoachPromptBuilder {
         guessing what they meant — but put that question in the `reply` field \
         of the final JSON, never as plain text.
 
+        Alongside your reply, also decide what — if anything — from this \
+        exchange is worth remembering for future sessions:
+        - memoryCandidates: durable facts worth carrying forward — a stated \
+        preference, an injury or hard constraint, a recurring pattern, a \
+        goal, or a notable observation. Almost every message produces none; \
+        an empty array is the normal, expected answer. Set "relation" to \
+        "new" for a fact you haven't seen before, "reinforces" (with \
+        "relatedMemoryID") when it confirms an existing memory you were \
+        given, or "contradicts" (with "relatedMemoryID") when it supersedes \
+        one. The bracketed ID shown before each fact under "what you know \
+        about this athlete" is exactly what you pass back as \
+        "relatedMemoryID".
+        - measurementCandidates: only an explicit numeric body-composition \
+        measurement the athlete reported (e.g. an InBody scan result) — \
+        never a number you calculated yourself.
+        Only extract what is actually stated.
+
         Keep replies conversational and concise — this is a chat, not a \
         report. EVERY response, including a clarifying question or a refusal, \
         must be the JSON object the schema requires: \
-        {"decision":"final","final":{"reply":"..."}} or a tool call. Never \
-        answer with bare prose.
+        {"decision":"final","final":{"reply":"...","memoryCandidates":[],"measurementCandidates":[]}} \
+        or a tool call. Never answer with bare prose.
         """
     }
 

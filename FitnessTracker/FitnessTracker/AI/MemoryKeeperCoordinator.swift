@@ -13,6 +13,16 @@ import LLMKit
 /// existing deterministic `reconcile`) and measurement candidates (routed
 /// through `MeasurementGuardrail`, landing unconfirmed for you to approve).
 ///
+/// A chat exchange used to trigger a second, identical round trip through
+/// this same coordinator (`run(chatExchange:)`) purely to ask "is there
+/// anything worth remembering here" — a full extra system prompt + tool
+/// schema on every single message just to usually answer "no". That decision
+/// is now folded into `AskCoachCoordinator`'s own reply call (see
+/// `AskCoachDTO.memoryCandidates`/`measurementCandidates`): the same model
+/// turn that's already reading the message decides in the same structured
+/// output, at the marginal cost of a couple more JSON fields instead of a
+/// whole second call.
+///
 /// Unlike `SessionFinalizeCoordinator`, this call has no obligation to
 /// produce anything and never falls back to anything: no provider, a thrown
 /// error, an exceeded tool-loop cap, or a decode failure are all silent,
@@ -55,24 +65,6 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
         return "Schedule context for \(WorkoutScheduleStore.calendar.startOfDay(for: date)): \(state). Use this only to understand whether the completed session filled a moved slot."
     }
 
-    /// Second trigger for the same pipeline (design spec §5.2's "run in two
-    /// places, not one"): after a chat turn instead of a finished session. No
-    /// session-scoped context (no entries/checkin/exerciseIDs) — recall uses an
-    /// empty `RecallContext`, matching the "durable facts only" fallback
-    /// `MemoryRecall.isRelevant` already applies to preference/goal/constraint
-    /// kinds regardless of context.
-    func run(chatExchange userMessage: String, assistantReply: String) async {
-        guard provider != nil else { return }
-
-        let existingMemories = ((try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []).map { $0.toDomain() }
-        let recalled = MemoryRecall.select(from: existingMemories, context: RecallContext(), now: .now)
-        let system = ChatMemoryPromptBuilder.system()
-        let user = ChatMemoryPromptBuilder.user(userMessage: userMessage, assistantReply: assistantReply,
-                                                memoryDigest: memoryDigestWithIDs(from: recalled.selected),
-                                                scheduleContext: WorkoutScheduleStore.scheduleDescription())
-        await runToolLoopAndApply(system: system, user: user, existingMemories: existingMemories, sessionID: nil)
-    }
-
     private func runToolLoopAndApply(system: String, user: String, existingMemories: [CoachMemory], sessionID: UUID?) async {
         guard let provider else { return }
 
@@ -101,38 +93,9 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
         }
 
         recordCalls(calls)
-        applyMemoryCandidates(dto.memoryCandidates, existing: existingMemories)
-        applyMeasurementCandidates(dto.measurementCandidates, sessionID: sessionID)
+        MemoryCandidateApplication.applyMemoryCandidates(dto.memoryCandidates, existing: existingMemories, context: context)
+        MemoryCandidateApplication.applyMeasurementCandidates(dto.measurementCandidates, sessionID: sessionID, context: context)
         _ = PersistenceReporter.attemptSave(context, operation: "persist context")
-    }
-
-    private func applyMemoryCandidates(_ dtos: [MemoryCandidateDTO], existing: [CoachMemory]) {
-        let candidates = dtos.compactMap { $0.toDomain() }
-        guard !candidates.isEmpty else { return }
-
-        let result = MemoryConsolidation.reconcile(existing: existing, candidates: candidates, now: .now)
-
-        for memory in result.writes {
-            context.insert(coachMemoryModel(from: memory))
-        }
-        let existingModels = (try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []
-        for memory in result.updated + result.retired {
-            guard let model = existingModels.first(where: { $0.id == memory.id }) else { continue }
-            model.confidence = memory.confidence
-            model.lastConfirmedAt = memory.lastConfirmedAt
-            model.action = memory.action
-            model.supersededBy = memory.supersededBy
-            model.retiredByCap = memory.retiredByCap
-        }
-    }
-
-    private func applyMeasurementCandidates(_ dtos: [MeasurementCandidateDTO], sessionID: UUID?) {
-        for dto in dtos where MeasurementGuardrail.isPlausible(kind: dto.kind, value: dto.value, unit: dto.unit) {
-            let model = ObservationModel(kind: dto.kind, value: dto.value, unit: dto.unit, timestamp: .now)
-            model.confirmed = false
-            model.sessionID = sessionID
-            context.insert(model)
-        }
     }
 
     private func recordCalls(_ calls: [CallOutcome]) {
@@ -163,7 +126,6 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
 @MainActor
 protocol MemoryKeeperRunning {
     func run(session: CompletedSessionSnapshot) async
-    func run(chatExchange userMessage: String, assistantReply: String) async
 }
 
 /// Renders memories as "- [{uuid}] {statement} → {action}" lines so any
