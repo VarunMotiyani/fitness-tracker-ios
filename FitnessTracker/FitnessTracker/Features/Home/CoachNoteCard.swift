@@ -540,7 +540,7 @@ struct CoachInboxView: View {
     private var chatHeaderActions: some View {
         HStack(spacing: 4) {
             Button {
-                activeConversationID = UUID().uuidString
+                startNewConversation()
             } label: {
                 Image(systemName: "square.and.pencil")
                     .font(.subheadline.weight(.semibold))
@@ -580,6 +580,19 @@ struct CoachInboxView: View {
         guard let url = ChatTranscriptExporter.writeToTempFile(activeConversationMessages) else { return }
         exportURL = url
         showExportShare = true
+    }
+
+    private func startNewConversation() {
+        let oldConversationID = activeConversationID
+        activeConversationID = UUID().uuidString
+        Task { @MainActor in
+            await ChatMemoryExtractor(
+                context: context,
+                provider: provider,
+                activeProfile: activeProfile,
+                conversationID: oldConversationID
+            ).extractMemoriesIfNeeded()
+        }
     }
 
     private func clearCurrentConversation() {

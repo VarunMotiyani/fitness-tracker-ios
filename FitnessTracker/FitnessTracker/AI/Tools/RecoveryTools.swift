@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Metrics
 import FitnessDomain
 import LLMKit
@@ -69,6 +70,41 @@ struct GetMuscleBalanceTool: CoachTool {
             ["muscle": slug, "effectiveSets": load[slug] ?? 0] as [String: Any]
         }
         return encodeJSONObject(["worked": workedPayload, "notTrained": missed])
+    }
+}
+
+/// A deterministic answer to "what's my latest weight" / "how's it trending"
+/// — found live on-device that `query_training_data` alone wasn't reliable
+/// enough for this: it needs the model to author a correct JMESPath query
+/// against the full history export, and a wrong or errored query got
+/// papered over with a confidently false "no data on record" instead of
+/// surfacing the failure. This removes that whole failure class for the one
+/// question athletes actually ask most: recent bodyweight, no query to get
+/// right.
+@MainActor
+struct GetBodyweightHistoryTool: CoachTool {
+    let context: ModelContext
+
+    var descriptor: ToolDescriptor {
+        ToolDescriptor(
+            name: "get_bodyweight_history",
+            description: "The athlete's most recent bodyweight entries, most recent first, with kg and the date logged.",
+            argsSchemaJSON: "{}"
+        )
+    }
+
+    func run(argsJSON: String) -> String {
+        let entries = ((try? context.fetch(FetchDescriptor<BodyweightEntryModel>(
+            sortBy: [SortDescriptor(\.date, order: .reverse)]))) ?? [])
+            .prefix(10)
+        guard !entries.isEmpty else {
+            return "{\"entries\": [], \"note\": \"no bodyweight logged yet\"}"
+        }
+        let iso = ISO8601DateFormatter()
+        let payload = entries.map { entry in
+            ["kg": entry.kg, "date": iso.string(from: entry.date)] as [String: Any]
+        }
+        return encodeJSONObject(["entries": payload])
     }
 }
 

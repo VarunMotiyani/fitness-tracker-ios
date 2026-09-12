@@ -435,6 +435,7 @@ struct ChatView: View {
     }
 
     private func startNewConversation() {
+        let oldConversationID = activeConversationID
         activeConversationID = UUID().uuidString
         draft = ""
         replyTarget = nil
@@ -442,6 +443,15 @@ struct ChatView: View {
         lastSentText = nil
         lastReplyContext = nil
         composerFocused = false
+
+        Task { @MainActor in
+            await ChatMemoryExtractor(
+                context: context,
+                provider: provider,
+                activeProfile: activeProfile,
+                conversationID: oldConversationID
+            ).extractMemoriesIfNeeded()
+        }
     }
 
     private func clearCurrentConversation() {

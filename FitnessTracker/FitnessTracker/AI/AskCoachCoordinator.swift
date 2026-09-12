@@ -215,6 +215,7 @@ struct AskCoachCoordinator {
         return [
             GetRecoveryStatusTool(statuses: recoveryStatuses),
             GetMuscleBalanceTool(load: load),
+            GetBodyweightHistoryTool(context: context),
             QueryTrainingDataTool(context: context, catalog: catalog),
             ProposeExerciseSwapTool(context: context, catalog: catalog, sink: sink),
             ProposeSetChangeTool(context: context, sink: sink),
