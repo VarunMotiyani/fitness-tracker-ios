@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import FitnessDomain
+import ExerciseCatalog
 import Metrics
 import RuleEngine
 
@@ -14,17 +15,35 @@ enum WorkoutDayPresentation {
         }
     }
 
-    static func planLabel(for session: PlannedSession) -> String {
-        "Planned workout"
+    static func planLabel(for session: PlannedSession, isCustomized: Bool = false) -> String {
+        planLabel(isCustomized: isCustomized)
+    }
+
+    static func planLabel(isCustomized: Bool) -> String {
+        isCustomized ? "Custom for today" : "Planned workout"
+    }
+}
+
+enum DayEditorAction: Equatable {
+    case plannedWorkout, changeWorkout, changeChoices, resetWorkout, checkIn, restToday
+}
+
+enum DayEditorActionOrder {
+    static func visibleActions(showChangeOptions: Bool) -> [DayEditorAction] {
+        showChangeOptions
+            ? [.plannedWorkout, .changeWorkout, .changeChoices, .resetWorkout, .checkIn, .restToday]
+            : [.plannedWorkout, .changeWorkout, .checkIn, .restToday]
     }
 }
 
 struct DayOverrideSheet: View {
     let date: Date
     let plan: WeeklyPlan
+    let catalog: CatalogStore?
     var onSelectSession: (PlannedSession?) -> Void
     var onSaveOverride: ((String?) -> Void)?
     var onSavedCheckin: ((DailyCheckinModel) -> Void)?
+    var onEditExerciseList: (ExerciseLibraryIntent) -> Void
     @Environment(\.dismiss) private var dismiss
 
     @Query(sort: \DailyCheckinModel.date, order: .reverse)
@@ -35,24 +54,38 @@ struct DayOverrideSheet: View {
 
     @State private var showCheckinSheet = false
     @State private var showChangeOptions = false
-    @State private var sheetDetent: PresentationDetent = .height(500)
+    @State private var showExerciseEditor = false
+    @State private var showRestConfirmation = false
+    @State private var selectedExerciseForDetail: Exercise?
+    @State private var workoutOverrideRevision = 0
+    @State private var sheetDetent: PresentationDetent = .height(560)
 
     init(
         date: Date,
         plan: WeeklyPlan,
+        catalog: CatalogStore? = nil,
         onSavedCheckin: ((DailyCheckinModel) -> Void)? = nil,
         onSaveOverride: ((String?) -> Void)? = nil,
+        onEditExerciseList: @escaping (ExerciseLibraryIntent) -> Void = { _ in },
         onSelectSession: @escaping (PlannedSession?) -> Void
     ) {
         self.date = date
         self.plan = plan
+        self.catalog = catalog
         self.onSavedCheckin = onSavedCheckin
         self.onSaveOverride = onSaveOverride
+        self.onEditExerciseList = onEditExerciseList
         self.onSelectSession = onSelectSession
     }
 
     private var plannedSession: PlannedSession? {
-        WorkoutScheduleStore.plannedSession(for: date, in: plan)
+        _ = workoutOverrideRevision
+        return WorkoutScheduleStore.effectiveSession(for: date, in: plan)
+    }
+
+    private var hasWorkoutOverride: Bool {
+        _ = workoutOverrideRevision
+        return WorkoutScheduleStore.dayWorkoutOverride(for: date, in: plan) != nil
     }
 
     private var hasDayOverride: Bool {
@@ -91,6 +124,15 @@ struct DayOverrideSheet: View {
         return parts.isEmpty ? "Sleep and soreness saved" : parts.joined(separator: " · ")
     }
 
+    private func exerciseName(for item: PlannedItem) -> String {
+        catalog?.exercise(id: item.exerciseID)?.name ?? item.exerciseID
+    }
+
+    private func isCompatibleAlternative(_ candidate: PlannedSession, with current: PlannedSession?) -> Bool {
+        guard let current else { return true }
+        return !Set(candidate.focusMuscles).isDisjoint(with: Set(current.focusMuscles))
+    }
+
     @ViewBuilder
     private var checkinSection: some View {
         if isToday {
@@ -117,11 +159,11 @@ struct DayOverrideSheet: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(dayCheckin == nil ? "How are you feeling?" : (isToday ? "Today’s check-in" : "Daily check-in"))
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.subheadline.weight(.bold))
                     .foregroundStyle(GymTheme.label)
 
                 Text(checkinSummaryText)
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundStyle(GymTheme.label2)
                     .lineLimit(2)
             }
@@ -130,7 +172,7 @@ struct DayOverrideSheet: View {
 
             if isEditable {
                 Text(dayCheckin == nil ? "Check in" : "Update")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.footnote.weight(.bold))
                     .foregroundStyle(activeAccent)
             }
         }
@@ -143,41 +185,113 @@ struct DayOverrideSheet: View {
     private var plannedWorkoutSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("YOUR PLAN")
-                .font(.system(size: 12, weight: .bold))
+                .font(.caption.weight(.bold))
                 .tracking(0.7)
                 .foregroundStyle(GymTheme.label3)
 
             if let session = plannedSession {
-                HStack(spacing: 14) {
-                    Image(systemName: "dumbbell.fill")
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(.black)
-                        .frame(width: 48, height: 48)
-                        .background(activeAccent, in: RoundedRectangle(cornerRadius: 14))
-                        .accessibilityHidden(true)
+                VStack(spacing: 0) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showExerciseEditor.toggle()
+                            sheetDetent = showExerciseEditor ? .large : .height(560)
+                        }
+                    } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "dumbbell.fill")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(.black)
+                                .frame(width: 48, height: 48)
+                                .background(activeAccent, in: RoundedRectangle(cornerRadius: 14))
+                                .accessibilityHidden(true)
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(WorkoutDayPresentation.planLabel(for: session).uppercased())
-                            .font(.system(size: 11, weight: .bold))
-                            .tracking(0.6)
-                            .foregroundStyle(activeAccent)
-                        Text(WorkoutDayPresentation.title(for: session))
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(GymTheme.label)
-                        Text("\(session.items.count) exercises")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(GymTheme.label2)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(WorkoutDayPresentation.planLabel(for: session, isCustomized: hasWorkoutOverride).uppercased())
+                                    .font(.caption.weight(.bold))
+                                    .tracking(0.6)
+                                    .foregroundStyle(activeAccent)
+                                Text(WorkoutDayPresentation.title(for: session))
+                                    .font(.title3.weight(.bold))
+                                    .foregroundStyle(GymTheme.label)
+                                Text("\(session.items.count) exercises · Tap to \(showExerciseEditor ? "hide" : "view")")
+                                    .font(.footnote.weight(.medium))
+                                    .foregroundStyle(GymTheme.label2)
+                            }
+
+                            Spacer(minLength: 0)
+                            Image(systemName: showExerciseEditor ? "chevron.up" : "chevron.down")
+                                .font(.footnote.weight(.bold))
+                                .foregroundStyle(GymTheme.label3)
+                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .buttonStyle(.plain)
 
-                    Spacer(minLength: 0)
+                    if showExerciseEditor {
+                        VStack(spacing: 8) {
+                            ForEach(session.items, id: \.exerciseID) { item in
+                                let exercise = catalog?.exercise(id: item.exerciseID)
+                                Button {
+                                    selectedExerciseForDetail = exercise
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        ExerciseThumbnailView(exercise: exercise, size: 42, cornerRadius: 10)
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(exerciseName(for: item))
+                                                .font(.subheadline.weight(.bold))
+                                                .foregroundStyle(GymTheme.label)
+                                                .multilineTextAlignment(.leading)
+                                            Text("\(item.targetSets) sets · \(item.targetReps.min)–\(item.targetReps.max) reps")
+                                                .font(.footnote.weight(.medium))
+                                                .foregroundStyle(GymTheme.label2)
+                                        }
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption.weight(.bold))
+                                            .foregroundStyle(GymTheme.label3)
+                                    }
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(GymTheme.surface3, in: RoundedRectangle(cornerRadius: 12))
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(exercise == nil)
+                            }
+
+                            Button {
+                                onEditExerciseList(ExerciseLibraryIntent(date: date, session: session, action: .add))
+                                dismiss()
+                            } label: {
+                                Label("Add exercise", systemImage: "plus.circle.fill")
+                                    .font(.subheadline.weight(.bold))
+                                    .foregroundStyle(activeAccent)
+                                    .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+
+                            if hasWorkoutOverride {
+                                Button {
+                                    WorkoutScheduleStore.removeDayWorkoutOverride(for: date)
+                                    workoutOverrideRevision += 1
+                                } label: {
+                                    Label("Reset today’s workout", systemImage: "arrow.counterclockwise")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(GymTheme.label2)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 12)
+                    }
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 16))
             } else {
                 HStack(spacing: 14) {
                     Image(systemName: "moon.fill")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.title3.weight(.semibold))
                         .foregroundStyle(GymTheme.label2)
                         .frame(width: 48, height: 48)
                         .background(GymTheme.surface3, in: RoundedRectangle(cornerRadius: 14))
@@ -185,14 +299,14 @@ struct DayOverrideSheet: View {
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text("PLANNED DAY")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.caption.weight(.bold))
                             .tracking(0.6)
                             .foregroundStyle(GymTheme.label3)
                         Text("Rest day")
-                            .font(.system(size: 20, weight: .bold))
+                            .font(.title3.weight(.bold))
                             .foregroundStyle(GymTheme.label)
                         Text("Recovery is part of the plan")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.footnote.weight(.medium))
                             .foregroundStyle(GymTheme.label2)
                     }
                     Spacer(minLength: 0)
@@ -202,76 +316,50 @@ struct DayOverrideSheet: View {
                 .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 16))
             }
 
-            Button {
-                let generator = UIImpactFeedbackGenerator(style: .light)
-                generator.impactOccurred()
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showChangeOptions.toggle()
-                    sheetDetent = showChangeOptions ? .large : .height(500)
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 16, weight: .semibold))
-                        .accessibilityHidden(true)
-                    Text(showChangeOptions ? "Hide workout choices" : (plannedSession == nil ? "Add a workout" : "Change workout"))
-                        .font(.system(size: 16, weight: .bold))
-                    Spacer()
-                    Image(systemName: showChangeOptions ? "chevron.up" : "chevron.right")
-                        .font(.system(size: 13, weight: .bold))
-                        .accessibilityHidden(true)
-                }
-                .foregroundStyle(activeAccent)
-                .padding(.horizontal, 16)
-                .frame(minHeight: 52)
-                .background(activeAccent.opacity(0.13), in: RoundedRectangle(cornerRadius: 14))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(plannedSession == nil ? "Add a workout" : "Change workout")
-            .accessibilityValue(showChangeOptions ? "Workout choices shown" : "Workout choices hidden")
-
-            Button {
-                let generator = UIImpactFeedbackGenerator(style: .light)
-                generator.impactOccurred()
-                onSaveOverride?("rest")
-                onSelectSession(nil)
-                dismiss()
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "moon.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .accessibilityHidden(true)
-                    Text("Rest today")
-                        .font(.system(size: 15, weight: .bold))
-                    Spacer()
-                    Text("Skip this day")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(GymTheme.label3)
-                }
-                .foregroundStyle(GymTheme.label2)
-                .padding(.horizontal, 16)
-                .frame(minHeight: 48)
-                .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 14))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Rest today, skip this day")
+            changeWorkoutSection
         }
     }
 
     @ViewBuilder
     private var changeWorkoutSection: some View {
-        if showChangeOptions {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("CHOOSE A DIFFERENT WORKOUT")
-                    .font(.system(size: 12, weight: .bold))
-                    .tracking(0.7)
-                    .foregroundStyle(GymTheme.label3)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showChangeOptions.toggle()
+                    sheetDetent = showChangeOptions ? .large : .height(560)
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.body.weight(.semibold))
+                        .accessibilityHidden(true)
+                    Text(showChangeOptions ? "Hide workout choices" : (plannedSession == nil ? "Add a workout" : "Change workout"))
+                        .font(.body.weight(.bold))
+                    Spacer()
+                    Image(systemName: showChangeOptions ? "chevron.up" : "chevron.right")
+                        .font(.footnote.weight(.bold))
+                        .accessibilityHidden(true)
+                }
+                .foregroundStyle(activeAccent)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 52)
+            }
+            .buttonStyle(.plain)
 
-                Text("This replaces the plan for \(date.formatted(.dateTime.weekday(.wide))).")
-                    .font(.system(size: 13.5))
-                    .foregroundStyle(GymTheme.label2)
+            if showChangeOptions {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("CHOOSE A COMPATIBLE WORKOUT")
+                        .font(.caption.weight(.bold))
+                        .tracking(0.7)
+                        .foregroundStyle(GymTheme.label3)
 
-                ForEach(plan.sessions.sorted { $0.order < $1.order }) { session in
+                    Text("This changes only \(date.formatted(.dateTime.weekday(.wide))).")
+                        .font(.subheadline)
+                        .foregroundStyle(GymTheme.label2)
+
+                    ForEach(plan.sessions.filter { isCompatibleAlternative($0, with: plannedSession) }.sorted { $0.order < $1.order }) { session in
                     Button {
                         let generator = UIImpactFeedbackGenerator(style: .light)
                         generator.impactOccurred()
@@ -281,7 +369,7 @@ struct DayOverrideSheet: View {
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "dumbbell.fill")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.body.weight(.semibold))
                                 .foregroundStyle(.black)
                                 .frame(width: 40, height: 40)
                                 .background(activeAccent, in: RoundedRectangle(cornerRadius: 11))
@@ -289,16 +377,16 @@ struct DayOverrideSheet: View {
 
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(WorkoutDayPresentation.title(for: session))
-                                    .font(.system(size: 16, weight: .bold))
+                                    .font(.body.weight(.bold))
                                     .foregroundStyle(GymTheme.label)
                                 Text("\(session.items.count) exercises")
-                                    .font(.system(size: 13))
+                                    .font(.footnote)
                                     .foregroundStyle(GymTheme.label2)
                             }
 
                             Spacer()
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 13, weight: .bold))
+                                .font(.footnote.weight(.bold))
                                 .foregroundStyle(GymTheme.label3)
                                 .accessibilityHidden(true)
                         }
@@ -319,15 +407,18 @@ struct DayOverrideSheet: View {
                         dismiss()
                     } label: {
                         Label("Use weekly plan again", systemImage: "arrow.counterclockwise")
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.subheadline.weight(.bold))
                             .foregroundStyle(GymTheme.label2)
                             .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                     }
                     .buttonStyle(.plain)
                 }
+                }
+                .padding(12)
+                .background(GymTheme.surface3)
             }
-            .transition(.opacity.combined(with: .move(edge: .top)))
         }
+        .background(activeAccent.opacity(0.13), in: RoundedRectangle(cornerRadius: 14))
     }
 
     var body: some View {
@@ -336,11 +427,11 @@ struct DayOverrideSheet: View {
                 // Header with generous top padding below drag indicator
                 VStack(alignment: .leading, spacing: 4) {
                     Text(date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.title.weight(.bold))
                         .foregroundStyle(GymTheme.label)
 
                     Text(isToday ? "Today’s schedule" : "Your plan for this day")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.subheadline.weight(.medium))
                         .foregroundStyle(Color(white: 0.60))
                 }
                 .padding(.top, 28)
@@ -349,18 +440,52 @@ struct DayOverrideSheet: View {
 
                 checkinSection
 
-                changeWorkoutSection
+                Button("Need recovery? Rest today", role: .destructive) {
+                    showRestConfirmation = true
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(GymTheme.label3)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 4)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 24)
         }
         .background(GymTheme.bgElevated.ignoresSafeArea())
-        .presentationDetents([.height(500), .large], selection: $sheetDetent)
+        .presentationDetents([.height(560), .large], selection: $sheetDetent)
         .presentationDragIndicator(.visible)
         .sheet(isPresented: $showCheckinSheet) {
             CheckinEntryView { checkin in
                 onSavedCheckin?(checkin)
             }
+        }
+        .sheet(item: $selectedExerciseForDetail) { exercise in
+            ExerciseDetailSheet(
+                exercise: exercise,
+                onReplaceForToday: {
+                    guard let session = plannedSession else { return }
+                    onEditExerciseList(ExerciseLibraryIntent(
+                        date: date,
+                        session: session,
+                        action: .replace(existingExerciseID: exercise.id)
+                    ))
+                    dismiss()
+                },
+                onRemoveFromToday: {
+                    let removed = WorkoutScheduleStore.removeExercise(exercise.id, on: date, in: plan)
+                    if removed { workoutOverrideRevision += 1 }
+                    return removed
+                }
+            )
+        }
+        .confirmationDialog("Rest today?", isPresented: $showRestConfirmation, titleVisibility: .visible) {
+            Button("Rest today", role: .destructive) {
+                onSaveOverride?("rest")
+                onSelectSession(nil)
+                dismiss()
+            }
+        } message: {
+            Text("This skips only this date. Your weekly plan stays the same.")
         }
     }
 }

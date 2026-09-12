@@ -11,6 +11,7 @@ struct AthleteProfileDraft: Equatable {
     var birthYear: Int
     var sexRaw: String
     var sessionsPerWeek: Int
+    var splitTemplateName: String
     var sessionLengthMinutes: Int
     var availableEquipmentRaws: [String]
     var excludedMuscleRaws: [String]
@@ -37,6 +38,7 @@ struct AthleteProfileDraft: Equatable {
         birthYear = profile.birthYear
         sexRaw = profile.sexRaw
         sessionsPerWeek = profile.sessionsPerWeek
+        splitTemplateName = profile.splitTemplateName ?? "Auto"
         sessionLengthMinutes = profile.sessionLengthMinutes
         availableEquipmentRaws = profile.availableEquipmentRaws
         excludedMuscleRaws = profile.excludedMuscleRaws
@@ -91,6 +93,7 @@ struct AthleteProfileDraft: Equatable {
         goalRaw != profile.goalRaw
             || experienceRaw != profile.experienceRaw
             || sessionsPerWeek != profile.sessionsPerWeek
+            || splitTemplateName != (profile.splitTemplateName ?? "Auto")
             || sessionLengthMinutes != profile.sessionLengthMinutes
             || Set(availableEquipmentRaws) != Set(profile.availableEquipmentRaws)
             || Set(excludedMuscleRaws) != Set(profile.excludedMuscleRaws)

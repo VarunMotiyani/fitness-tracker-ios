@@ -1,7 +1,7 @@
 import FitnessDomain
 import ExerciseCatalog
 
-/// Effective-set muscle-balance model (parity with openGym's `muscles.js`): a compound
+/// Effective-set muscle-balance model based on the project's training-volume rules: a compound
 /// lift doesn't count as "one full set" for every muscle it touches — the primary mover
 /// gets full credit and each secondary muscle gets partial credit, so a balance chart
 /// build from many compounds doesn't read as if every muscle were trained equally hard.

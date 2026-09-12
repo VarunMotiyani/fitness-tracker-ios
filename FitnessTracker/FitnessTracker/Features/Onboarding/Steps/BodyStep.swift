@@ -29,5 +29,6 @@ struct BodyStep: View {
         }
         .navigationTitle("About you")
         .navigationBarTitleDisplayMode(.inline)
+        .keyboardHandling()
     }
 }

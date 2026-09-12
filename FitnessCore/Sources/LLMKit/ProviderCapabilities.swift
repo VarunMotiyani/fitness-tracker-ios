@@ -65,6 +65,7 @@ public extension ProviderCapabilities {
             : ProviderCapabilities(structuredOutput: .jsonObject, toolCalling: .viaPrompt, streaming: true)
     }
 
-    /// Gemini / Vertex AI: `responseSchema` is enforced server-side.
-    static let googleResponseSchema = ProviderCapabilities(structuredOutput: .nativeJSONSchema, toolCalling: .viaPrompt, streaming: true)
+    /// Gemini / Vertex AI: `responseSchema` and function calling are enforced
+    /// server-side by the Generate Content API.
+    static let googleResponseSchema = ProviderCapabilities(structuredOutput: .nativeJSONSchema, toolCalling: .native, streaming: true)
 }

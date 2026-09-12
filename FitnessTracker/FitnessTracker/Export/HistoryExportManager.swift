@@ -38,7 +38,7 @@ public enum HistoryExportManager {
         }
 
         let tempDir = FileManager.default.temporaryDirectory
-        let fileURL = tempDir.appendingPathComponent("pulseai-workout-history-\(dateStamp()).csv")
+        let fileURL = tempDir.appendingPathComponent("trainsage-workout-history-\(dateStamp()).csv")
         try? csv.write(to: fileURL, atomically: true, encoding: .utf8)
         return fileURL
     }
@@ -47,7 +47,7 @@ public enum HistoryExportManager {
     public static func exportFullJSON(context: ModelContext, catalog: CatalogStore) -> URL? {
         guard let data = exportFullJSONData(context: context, catalog: catalog) else { return nil }
         let tempDir = FileManager.default.temporaryDirectory
-        let fileURL = tempDir.appendingPathComponent("pulseai-backup-\(dateStamp()).json")
+        let fileURL = tempDir.appendingPathComponent("trainsage-backup-\(dateStamp()).json")
         try? data.write(to: fileURL)
         return fileURL
     }
@@ -149,6 +149,18 @@ public enum HistoryExportManager {
             ])
         }
 
+        func itemPayload(_ item: PlannedItem) -> [String: Any] {
+            [
+                "exerciseID": item.exerciseID,
+                "targetSets": item.targetSets,
+                "repMin": item.targetReps.min,
+                "repMax": item.targetReps.max,
+                "targetLoadKg": item.targetLoadKg as Any,
+                "restSeconds": item.restSeconds,
+                "coachNote": item.coachNote
+            ]
+        }
+
         var scheduleList: [[String: Any]] = []
         if let weekStart = WorkoutScheduleStore.calendar.dateInterval(of: .weekOfYear, for: .now)?.start {
             let plan = (try? context.fetch(FetchDescriptor<StoredPlan>(sortBy: [SortDescriptor(\.generatedAt, order: .reverse)])))?.first.flatMap { try? $0.decodedPlan() }
@@ -159,15 +171,30 @@ public enum HistoryExportManager {
                     "date": key,
                     "state": WorkoutScheduleStore.effectiveRoutineID(for: date) == nil ? "rest" : (WorkoutScheduleStore.isRescheduled(for: date) ? "rescheduled" : "scheduled")
                 ]
-                if let plannedID = plan.flatMap({ WorkoutScheduleStore.plannedSession(for: date, in: $0)?.id.uuidString }) {
-                    row["plannedSessionID"] = plannedID
+                if let session = plan.flatMap({ WorkoutScheduleStore.effectiveSession(for: date, in: $0) }) {
+                    row["plannedSessionID"] = session.id.uuidString
+                    row["plannedItems"] = session.items.map(itemPayload)
                 }
                 scheduleList.append(row)
             }
         }
 
+        // Every active date-scoped exercise-list edit, so a manual one-day
+        // change is visible to QueryTrainingDataTool and prompt context.
+        let workoutOverrides: [[String: Any]] = WorkoutScheduleStore.dayWorkoutOverrides
+            .sorted { $0.key < $1.key }
+            .map { _, o in
+                [
+                    "date": o.dateKey,
+                    "baseSessionID": o.baseSessionID.uuidString,
+                    "origin": o.origin.rawValue,
+                    "updatedAt": df.string(from: o.updatedAt),
+                    "items": o.items.map(itemPayload)
+                ]
+            }
+
         let fullBackup: [String: Any] = [
-            "appName": "PulseAI",
+            "appName": "TrainSage",
             "version": 3,
             "exportedAt": df.string(from: Date()),
             "workouts": sessionsList,
@@ -178,6 +205,7 @@ public enum HistoryExportManager {
             "schedule": [
                 "recurringWeek": Dictionary(uniqueKeysWithValues: WorkoutScheduleStore.weekSchedule.map { (String($0.key), $0.value.uuidString) }),
                 "dateOverrides": WorkoutScheduleStore.dayPlan,
+                "workoutOverrides": workoutOverrides,
                 "currentWeek": scheduleList
             ]
         ]

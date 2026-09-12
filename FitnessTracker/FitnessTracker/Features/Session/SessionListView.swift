@@ -77,6 +77,11 @@ struct SessionListView: View {
             }
             .sheet(isPresented: $showChat) {
                 ChatView(catalog: catalog, provider: chatProvider, activeProfile: activeProviderProfile, onClose: { showChat = false })
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.hidden)
+                    .presentationContentInteraction(.scrolls)
+                    .interactiveDismissDisabled(true)
+                    .presentationBackground(GymTheme.bg)
             }
             .confirmationDialog(
                 "\(doneCount) of \(entries.count) done",

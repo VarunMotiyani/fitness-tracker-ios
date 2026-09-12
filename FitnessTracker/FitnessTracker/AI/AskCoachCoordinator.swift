@@ -26,14 +26,17 @@ struct AskCoachCoordinator {
     let provider: (any LLMProvider)?
     let activeProfile: ProviderProfile?
 
-    func send(_ text: String) async -> AskCoachReply {
+    /// Sends a message, optionally preserving the message a user swiped to
+    /// reply to. The stored transcript remains clean; the reply context is
+    /// injected only into the model turn.
+    func send(_ text: String, replyingTo replyContext: String? = nil) async -> AskCoachReply {
         guard let provider else {
             return AskCoachReply(text: "Set up an AI provider in Settings to talk to your coach.", isError: true)
         }
 
         let userMessage = ChatMessageModel(role: "user", text: text)
         context.insert(userMessage)
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
 
         let existingMemories = ((try? context.fetch(FetchDescriptor<CoachMemoryModel>())) ?? []).map { $0.toDomain() }
         let recalled = MemoryRecall.select(from: existingMemories, context: RecallContext(), now: .now)
@@ -51,15 +54,23 @@ struct AskCoachCoordinator {
             .makeUserContext().availableEquipment.map(\.rawValue).sorted().joined(separator: ", ") ?? ""
 
         let system = AskCoachPromptBuilder.system()
+        let modelMessage: String
+        if let replyContext, !replyContext.isEmpty {
+            modelMessage = "Replying to this earlier message from the coach:\n\"\(replyContext)\"\n\nNew message:\n\(text)"
+        } else {
+            modelMessage = text
+        }
+
         let user = AskCoachPromptBuilder.user(
             recentMessages: Array(recentMessages), summary: summary,
             memoryDigest: memoryDigestWithIDs(from: recalled.selected),
             equipmentSummary: equipment,
             scheduleContext: WorkoutScheduleStore.scheduleDescription(),
-            newMessage: text
+            newMessage: modelMessage
         )
 
-        let tools = ToolRegistry(tools: buildTools())
+        let sink = CoachActionSink()
+        let tools = ToolRegistry(tools: buildTools(sink: sink))
 
         let calls: [CallOutcome]
         let dto: AskCoachDTO
@@ -91,7 +102,35 @@ struct AskCoachCoordinator {
         recordCalls(calls)
         let assistantMessage = ChatMessageModel(role: "assistant", text: dto.reply)
         context.insert(assistantMessage)
-        try? context.save()
+
+        // Every action the model actually performed gets its own card message
+        // right after the reply, instead of the reply's prose being the only
+        // record of what happened — a card the athlete can see is a real
+        // outcome; a sentence claiming one happened is just the model's word
+        // for it.
+        for request in sink.cardRequests {
+            let cardMessage = ChatMessageModel(role: "assistant", text: "",
+                                               cardKindRaw: request.kind.rawValue, cardPayloadJSON: request.payloadJSON)
+            context.insert(cardMessage)
+        }
+
+        // `regenerate_plan` only records the request (a tool can't await); the
+        // actual generation needs the network and happens here, where `send()`
+        // is already in an async context — same `generateAndStore` path
+        // Settings/onboarding use, so it's billed and stored identically. The
+        // card is inserted `.pending` now (so the transcript shows a live
+        // status immediately) and mutated in place once generation settles —
+        // this used to append the outcome as plain text onto the reply, which
+        // silently vanished whenever the append happened after the caller had
+        // already read `AskCoachReply.text`.
+        var regenerationCard: ChatMessageModel?
+        if sink.requestedPlanRegeneration {
+            let card = ChatMessageModel(role: "assistant", text: "", cardKindRaw: ChatCardKind.planRegeneration.rawValue)
+            card.setCardPayload(PlanRegenerationCardPayload(status: .pending, detail: nil))
+            context.insert(card)
+            regenerationCard = card
+        }
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
 
         Task {
             await MemoryKeeperCoordinator(catalog: catalog, context: context, provider: provider, activeProfile: activeProfile)
@@ -99,10 +138,27 @@ struct AskCoachCoordinator {
             await ChatSummarizer(context: context, provider: provider, activeProfile: activeProfile).summarizeIfNeeded()
         }
 
+        if let regenerationCard {
+            if let profile = (try? context.fetch(FetchDescriptor<UserProfile>()))?.first {
+                // `generateAndStore` always ends in a stored plan — AI, or a
+                // rule-engine fallback when AI fails/is unavailable/misconfigured
+                // — there's no case where regeneration produces nothing, so this
+                // card's `.failed` state is reserved for this coordinator's own
+                // failure below (no profile), not for `GenerationOutcome`.
+                let outcome = await generateAndStore(context: profile.makeUserContext(), activeProfile: activeProfile,
+                                                     catalog: catalog, modelContext: context)
+                regenerationCard.setCardPayload(PlanRegenerationCardPayload(status: .succeeded, detail: outcome.note))
+            } else {
+                regenerationCard.setCardPayload(PlanRegenerationCardPayload(
+                    status: .failed, detail: "No athlete profile found."))
+            }
+            _ = PersistenceReporter.attemptSave(context, operation: "persist context")
+        }
+
         return AskCoachReply(text: dto.reply, isError: false)
     }
 
-    private func buildTools() -> [any CoachTool] {
+    private func buildTools(sink: CoachActionSink) -> [any CoachTool] {
         let sessions = ((try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? []).map { $0.toSnapshot() }
         let recoveryStatuses = RecoveryModel.computeRecovery(from: sessions, catalog: catalog, now: .now)
 
@@ -120,10 +176,16 @@ struct AskCoachCoordinator {
             GetRecoveryStatusTool(statuses: recoveryStatuses),
             GetMuscleBalanceTool(load: load),
             QueryTrainingDataTool(context: context, catalog: catalog),
-            ProposeExerciseSwapTool(context: context, catalog: catalog),
-            ProposeSetChangeTool(context: context),
+            ProposeExerciseSwapTool(context: context, catalog: catalog, sink: sink),
+            ProposeSetChangeTool(context: context, sink: sink),
             GetUpcomingSessionsTool(context: context, catalog: catalog),
-            ProposeRoutineRevisionTool(context: context)
+            ProposeRoutineRevisionTool(context: context),
+            StartWorkoutTool(context: context, sink: sink),
+            RegeneratePlanTool(sink: sink),
+            SetDayToRestTool(sink: sink),
+            ApplyExerciseSwapTool(context: context, catalog: catalog, sink: sink),
+            ApplySetChangeTool(context: context, catalog: catalog, sink: sink),
+            LogBodyweightTool(context: context, sink: sink)
         ]
     }
 
@@ -148,6 +210,6 @@ struct AskCoachCoordinator {
                                       success: call.succeeded, usedFallback: call.usedFallback)
             context.insert(record)
         }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 }

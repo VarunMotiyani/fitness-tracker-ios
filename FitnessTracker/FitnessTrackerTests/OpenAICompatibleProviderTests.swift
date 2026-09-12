@@ -6,6 +6,56 @@ import LLMKit
 struct OpenAICompatibleProviderTests {
     private struct Dummy: Codable, Sendable, Equatable { let ok: Bool }
 
+    // Reproduces the reported bug: a native tool-turn final answer (no schema
+    // enforcement possible alongside `tools` on several providers, Gemini
+    // included) came back fenced like a normal chat reply and failed to
+    // decode with "Unexpected character '`'".
+    @Test func decodeFinalStripsMarkdownCodeFence() throws {
+        let fenced = "```json\n{\"ok\":true}\n```"
+        let value = try OpenAICompatibleProvider.decodeFinal(Dummy.self, from: fenced)
+        #expect(value == Dummy(ok: true))
+    }
+
+    @Test func decodeFinalStripsBareFenceWithoutLanguageTag() throws {
+        let fenced = "```\n{\"ok\":true}\n```"
+        let value = try OpenAICompatibleProvider.decodeFinal(Dummy.self, from: fenced)
+        #expect(value == Dummy(ok: true))
+    }
+
+    @Test func decodeFinalLeavesUnfencedJSONUntouched() throws {
+        let value = try OpenAICompatibleProvider.decodeFinal(Dummy.self, from: #"{"ok":true}"#)
+        #expect(value == Dummy(ok: true))
+    }
+
+    @Test func decodeFinalStillUnwrapsPromptEnvelopeInsideAFence() throws {
+        let fenced = "```json\n{\"decision\":\"final\",\"final\":{\"ok\":true}}\n```"
+        let value = try OpenAICompatibleProvider.decodeFinal(Dummy.self, from: fenced)
+        #expect(value == Dummy(ok: true))
+    }
+
+    // Second real report, same root cause: a model that treats a short JSON
+    // reply as inline code (a single ` on each side) rather than a ``` block
+    // — the triple-backtick-only fix didn't catch this, since `hasPrefix("```")`
+    // is false for a single leading backtick.
+    @Test func decodeFinalStripsSingleBacktickInlineSpan() throws {
+        let value = try OpenAICompatibleProvider.decodeFinal(Dummy.self, from: "`{\"ok\":true}`")
+        #expect(value == Dummy(ok: true))
+    }
+
+    @Test func decodeFinalStripsDoubleBacktickInlineSpan() throws {
+        let value = try OpenAICompatibleProvider.decodeFinal(Dummy.self, from: "``{\"ok\":true}``")
+        #expect(value == Dummy(ok: true))
+    }
+
+    // Asymmetric backtick runs are not a fence — leave them for the normal
+    // decode error rather than mangling content that happens to start or end
+    // with a stray backtick.
+    @Test func decodeFinalLeavesAsymmetricBackticksUntouched() {
+        #expect(throws: (any Error).self) {
+            try OpenAICompatibleProvider.decodeFinal(Dummy.self, from: "`{\"ok\":true}``")
+        }
+    }
+
     @Test func parsesContentAndUsage() async throws {
         let captured = Locked<URLRequest?>(nil)
         let session = StubURLProtocol.session { req in

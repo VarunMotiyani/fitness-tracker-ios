@@ -1,8 +1,8 @@
-# openGym Domain Logic & Gym-Floor UI Port — Implementation Plan
+# reference app Domain Logic & Gym-Floor UI Port — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Follow the SDD ledger process in `.superpowers/sdd/2026-09-02-opengym-domain-and-ui-port/`. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Follow the SDD ledger process in `.superpowers/sdd/2026-09-02-reference-app-domain-and-ui-port/`. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Port openGym's battle-tested gym mechanics, domain logic, and tactile UI/UX into the native Swift iOS project (`FitnessCore` package + `FitnessTracker` app), while integrating seamlessly with the proactive AI layer (`PlanCoordinator`, `SessionFinalizer`, `CoachMemory`, InBody vision).
+**Goal:** Port reference app's battle-tested gym mechanics, domain logic, and tactile UI/UX into the native Swift iOS project (`FitnessCore` package + `FitnessTracker` app), while integrating seamlessly with the proactive AI layer (`PlanCoordinator`, `SessionFinalizer`, `CoachMemory`, InBody vision).
 
 **Architecture:**
 1. **`FitnessCore/Metrics`**: Pure Swift models for `PlateMath`, `RecoveryModel` (36h half-life exponential fatigue decay + 14d strength retention), Set Intensifiers (`DropSetEntry`, `RestPauseCluster`), and multi-policy `ProgressionRule`s (Double Progression, Greyskull LP AMRAP, and deload rules).

@@ -4,7 +4,7 @@
 
 **Goal:** Bring `FitnessCore/Metrics` to feature parity for effort analytics and 1RM, and reconcile the already‑written `RecoveryModel` / `PlateMath` against the reference so their constants and semantics match.
 
-**Reference (read for exact constants/curves, do not copy):** `~/Documents/person/opengym/frontend/src/lib/` — `effort.js`, `onerm.js`, `recovery.js`, `bar.js`, plus their `*.test.js` for the pinned expectations.
+**Reference (read for exact constants/curves, do not copy):** `~/Documents/person/reference-app/frontend/src/lib/` — `effort.js`, `onerm.js`, `recovery.js`, `bar.js`, plus their `*.test.js` for the pinned expectations.
 
 ## Global Constraints
 

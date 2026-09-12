@@ -128,7 +128,7 @@ This session focused on stabilizing the app’s navigation and AI-provider path.
 ### F. Data Management, Multi-App Importers & Equipment Profiles
 - **`HevyAPIClient.swift` & `HevyAPISyncSheet.swift`**: Direct REST synchronization with Hevy Developer API (`api.hevyapp.com/v1/`) with real-time sync progress and SwiftData ingestion.
 - **`EquipmentModels.swift` & `EquipmentProfileSheet.swift`**: Equipment profile manager supporting named custom equipment environments (Commercial Gym, Home Dumbbells, Travel Hotel) and library/swap/picker filtering via `EquipmentFilter.isAvailable`.
-- **`HistoryExportManager.swift`**: Generates full RFC 4180 CSV workout logs and openGym-compatible complete JSON backup archives.
+- **`HistoryExportManager.swift`**: Generates full RFC 4180 CSV workout logs and reference app-compatible complete JSON backup archives.
 - **`HistoryIngestionService.swift`**: SwiftData service mapping imported external sessions into `CompletedSessionModel`, `CompletedEntryModel`, `LoggedSetModel`, and `BodyweightEntryModel`.
 
 ---

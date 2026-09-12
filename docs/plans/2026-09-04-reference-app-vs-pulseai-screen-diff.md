@@ -1,6 +1,6 @@
-# openGym demo vs PulseAI — screen-by-screen visual diff & resolution
+# reference app demo vs PulseAI — screen-by-screen visual diff & resolution
 
-**Method.** openGym side read from its real UI screenshots (`opengym/assets/screenshots/{home,plan,workout,stats,library}.png`) plus `opengym/frontend/src`. PulseAI side: Verified across live simulator screenshots (iPhone 17 Pro running iOS 26.5) and 250 passing automated tests.
+**Method.** reference app side read from its real UI screenshots (`reference-app/assets/screenshots/{home,plan,workout,stats,library}.png`) plus `reference-app/frontend/src`. PulseAI side: Verified across live simulator screenshots (iPhone 17 Pro running iOS 26.5) and 250 passing automated tests.
 
 Status legend: ✅ match · 🟡 minor cosmetic (resolved) · 🔶 behavioural gap (resolved) · ❌ missing (implemented).
 
@@ -8,9 +8,9 @@ Status legend: ✅ match · 🟡 minor cosmetic (resolved) · 🔶 behavioural g
 
 ## 1. Home
 
-| # | Area | openGym | PulseAI | Status |
+| # | Area | reference app | PulseAI | Status |
 |---|------|---------|---------|---|
-| 1.1 | Big title + date | "openGym" ~40pt, "Tuesday 18 August" | "PulseAI" 34pt, "Friday, 4 September" | ✅ |
+| 1.1 | Big title + date | "reference app" ~40pt, "Tuesday 18 August" | "PulseAI" 34pt, "Friday, 4 September" | ✅ |
 | 1.2 | Settings gear | thin outline gear in circle | outline `gearshape` in circle (`HomeView.swift`) | ✅ **Resolved** |
 | 1.3 | Week strip nav | `‹ This week ›`, MO–SU + date, today = accent circle | `‹ This week ›`, MO–SU + date, today = accent circle | ✅ |
 | 1.4 | Day status dots | 4 real states — green = completed, orange = rescheduled/partial, gray = planned, none = rest | Real 4-state dots derived directly from SwiftData completed sessions | ✅ **Resolved** |
@@ -25,7 +25,7 @@ Status legend: ✅ match · 🟡 minor cosmetic (resolved) · 🔶 behavioural g
 
 ## 2. Plan
 
-| # | Area | openGym | PulseAI | Status |
+| # | Area | reference app | PulseAI | Status |
 |---|------|---------|---------|---|
 | 2.1 | Screen title | large "Plan" + "Your weekly routine" subtitle | Large 34pt bold "Plan" + "Your weekly routine" header (`PlanView.swift`) | ✅ **Resolved** |
 | 2.2 | Top-right action | filled circular button, upload glyph | Circular button in surface background with `square.and.arrow.up` | ✅ **Resolved** |
@@ -34,14 +34,14 @@ Status legend: ✅ match · 🟡 minor cosmetic (resolved) · 🔶 behavioural g
 | 2.5 | Day badges | green pill "`⊞ Push Day`" with per-type glyph; gray "Rest" pill | Green capsule with routine icon & name; gray "Rest ›" | ✅ |
 | 2.6 | Routines list | icon square · name · "6 exercises" · chevron | Icon square · name · "N exercises" · Start pill | ✅ |
 | 2.7 | "+ New" routine | "Routines" + "`+ New`" in green-tinted rounded rect | Green-tinted capsule button "`+ New`" | ✅ **Resolved** |
-| 2.8 | Weekly Volume Targets | — (not in openGym) | AI volume targets section | ✅ Additive feature |
+| 2.8 | Weekly Volume Targets | — (not in reference app) | AI volume targets section | ✅ Additive feature |
 | 2.9 | Routine editor | drag reorder, per-exercise config | `RoutineEditView`, `DayAssignSheet`, `ExerciseConfigSheet`, `PlanShareSheet` | ✅ **Resolved** |
 
 ---
 
 ## 3. Workout Runner
 
-| # | Area | openGym (`views/Workout.jsx`) | PulseAI (`SessionFocusView.swift`) | Status |
+| # | Area | reference app (`views/Workout.jsx`) | PulseAI (`SessionFocusView.swift`) | Status |
 |---|------|------------------------------|-----------------------------------|---|
 | 3.1 | Top header | `✕` (close, left) · **"Push Day" + "0:05 · 2/19 sets"** · `✓` finish (right) | `✕` close button · routine name + live elapsed timer (`mm:ss`) + sets count · `✓` finish button | ✅ **Resolved** |
 | 3.2 | Elapsed timer | live `0:05` mm:ss in header | Live ticking timer in header (`mm:ss`) | ✅ **Resolved** |
@@ -63,7 +63,7 @@ Status legend: ✅ match · 🟡 minor cosmetic (resolved) · 🔶 behavioural g
 
 ## 4. Stats
 
-| # | Area | openGym | PulseAI | Status |
+| # | Area | reference app | PulseAI | Status |
 |---|------|---------|---------|---|
 | 4.1 | Body map | front **and** back shown together, muscles shaded | `InteractiveBodyMapView` renders front+back SVG together | ✅ |
 | 4.2 | Fatigue legend | "Fatigued 🔴 · Recovering 🟡 · Ready ⚪" | Red / Yellow / Ready status indicators | ✅ |
@@ -77,7 +77,7 @@ Status legend: ✅ match · 🟡 minor cosmetic (resolved) · 🔶 behavioural g
 
 ## 5. Exercises / Library
 
-| # | Area | openGym | PulseAI (`LibraryView.swift`) | Status |
+| # | Area | reference app | PulseAI (`LibraryView.swift`) | Status |
 |---|------|---------|-------------------------------|---|
 | 5.1 | Title + subtitle | "Exercises" / "1324 exercises with animations" | "Exercises" / "N exercises with photos & instructions" | ✅ (Photographic open dataset) |
 | 5.2 | Search | rounded dark "Search…" field | Rounded dark search bar with real-time filter | ✅ |
@@ -91,7 +91,7 @@ Status legend: ✅ match · 🟡 minor cosmetic (resolved) · 🔶 behavioural g
 
 ## 6. Tab bar
 
-| # | openGym | PulseAI | Status |
+| # | reference app | PulseAI | Status |
 |---|---------|---------|---|
 | 6.1 | Start FAB icon = `dumbbell.fill` | Elevated FAB center button styled with `dumbbell.fill` | ✅ **Resolved** |
 | 6.2 | FAB resume state = `▶ Resume` | Displays `play.fill` / `timer` + "Resume" during active workout | ✅ |

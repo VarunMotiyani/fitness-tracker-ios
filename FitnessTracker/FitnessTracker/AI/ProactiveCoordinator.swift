@@ -103,7 +103,7 @@ struct ProactiveCoordinator {
             let scheduleContext = WorkoutScheduleStore.isRescheduled(for: .now) ? " It was moved here automatically to recover a missed weekday." : ""
             let reason = "Based on today’s \(sessionLabel) session, its planned exercises, and the latest recovery check-in available to the coach.\(scheduleContext)"
             upsertCurrentCoachNote(kindRaw: "daily", text: text, reason: reason, period: .day)
-            try? context.save()
+            _ = PersistenceReporter.attemptSave(context, operation: "persist context")
             scheduleDaily(body: text)
             UserDefaults.standard.set(Self.dayFormatter.string(from: .now), forKey: "proactive.daily.lastGeneratedDay")
         } catch ToolLoopError.exceededMaxIterations(let calls) {
@@ -260,7 +260,7 @@ struct ProactiveCoordinator {
             // the CoachNote carries the complementary next-week focus instead.
             let reason = "Based on \(weekSessions.count) completed sessions, a \(streak)-week streak, \(prCount) PRs, and the week’s muscle coverage (\(coverageDigest))."
             upsertCurrentCoachNote(kindRaw: "weekly", text: "Next week: \(dto.nextWeekFocus)", reason: reason, period: .weekOfYear)
-            try? context.save()
+            _ = PersistenceReporter.attemptSave(context, operation: "persist context")
             scheduleWeekly(body: dto.headline)
             UserDefaults.standard.set(recapWeekKey(week.start), forKey: "proactive.weekly.lastWeekStart")
         } catch ToolLoopError.exceededMaxIterations(let calls) {
@@ -288,7 +288,7 @@ struct ProactiveCoordinator {
         }
         let reason = "Offline summary from today’s planned session and its " + String(names.count) + " scheduled exercises."
         upsertCurrentCoachNote(kindRaw: "daily", text: text, reason: reason, period: .day)
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
         UserDefaults.standard.set(Self.dayFormatter.string(from: .now), forKey: "proactive.daily.lastGeneratedDay")
     }
 
@@ -306,7 +306,7 @@ struct ProactiveCoordinator {
         let text = "Last week: " + String(sessions.count) + " sessions and " + String(prs) + " new PRs. Next week, focus on " + focus + "."
         let reason = "Offline recap from " + String(sessions.count) + " completed sessions, " + String(prs) + " PRs, and a plan target of " + String(planned) + " sessions per week."
         upsertCurrentCoachNote(kindRaw: "weekly", text: text, reason: reason, period: .weekOfYear)
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
         UserDefaults.standard.set(recapWeekKey(week.start), forKey: "proactive.weekly.lastWeekStart")
     }
 
@@ -353,7 +353,7 @@ struct ProactiveCoordinator {
                     tools: ToolRegistry(tools: []), provider: provider)
                 recordCalls(result.calls, callType: "missedWeek")
                 upsertCurrentCoachNote(kindRaw: "missedWeek", text: result.value.taunt, reason: reason, period: .weekOfYear)
-                try? context.save()
+                _ = PersistenceReporter.attemptSave(context, operation: "persist context")
                 UserDefaults.standard.set(weekKey, forKey: "proactive.missedWeek.lastWeekStart")
                 return
             } catch ToolLoopError.exceededMaxIterations(let calls) {
@@ -366,7 +366,7 @@ struct ProactiveCoordinator {
         let musclesLine = skippedDigest.isEmpty ? "" : " You left \(skippedDigest) untouched."
         let text = "\(count) session\(count == 1 ? "" : "s") got away from you and there's no day left this week to make \(count == 1 ? "it" : "them") up — \(weekSessions.count) of \(planned) done.\(musclesLine) Next week starts Monday. Show up."
         upsertCurrentCoachNote(kindRaw: "missedWeek", text: text, reason: reason, period: .weekOfYear)
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
         UserDefaults.standard.set(weekKey, forKey: "proactive.missedWeek.lastWeekStart")
     }
 
@@ -530,7 +530,7 @@ struct ProactiveCoordinator {
             context.insert(CoachNoteModel(kindRaw: "pattern", text: result.value.nudge,
                                           reason: "This was generated from the recurring pattern: \(target.statement)",
                                           topicRaw: target.id.uuidString))
-            try? context.save()
+            _ = PersistenceReporter.attemptSave(context, operation: "persist context")
             UserDefaults.standard.set(ISO8601DateFormatter().string(from: .now),
                                       forKey: "proactive.patternNudge.\(target.id.uuidString)")
         } catch ToolLoopError.exceededMaxIterations(let calls) {
@@ -581,7 +581,7 @@ struct ProactiveCoordinator {
             context.insert(CoachNoteModel(kindRaw: "checkin", text: text,
                                           reason: "Based on today’s check-in: soreness \(checkin.soreness.map(String.init) ?? "not rated")/10 and sleep \(checkin.sleepQuality.map(String.init) ?? "not rated")/10.",
                                           topicRaw: todayKey))
-            try? context.save()
+            _ = PersistenceReporter.attemptSave(context, operation: "persist context")
             UserDefaults.standard.set(todayKey, forKey: "proactive.checkin.lastReactedDay")
 
             // Ping only if the app isn't foreground when the reaction lands.
@@ -654,7 +654,7 @@ struct ProactiveCoordinator {
             .compactMap(\.plannedSessionID))
         for offset in 0..<7 {
             guard let date = Calendar.appWeek.date(byAdding: .day, value: offset, to: Calendar.appWeek.startOfDay(for: .now)),
-                  let session = WorkoutScheduleStore.plannedSession(for: date, in: plan),
+                  let session = WorkoutScheduleStore.effectiveSession(for: date, in: plan),
                   !startedThisWeek.contains(session.id) else { continue }
             return session
         }
@@ -698,6 +698,6 @@ struct ProactiveCoordinator {
                 cachedTokens: call.cachedTokens, costUSD: cost,
                 success: call.succeeded, usedFallback: call.usedFallback))
         }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 }

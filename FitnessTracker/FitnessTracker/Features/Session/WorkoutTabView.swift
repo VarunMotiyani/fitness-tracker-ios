@@ -19,7 +19,7 @@ struct WorkoutTabView: View {
     }
 
     private var todaySession: PlannedSession? {
-        return WorkoutScheduleStore.plannedSession(for: .now, in: plan)
+        return WorkoutScheduleStore.effectiveSession(for: .now, in: plan)
     }
 
     private var otherSessions: [PlannedSession] {
@@ -28,35 +28,30 @@ struct WorkoutTabView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                // Header
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Start Workout")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text(todaySession != nil ? "Today's prescribed routine is ready" : "Rest day, but you can start any routine")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(white: 0.75))
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+        VStack(spacing: 0) {
+            // Keep the start-tab context visible while workout choices scroll.
+            startHeader
+                .padding(.bottom, 8)
+                .background(Color.black)
+                .zIndex(1)
 
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
                 // Today's Routine Card
                 if let today = todaySession {
                     VStack(alignment: .leading, spacing: 14) {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("TODAY'S PLAN")
-                                    .font(.system(size: 11, weight: .bold))
+                                    .font(.caption.weight(.bold))
                                     .foregroundStyle(Color(red: 0.19, green: 0.82, blue: 0.35))
                                 Text("Session \(today.order + 1) · \(focusText(today))")
-                                    .font(.system(size: 18, weight: .bold))
+                                    .font(.title3.weight(.bold))
                                     .foregroundStyle(.white)
                             }
                             Spacer()
                             Image(systemName: "dumbbell.fill")
-                                .font(.system(size: 18, weight: .bold))
+                                .font(.title3.weight(.bold))
                                 .foregroundStyle(Color(red: 0.19, green: 0.82, blue: 0.35))
                                 .padding(10)
                                 .background(Color(red: 0.17, green: 0.17, blue: 0.18), in: RoundedRectangle(cornerRadius: 10))
@@ -67,11 +62,11 @@ struct WorkoutTabView: View {
                             ForEach(Array(today.items.enumerated()), id: \.offset) { _, item in
                                 HStack {
                                     Text(catalog.exercise(id: item.exerciseID)?.name ?? item.exerciseID)
-                                        .font(.system(size: 14, weight: .semibold))
+                                        .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(Color(white: 0.90))
                                     Spacer()
                                     Text("\(item.targetSets) × \(item.targetReps.min)–\(item.targetReps.max)")
-                                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                        .font(.footnote.weight(.medium)).fontDesign(.monospaced)
                                         .foregroundStyle(Color(white: 0.60))
                                 }
                                 .padding(.vertical, 2)
@@ -85,7 +80,7 @@ struct WorkoutTabView: View {
                                 Image(systemName: "play.fill")
                                 Text("Start Workout")
                             }
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.body.weight(.bold))
                             .foregroundStyle(.black)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
@@ -106,7 +101,7 @@ struct WorkoutTabView: View {
                 if !otherSessions.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Other Routines")
-                            .font(.system(size: 17, weight: .bold))
+                            .font(.body.weight(.bold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 16)
 
@@ -114,10 +109,10 @@ struct WorkoutTabView: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Session \(session.order + 1) · \(focusText(session))")
-                                        .font(.system(size: 15, weight: .bold))
+                                        .font(.subheadline.weight(.bold))
                                         .foregroundStyle(.white)
                                     Text("\(session.items.count) exercises")
-                                        .font(.system(size: 13, weight: .regular))
+                                        .font(.footnote.weight(.regular))
                                         .foregroundStyle(Color(white: 0.70))
                                 }
                                 Spacer()
@@ -125,7 +120,7 @@ struct WorkoutTabView: View {
                                     onStartSession(session)
                                 } label: {
                                     Text("Start")
-                                        .font(.system(size: 13, weight: .bold))
+                                        .font(.footnote.weight(.bold))
                                         .foregroundStyle(.black)
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 7)
@@ -139,11 +134,27 @@ struct WorkoutTabView: View {
                         }
                     }
                 }
+                }
+                .padding(.bottom, 24)
             }
-            .padding(.bottom, 24)
         }
         .background(Color.black.ignoresSafeArea())
         .onAppear { WorkoutScheduleStore.refresh(completedSessions: completedSessions, plan: plan) }
+    }
+
+    @ViewBuilder
+    private var startHeader: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Start Workout")
+                .font(.title.weight(.bold)).fontDesign(.rounded)
+                .foregroundStyle(.white)
+            Text(todaySession != nil ? "Today's prescribed routine is ready" : "Rest day, but you can start any routine")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Color(white: 0.75))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
     }
 
     private func focusText(_ session: PlannedSession) -> String {

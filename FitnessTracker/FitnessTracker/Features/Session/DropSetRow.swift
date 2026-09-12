@@ -29,12 +29,12 @@ public struct DropSetRow: View {
             ForEach(Array(drops.enumerated()), id: \.offset) { index, drop in
                 HStack(spacing: 8) {
                     Text("Drop \(index + 1)")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.caption.weight(.bold))
                         .foregroundStyle(GymTheme.orange)
                         .frame(width: 50, alignment: .leading)
 
                     Text("\(String(format: "%.1f", drop.loadKg)) kg × \(drop.reps) reps")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(GymTheme.label)
 
                     Spacer()
@@ -43,7 +43,7 @@ public struct DropSetRow: View {
                         onRemoveDrop(index)
                     } label: {
                         Image(systemName: "trash")
-                            .font(.system(size: 12))
+                            .font(.caption)
                             .foregroundStyle(GymTheme.red.opacity(0.8))
                             .padding(6)
                     }
@@ -62,7 +62,7 @@ public struct DropSetRow: View {
                     Image(systemName: "plus.circle.fill")
                     Text("Add Drop Set (−20%)")
                 }
-                .font(.system(size: 12, weight: .semibold))
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(GymTheme.orange)
                 .padding(.vertical, 4)
             }

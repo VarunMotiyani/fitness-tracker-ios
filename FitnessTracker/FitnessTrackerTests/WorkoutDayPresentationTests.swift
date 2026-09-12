@@ -27,4 +27,14 @@ struct WorkoutDayPresentationTests {
 
         #expect(WorkoutDayPresentation.title(for: session) == "Quads, Hamstrings, Glutes")
     }
+
+    @Test func customDayUsesCustomForTodayLabel() {
+        #expect(WorkoutDayPresentation.planLabel(isCustomized: true) == "Custom for today")
+    }
+
+    @Test func exerciseEditorActionOrderKeepsRestOutOfChangeGroup() {
+        #expect(DayEditorActionOrder.visibleActions(showChangeOptions: true) == [
+            .plannedWorkout, .changeWorkout, .changeChoices, .resetWorkout, .checkIn, .restToday
+        ])
+    }
 }

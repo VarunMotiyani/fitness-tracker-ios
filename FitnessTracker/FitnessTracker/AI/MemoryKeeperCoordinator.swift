@@ -103,7 +103,7 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
         recordCalls(calls)
         applyMemoryCandidates(dto.memoryCandidates, existing: existingMemories)
         applyMeasurementCandidates(dto.measurementCandidates, sessionID: sessionID)
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 
     private func applyMemoryCandidates(_ dtos: [MemoryCandidateDTO], existing: [CoachMemory]) {
@@ -156,7 +156,7 @@ struct MemoryKeeperCoordinator: MemoryKeeperRunning {
                                       success: call.succeeded, usedFallback: call.usedFallback)
             context.insert(record)
         }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 }
 

@@ -40,6 +40,7 @@ struct ProviderCapabilitiesTests {
     @Test func namedDefaults() {
         #expect(ProviderCapabilities.promptOnly == ProviderCapabilities(structuredOutput: .promptOnly, toolCalling: .viaPrompt))
         #expect(ProviderCapabilities.googleResponseSchema.structuredOutput == .nativeJSONSchema)
+        #expect(ProviderCapabilities.googleResponseSchema.toolCalling == .native)
     }
 
     @Test func protocolDefaultIsPromptOnly() {

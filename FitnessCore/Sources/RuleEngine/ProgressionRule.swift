@@ -2,10 +2,10 @@ import Foundation
 import FitnessDomain
 import Metrics
 
-/// Supported progression policies matching openGym + hybrid AI coach
+/// Supported progression policies plus the hybrid AI coach policy.
 public enum ProgressionPolicy: String, Sendable, Codable, CaseIterable {
     case off
-    case linear            // openGym standard linear progression (hit all reps -> add weight)
+    case linear            // Standard linear progression (hit all reps -> add weight)
     case greyskull         // Greyskull LP: straight sets + AMRAP; 2x goal -> double jump, fail -> 10% deload
     case double            // Double progression: climb reps through range, then bump weight and reset reps
     case time              // Time progression: hold every set -> add duration
@@ -201,7 +201,7 @@ public struct ProgressionRule: Sendable {
         history: [SessionReading],
         unit: MassUnit = .kg
     ) -> Prescription {
-        // The history-based engine covers the openGym-style policies. `.standardLinear` is
+        // The history-based engine covers the history-driven policies. `.standardLinear` is
         // the feel-based AI rule and carries no feel signal here, so it runs as plain
         // linear — use the legacy next(currentTargetLoadKg:...) entry point when feel
         // matters. `.deload` is handled explicitly in the weighted-reps path below.

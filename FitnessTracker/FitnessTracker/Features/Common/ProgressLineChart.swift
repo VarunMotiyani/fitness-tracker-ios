@@ -14,7 +14,7 @@ public struct ChartDataPoint: Identifiable, Sendable {
     }
 }
 
-public struct OpenGymLineChart: View {
+public struct ProgressLineChart: View {
     public let points: [ChartDataPoint]
     public let goal: Double?
     public let height: CGFloat
@@ -97,7 +97,7 @@ public struct OpenGymLineChart: View {
 
                     Text(yVal == Double(Int(yVal)) ? String(format: "%.0f", yVal) : String(format: "%.1f", yVal))
                         .font(.system(size: 9.5, weight: .regular))
-                        .foregroundStyle(Color(white: 0.50))
+                        .foregroundStyle(Color(white: 0.60))
                         .position(x: padL - 16, y: yPos)
                 }
 
@@ -188,11 +188,15 @@ public struct OpenGymLineChart: View {
                         }
                     }
                     .font(.system(size: 10, weight: .regular))
-                    .foregroundStyle(Color(white: 0.50))
+                    .foregroundStyle(Color(white: 0.60))
                     .padding(.horizontal, padL + 12)
                     .position(x: w / 2, y: h - 8)
                 }
             }
+            // Flatten the paths + gradient fill + AA strokes into one GPU layer.
+            // On-device these were rendering on the CPU (argb32_shade_axial_RGB /
+            // aa_render) and showed up as a top hotspot.
+            .drawingGroup()
         }
         .frame(height: height)
     }

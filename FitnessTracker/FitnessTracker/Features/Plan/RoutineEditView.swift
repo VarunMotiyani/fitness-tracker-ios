@@ -47,7 +47,7 @@ public struct RoutineEditView: View {
                         showingIconPicker = true
                     } label: {
                         Image(systemName: routine.iconName)
-                            .font(.system(size: 24))
+                            .font(.title)
                             .foregroundStyle(GymTheme.green)
                             .frame(width: 44, height: 44)
                             .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 10))
@@ -103,7 +103,7 @@ public struct RoutineEditView: View {
                                         
                                         if let sID = exConfig.supersetID, !sID.isEmpty {
                                             Label("Superset", systemImage: "link")
-                                                .font(.system(size: 9, weight: .bold))
+                                                .font(.caption2.weight(.bold))
                                                 .foregroundStyle(GymTheme.sky)
                                                 .padding(.horizontal, 5)
                                                 .padding(.vertical, 2)
@@ -122,7 +122,7 @@ public struct RoutineEditView: View {
                                     toggleSuperset(at: index)
                                 } label: {
                                     Image(systemName: exConfig.supersetID != nil ? "link.circle.fill" : "link.circle")
-                                        .font(.system(size: 20))
+                                        .font(.title3)
                                         .foregroundStyle(exConfig.supersetID != nil ? GymTheme.sky : GymTheme.label3)
                                 }
                                 .buttonStyle(.plain)
@@ -237,6 +237,7 @@ public struct RoutineEditView: View {
         } message: {
             Text("This action cannot be undone.")
         }
+        .keyboardHandling()
     }
 
     private func summaryLine(for config: ExerciseConfig) -> String {

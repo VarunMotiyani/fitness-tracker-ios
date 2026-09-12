@@ -19,7 +19,7 @@ enum SuggestionApplierError: Error {
 /// accepted suggestions (design spec §3).
 @MainActor
 enum SuggestionApplier {
-    private static let log = Logger(subsystem: "PulseAI", category: "SuggestionApplier")
+    private static let log = Logger(subsystem: "com.varunmotiyani.TrainSage", category: "SuggestionApplier")
 
     static func apply(_ suggestion: PendingCoachSuggestion, storedPlan: StoredPlan, context: ModelContext) throws {
         let plan = try storedPlan.decodedPlan()

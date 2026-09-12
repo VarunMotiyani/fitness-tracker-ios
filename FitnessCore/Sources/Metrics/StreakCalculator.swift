@@ -1,7 +1,7 @@
 import Foundation
 import FitnessDomain
 
-/// Computes consecutive weekly workout streaks and microcycle adherence matching openGym.
+/// Computes consecutive weekly workout streaks and microcycle adherence.
 public struct StreakCalculator: Sendable {
 
     public struct Summary: Sendable, Codable, Equatable {

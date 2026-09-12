@@ -4,6 +4,17 @@ import FitnessDomain
 import ExerciseCatalog
 import Metrics
 
+public enum HistoryIngestionError: LocalizedError {
+    case saveFailed(underlying: Error)
+
+    public var errorDescription: String? {
+        switch self {
+        case .saveFailed(let underlying):
+            "Could not save imported history: \(underlying.localizedDescription)"
+        }
+    }
+}
+
 public final class HistoryIngestionService {
     private let modelContext: ModelContext
     private let catalog: CatalogStore
@@ -18,8 +29,8 @@ public final class HistoryIngestionService {
         sessions: [ImportedWorkoutSession],
         bodyweights: [ImportedBodyweight]
     ) throws -> (sessions: Int, bodyweights: Int) {
-        let (sessionCount, _) = Self.ingestSessions(sessions, catalog: catalog, into: modelContext)
-        let bwCount = Self.ingestBodyweights(bodyweights, into: modelContext)
+        let (sessionCount, _) = try Self.ingestSessions(sessions, catalog: catalog, into: modelContext)
+        let bwCount = try Self.ingestBodyweights(bodyweights, into: modelContext)
         return (sessions: sessionCount, bodyweights: bwCount)
     }
 
@@ -28,14 +39,29 @@ public final class HistoryIngestionService {
         _ sessions: [ImportedWorkoutSession],
         catalog: CatalogStore,
         into context: ModelContext
-    ) -> (importedCount: Int, skippedCount: Int) {
+    ) throws -> (importedCount: Int, skippedCount: Int) {
         var imported = 0
         var skipped = 0
+
+        let existing = try context.fetch(FetchDescriptor<CompletedSessionModel>())
+        let existingSourceKeys = Set(existing.compactMap { session -> String? in
+            guard let source = session.importSource, let sourceID = session.importSourceID else { return nil }
+            return "\(source):\(sourceID)"
+        })
+        var importedSourceKeys = existingSourceKeys
 
         let cal = Calendar.current
 
         for s in sessions {
             guard !s.entries.isEmpty else {
+                skipped += 1
+                continue
+            }
+
+            let source = s.source ?? "external"
+            let sourceID = s.sourceID ?? fingerprint(for: s)
+            let sourceKey = "\(source):\(sourceID)"
+            guard !importedSourceKeys.contains(sourceKey) else {
                 skipped += 1
                 continue
             }
@@ -59,6 +85,8 @@ public final class HistoryIngestionService {
             sessionModel.actualDurationMin = s.durationSeconds / 60
             sessionModel.outcomeRaw = SessionOutcome.complete.rawValue
             sessionModel.overallNote = s.notes
+            sessionModel.importSource = source
+            sessionModel.importSourceID = sourceID
 
             context.insert(sessionModel)
 
@@ -100,9 +128,11 @@ public final class HistoryIngestionService {
             }
 
             imported += 1
+            importedSourceKeys.insert(sourceKey)
         }
 
-        try? context.save()
+        do { try context.save() }
+        catch { throw HistoryIngestionError.saveFailed(underlying: error) }
         return (importedCount: imported, skippedCount: skipped)
     }
 
@@ -110,15 +140,30 @@ public final class HistoryIngestionService {
     public static func ingestBodyweights(
         _ bodyweights: [ImportedBodyweight],
         into context: ModelContext
-    ) -> Int {
+    ) throws -> Int {
         var count = 0
         for b in bodyweights {
             if (try? BodyweightLogStore.recordSingle(b.weightKg, on: b.date, in: context)) != nil {
                 count += 1
             }
         }
-        try? context.save()
+        do { try context.save() }
+        catch { throw HistoryIngestionError.saveFailed(underlying: error) }
         return count
+    }
+
+    /// Deterministic fallback for CSV/legacy sources that do not provide a
+    /// stable workout identifier. The same payload imported again maps to the
+    /// same key, while materially different sessions do not collide.
+    private static func fingerprint(for session: ImportedWorkoutSession) -> String {
+        var value = "\(session.title)|\(session.date.timeIntervalSince1970)|"
+        for entry in session.entries {
+            value += "\(entry.exerciseName)|"
+            for set in entry.sets {
+                value += "\(set.weightKg),\(set.reps),\(set.rpe ?? -1),\(set.rir ?? -1)|"
+            }
+        }
+        return value.data(using: .utf8)?.base64EncodedString() ?? value
     }
 
     private static func sanitizeID(_ name: String) -> String {

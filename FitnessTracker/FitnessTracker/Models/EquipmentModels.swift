@@ -32,7 +32,7 @@ public struct EquipmentProfile: Identifiable, Codable, Sendable, Equatable {
     ]
 }
 
-/// Equipment-availability filter (parity with openGym's `equipment.js` `exAvailable`):
+/// Equipment-availability filter for the app's equipment profiles:
 /// purely additive — filtering off, or no matching profile, shows everything. Bodyweight
 /// is never gated, since no gym-or-home setup can take it away from you.
 public enum EquipmentFilter {
@@ -52,11 +52,23 @@ public enum EquipmentFilter {
         return profile.availableEquipmentRaws.contains(exercise.equipment.rawValue)
     }
 
+    // `isAvailable` is called once per catalog exercise inside `.filter`
+    // (Library, Stats, the swap sheet — 800+ iterations), and it re-decoded
+    // `profilesJSON` every time. Cache the parse, keyed by the raw string so
+    // any edit to the profiles busts it.
+    private static var cache: (json: String, profiles: [EquipmentProfile])?
+
+    private static func decodedProfiles(_ json: String) -> [EquipmentProfile] {
+        if let cache, cache.json == json { return cache.profiles }
+        let parsed = json.data(using: .utf8)
+            .flatMap { try? JSONDecoder().decode([EquipmentProfile].self, from: $0) } ?? []
+        cache = (json, parsed)
+        return parsed
+    }
+
     private static func activeProfile(activeID: String, profilesJSON: String) -> EquipmentProfile? {
-        guard let data = profilesJSON.data(using: .utf8),
-              let profiles = try? JSONDecoder().decode([EquipmentProfile].self, from: data),
-              !profiles.isEmpty
-        else {
+        let profiles = decodedProfiles(profilesJSON)
+        if profiles.isEmpty {
             return EquipmentProfile.defaults.first(where: { $0.id == activeID })
         }
         return profiles.first(where: { $0.id == activeID })

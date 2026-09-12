@@ -13,11 +13,11 @@ struct PendingObservationCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("COACH NOTICED")
-                .font(.system(size: 11, weight: .bold))
+                .font(.caption.weight(.bold))
                 .foregroundStyle(GymTheme.label3)
 
             Text("\(formattedValue) \(observation.unit) — \(displayKind)")
-                .font(.system(size: 16, weight: .bold))
+                .font(.body.weight(.bold))
                 .foregroundStyle(GymTheme.label)
 
             HStack(spacing: 12) {
@@ -25,7 +25,7 @@ struct PendingObservationCard: View {
                     onAccept()
                 } label: {
                     Text("Confirm")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.subheadline.weight(.bold))
                         .foregroundStyle(.black)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
@@ -37,7 +37,7 @@ struct PendingObservationCard: View {
                     onDismiss()
                 } label: {
                     Text("Dismiss")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.subheadline.weight(.bold))
                         .foregroundStyle(GymTheme.red)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)

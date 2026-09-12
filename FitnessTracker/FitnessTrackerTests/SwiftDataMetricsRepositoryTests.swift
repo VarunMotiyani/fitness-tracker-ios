@@ -150,6 +150,7 @@ import Metrics
         #expect(sut.lastPerformance(exerciseID: "bench") == inner.lastPerformance(exerciseID: "bench"))
         #expect(sut.lastPerformance(exerciseID: "squat") == inner.lastPerformance(exerciseID: "squat"))
         #expect(sut.lastPerformance(exerciseID: "bench") != nil)
+        #expect(sut.snapshotBuildCount == 1)
     }
 
     @Test func bestSetParity() throws {

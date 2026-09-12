@@ -15,6 +15,9 @@ final class UserProfile {
     var birthYear: Int
     var sexRaw: String
     var sessionsPerWeek: Int
+    /// Nil means the planner chooses a sensible style from days and experience.
+    /// Stored as a string to keep SwiftData migrations lightweight.
+    var splitTemplateName: String?
     var sessionLengthMinutes: Int
     var availableEquipmentRaws: [String]
     var excludedMuscleRaws: [String]
@@ -55,6 +58,7 @@ final class UserProfile {
         self.birthYear = birthYear
         self.sexRaw = sexRaw
         self.sessionsPerWeek = sessionsPerWeek
+        self.splitTemplateName = nil
         self.sessionLengthMinutes = sessionLengthMinutes
         self.availableEquipmentRaws = availableEquipmentRaws
         self.excludedMuscleRaws = excludedMuscleRaws

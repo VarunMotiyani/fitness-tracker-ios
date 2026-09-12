@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import FitnessDomain
 import ExerciseCatalog
+import RuleEngine
 import LLMKit
 
 /// The athlete-owned source of truth for training inputs and current body
@@ -97,7 +98,7 @@ struct AthleteProfileView: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: "figure.strengthtraining.traditional")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.title.weight(.semibold))
                     .foregroundStyle(.black)
                     .frame(width: 56, height: 56)
                     .background(activeAccent, in: RoundedRectangle(cornerRadius: 18))
@@ -134,12 +135,12 @@ struct AthleteProfileView: View {
                 .foregroundStyle(activeAccent)
                 .accessibilityHidden(true)
             Text(value)
-                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .font(.body.weight(.bold)).fontDesign(.rounded)
                 .foregroundStyle(GymTheme.label)
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
             Text(title)
-                .font(.system(size: 9, weight: .bold))
+                .font(.caption2.weight(.bold))
                 .foregroundStyle(GymTheme.label3)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -158,6 +159,8 @@ struct AthleteProfileView: View {
             profileRow("Experience", value: experienceLabel, symbol: "figure.run")
             divider
             profileRow("Training capacity", value: "\(profile.sessionsPerWeek) × \(profile.sessionLengthMinutes) min", symbol: "calendar")
+            divider
+            profileRow("Split style", value: profile.splitTemplateName ?? "Auto", symbol: "square.grid.2x2.fill")
             divider
             profileRow("Equipment", value: equipmentSummary, symbol: "dumbbell.fill")
 
@@ -337,7 +340,7 @@ struct AthleteProfileView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
             Text(title.uppercased())
-                .font(.system(size: 10, weight: .bold))
+                .font(.caption2.weight(.bold))
                 .foregroundStyle(GymTheme.label3)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -454,6 +457,17 @@ private struct AthleteProfileEditorView: View {
                         ForEach(ExperienceLevel.allCases, id: \.self) { Text($0.label).tag($0.rawValue) }
                     }
                     Stepper("Sessions per week: \(draft.sessionsPerWeek)", value: $draft.sessionsPerWeek, in: 2...7)
+                    NavigationLink {
+                        splitStyleEditor
+                    } label: {
+                        HStack {
+                            Text("Split style")
+                            Spacer()
+                            Text(draft.splitTemplateName)
+                                .foregroundStyle(GymTheme.label2)
+                                .lineLimit(1)
+                        }
+                    }
                     Picker("Session length", selection: $draft.sessionLengthMinutes) {
                         Text("30 min").tag(30)
                         Text("45 min").tag(45)
@@ -505,6 +519,7 @@ private struct AthleteProfileEditorView: View {
                         .disabled(isSaving)
                 }
             }
+            .keyboardHandling()
         }
     }
 
@@ -530,6 +545,41 @@ private struct AthleteProfileEditorView: View {
             .buttonStyle(.plain)
         }
         .navigationTitle("Areas to avoid")
+    }
+
+    private var splitStyleEditor: some View {
+        List {
+            Section {
+                Button {
+                    draft.splitTemplateName = "Auto"
+                } label: {
+                    selectionRow("Auto (recommended)", selected: draft.splitTemplateName == "Auto")
+                }
+                .buttonStyle(.plain)
+            } footer: {
+                Text("Auto chooses a balanced split from your training days and experience.")
+            }
+
+            Section("Styles") {
+                ForEach(SplitTemplateLibrary.all, id: \.name) { template in
+                    Button {
+                        draft.splitTemplateName = template.name
+                    } label: {
+                        selectionRow("\(template.name) · \(template.sessionCount) days",
+                                     selected: draft.splitTemplateName == template.name)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(template.sessionCount != draft.sessionsPerWeek)
+                }
+            }
+            Section {
+                Text("Styles are shown for reference, but only splits matching your sessions per week can be selected. Change that number in Training to see other styles.")
+                    .font(.footnote)
+                    .foregroundStyle(GymTheme.label2)
+            }
+        }
+        .navigationTitle("Split style")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func selectionRow(_ title: String, selected: Bool) -> some View {

@@ -9,12 +9,14 @@ import LLMKit
 private enum ActivePlanSheet: Identifiable {
     case dayAssign(weekdayIndex: Int)
     case editRoutine(draft: RoutineDraft)
+    case splitBrowser
     case share
 
     var id: String {
         switch self {
         case .dayAssign(let idx): return "dayAssign_\(idx)"
         case .editRoutine(let d): return "editRoutine_\(d.id)"
+        case .splitBrowser: return "splitBrowser"
         case .share: return "share"
         }
     }
@@ -24,9 +26,11 @@ struct PlanView: View {
     let plan: WeeklyPlan
     let catalog: CatalogStore
     var onStartSession: (PlannedSession) -> Void
+    var onSplitChanged: (SplitTemplate) -> Void = { _ in }
 
     @AppStorage("gym_custom_routines_json") private var routinesJSON: String = ""
     @AppStorage("gym_week_schedule_json") private var scheduleJSON: String = ""
+    @AppStorage("gym_split_template_name") private var selectedSplitName: String = ""
     @Query(sort: \CompletedSessionModel.startedAt, order: .reverse)
     private var completedSessions: [CompletedSessionModel]
 
@@ -47,10 +51,20 @@ struct PlanView: View {
     private let dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Big Title Header (openGym Parity)
-                headerSection
+        VStack(spacing: 0) {
+            // Keep page title and plan actions pinned while the plan content
+            // scrolls independently below it.
+            headerSection
+                .padding(.bottom, 8)
+                .background(GymTheme.bg)
+                .zIndex(1)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                // Split styles are separate from the routine cards below: the
+                // cards show the active plan, while this control lets athletes
+                // discover and choose the full template catalog.
+                splitSection
 
                 // 1. Week Schedule Section (Individual Day Cards)
                 scheduleSection
@@ -60,9 +74,12 @@ struct PlanView: View {
 
                 // 3. Weekly Volume Targets from AI
                 targetsSection
+                }
+                // Keep the title-to-content rhythm identical to Home, Stats,
+                // and Exercises while the header remains pinned.
+                .padding(.top, 8)
+                .padding(.bottom, 100) // Pad for custom tab bar
             }
-            .padding(.top, 8)
-            .padding(.bottom, 90) // Pad for custom tab bar
         }
         .background(GymTheme.bg.ignoresSafeArea())
         .sheet(item: $activeSheet) { sheet in
@@ -106,6 +123,14 @@ struct PlanView: View {
                         activeSheet = nil
                     }
                 )
+            case .splitBrowser:
+                SplitTemplateBrowserSheet(
+                    selectedTemplateName: selectedSplitName,
+                    onApply: { template in
+                        selectedSplitName = template.name
+                        onSplitChanged(template)
+                    }
+                )
             case .share:
                 PlanShareSheet(
                     routines: routines,
@@ -117,7 +142,13 @@ struct PlanView: View {
             }
         }
         .sheet(isPresented: $showChat) {
-            ChatView(catalog: catalog, provider: chatProvider, activeProfile: activeProviderProfile, onClose: { showChat = false })
+            ChatView(catalog: catalog, provider: chatProvider, activeProfile: activeProviderProfile, onClose: { showChat = false },
+                    plan: plan, onStartSession: onStartSession)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
+                .presentationContentInteraction(.scrolls)
+                .interactiveDismissDisabled(true)
+                .presentationBackground(GymTheme.bg)
         }
         .onAppear {
             loadRoutines()
@@ -129,16 +160,57 @@ struct PlanView: View {
     // MARK: - Subviews
 
     @ViewBuilder
+    private var splitSection: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            activeSheet = .splitBrowser
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "square.grid.2x2.fill")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(GymTheme.green)
+                    .frame(width: 40, height: 40)
+                    .background(GymTheme.green.opacity(0.14), in: RoundedRectangle(cornerRadius: 11))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Training split")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(GymTheme.label)
+                    Text(selectedSplitName.isEmpty ? "Explore 17 evidence-based templates" : selectedSplitName)
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(GymTheme.label2)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+                Text("Browse")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(GymTheme.green)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(GymTheme.green)
+            }
+            .padding(14)
+            .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .accessibilityLabel("Training split")
+        .accessibilityValue(selectedSplitName.isEmpty ? "No split selected" : selectedSplitName)
+        .accessibilityHint("Browse and choose from all available split templates")
+    }
+
+    @ViewBuilder
     private var headerSection: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Plan")
-                    .font(.system(size: 34, weight: .bold))
+                    .font(.largeTitle.weight(.bold))
                     .foregroundStyle(GymTheme.label)
 
                 Text("Your weekly routine")
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(Color(white: 0.65))
+                    .font(.subheadline.weight(.regular))
+                    .foregroundStyle(GymTheme.label2)
             }
 
             Spacer()
@@ -149,9 +221,9 @@ struct PlanView: View {
                 showChat = true
             } label: {
                 Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: 16))
+                    .font(.body)
                     .foregroundStyle(Color(white: 0.70))
-                    .frame(width: 38, height: 38)
+                    .frame(minWidth: 44, minHeight: 44)
                     .background(GymTheme.surface, in: Circle())
             }
             .buttonStyle(.plain)
@@ -162,9 +234,9 @@ struct PlanView: View {
                 activeSheet = .share
             } label: {
                 Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(GymTheme.green)
-                    .frame(width: 38, height: 38)
+                    .frame(minWidth: 44, minHeight: 44)
                     .background(GymTheme.surface, in: Circle())
             }
             .buttonStyle(.plain)
@@ -177,7 +249,7 @@ struct PlanView: View {
     private var scheduleSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Week schedule")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(GymTheme.label)
                 .padding(.horizontal, 16)
 
@@ -192,17 +264,17 @@ struct PlanView: View {
                     } label: {
                         HStack {
                             Text(dayName)
-                                .font(.system(size: 15, weight: .medium))
+                                .font(.subheadline.weight(.medium))
                                 .foregroundStyle(GymTheme.label)
                             Spacer()
                             if let routine = assignedRoutine {
                                 HStack(spacing: 6) {
                                     Image(systemName: routine.iconName)
-                                        .font(.system(size: 11))
+                                        .font(.caption)
                                     Text(routine.name)
-                                        .font(.system(size: 12, weight: .bold))
+                                        .font(.caption.weight(.bold))
                                     Image(systemName: "chevron.right")
-                                        .font(.system(size: 9, weight: .bold))
+                                        .font(.caption2.weight(.bold))
                                 }
                                 .foregroundStyle(GymTheme.green)
                                 .padding(.horizontal, 10)
@@ -211,10 +283,10 @@ struct PlanView: View {
                             } else {
                                 HStack(spacing: 4) {
                                     Text("Rest")
-                                        .font(.system(size: 13, weight: .regular))
+                                        .font(.footnote.weight(.regular))
                                         .foregroundStyle(GymTheme.label3)
                                     Image(systemName: "chevron.right")
-                                        .font(.system(size: 9, weight: .bold))
+                                        .font(.caption2.weight(.bold))
                                         .foregroundStyle(GymTheme.label4)
                                 }
                             }
@@ -235,7 +307,7 @@ struct PlanView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Routines")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(GymTheme.label)
                 Spacer()
                 Button {
@@ -248,7 +320,7 @@ struct PlanView: View {
                         Image(systemName: "plus")
                         Text("New")
                     }
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(GymTheme.green)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -292,23 +364,25 @@ struct PlanView: View {
 
     @ViewBuilder
     private func routineCard(_ routine: RoutineDraft) -> some View {
+        let cardAction = RoutineCardAction.action(for: routine)
+
         HStack(spacing: 12) {
             Button {
                 activeSheet = .editRoutine(draft: routine)
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: routine.iconName)
-                        .font(.system(size: 20))
+                        .font(.title3)
                         .foregroundStyle(GymTheme.green)
                         .frame(width: 44, height: 44)
                         .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 10))
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(routine.name)
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.body.weight(.bold))
                             .foregroundStyle(GymTheme.label)
                         Text("\(routine.exercises.count) exercises")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.caption.weight(.medium))
                             .foregroundStyle(GymTheme.label3)
                     }
                 }
@@ -318,16 +392,21 @@ struct PlanView: View {
             Spacer()
 
             Button {
-                let planned = convertToPlannedSession(routine)
-                onStartSession(planned)
+                switch cardAction {
+                case .edit:
+                    activeSheet = .editRoutine(draft: routine)
+                case .start:
+                    onStartSession(convertToPlannedSession(routine))
+                }
             } label: {
-                Text("Start")
-                    .font(.system(size: 13, weight: .bold))
+                Text(cardAction == .start ? "Start" : "Add exercises")
+                    .font(.footnote.weight(.bold))
                     .foregroundStyle(GymTheme.bg)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, cardAction == .start ? 16 : 12)
                     .padding(.vertical, 8)
                     .background(GymTheme.green, in: Capsule())
             }
+            .accessibilityHint(cardAction == .start ? "Start this routine" : "Open the routine editor to add exercises")
         }
         .padding(14)
         .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 14))
@@ -338,7 +417,7 @@ struct PlanView: View {
         if !plan.weeklyVolumeTargets.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Weekly volume targets")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(GymTheme.label)
                     .padding(.horizontal, 16)
 
@@ -346,11 +425,11 @@ struct PlanView: View {
                     ForEach(Array(plan.weeklyVolumeTargets.enumerated()), id: \.offset) { idx, target in
                         HStack {
                             Text(target.muscle.rawValue.capitalized)
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.subheadline.weight(.medium))
                                 .foregroundStyle(GymTheme.label)
                             Spacer()
                             Text("\(target.targetSets) sets")
-                                .font(.system(size: 13, weight: .bold))
+                                .font(.footnote.weight(.bold))
                                 .foregroundStyle(GymTheme.green)
                         }
                         .padding(.horizontal, 16)
@@ -441,5 +520,180 @@ struct PlanView: View {
             focusMuscles: muscles,
             items: items
         )
+    }
+}
+
+private struct SplitTemplateBrowserSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let selectedTemplateName: String
+    let onApply: (SplitTemplate) -> Void
+    @State private var query = ""
+    @State private var selection: String?
+
+    init(selectedTemplateName: String, onApply: @escaping (SplitTemplate) -> Void) {
+        self.selectedTemplateName = selectedTemplateName
+        self.onApply = onApply
+        _selection = State(initialValue: selectedTemplateName.isEmpty ? nil : selectedTemplateName)
+    }
+
+    private var matchingTemplates: [SplitTemplate] {
+        SplitTemplateBrowser.templates(matching: query)
+    }
+
+    private var dayCounts: [Int] {
+        Array(Set(matchingTemplates.map(\.sessionCount))).sorted()
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Choose how you train")
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(GymTheme.label)
+                        Text("Pick a split that matches your schedule. You can still edit every routine and exercise afterward.")
+                            .font(.subheadline)
+                            .foregroundStyle(GymTheme.label2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.vertical, 8)
+                    .listRowBackground(Color.clear)
+                }
+
+                ForEach(dayCounts, id: \.self) { count in
+                    let templates = matchingTemplates.filter { $0.sessionCount == count }
+                    Section("\(count)-day splits") {
+                        ForEach(templates, id: \.name) { template in
+                            templateRow(template)
+                        }
+                    }
+                }
+
+                if matchingTemplates.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                        .listRowBackground(Color.clear)
+                }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(GymTheme.bg.ignoresSafeArea())
+            .searchable(text: $query, prompt: "Search splits")
+            .navigationTitle("Training splits")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(GymTheme.label2)
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if let selectedTemplate = matchingTemplates.first(where: { $0.name == selection }) {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        onApply(selectedTemplate)
+                        dismiss()
+                    } label: {
+                        Text("Use \(selectedTemplate.name)")
+                            .font(.body.weight(.bold))
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(GymTheme.green, in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    .padding(.bottom, 8)
+                    .background(GymTheme.bg.opacity(0.96))
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    @ViewBuilder
+    private func templateRow(_ template: SplitTemplate) -> some View {
+        Button {
+            selection = template.name
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: iconName(for: template))
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(GymTheme.green)
+                    .frame(width: 38, height: 38)
+                    .background(GymTheme.green.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(template.name)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(GymTheme.label)
+                    Text(focusSummary(for: template))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(GymTheme.label2)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+                if selection == template.name {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(GymTheme.green)
+                } else {
+                    Image(systemName: "circle")
+                        .font(.title3)
+                        .foregroundStyle(GymTheme.label4)
+                }
+            }
+            .contentShape(Rectangle())
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(template.name)
+        .accessibilityValue(selection == template.name ? "Selected" : "Not selected")
+        .listRowBackground(GymTheme.surface)
+    }
+
+    private func focusSummary(for template: SplitTemplate) -> String {
+        let labels = template.sessionFocuses.prefix(4).map { muscles -> String in
+            switch WorkoutFocus.classify(muscles: Set(muscles)) {
+            case .push: "Push"
+            case .pull: "Pull"
+            case .legs: "Legs"
+            case .upper: "Upper"
+            case .lower: "Lower"
+            case .fullBody: "Full body"
+            case .chestBack: "Chest + back"
+            case .shouldersArms: "Shoulders + arms"
+            case .arms: "Arms"
+            case .posteriorChain: "Posterior chain"
+            case .quadGlute: "Quads + glutes"
+            case .hamstringGlute: "Hamstrings + glutes"
+            case .core: "Core"
+            case .conditioning: "Conditioning"
+            case .power: "Power"
+            case .mobilityRecovery: "Mobility"
+            case .custom: "Custom"
+            }
+        }
+        let suffix = template.sessionCount > 4 ? " + more" : ""
+        return labels.joined(separator: " · ") + suffix
+    }
+
+    private func iconName(for template: SplitTemplate) -> String {
+        let first = template.sessionFocuses.first.map { WorkoutFocus.classify(muscles: Set($0)) }
+        switch first {
+        case .some(.legs), .some(.lower), .some(.quadGlute), .some(.hamstringGlute):
+            return "figure.run"
+        case .some(.pull), .some(.posteriorChain), .some(.chestBack):
+            return "figure.rower"
+        case .some(.conditioning):
+            return "figure.outdoor.cycle"
+        case .some(.mobilityRecovery):
+            return "figure.flexibility"
+        default:
+            return "figure.strengthtraining.traditional"
+        }
     }
 }

@@ -3,7 +3,13 @@ import FitnessDomain
 public enum TemplateSelector {
 
     public static func select(sessionsPerWeek: Int,
-                              experience: ExperienceLevel) -> SplitTemplate {
+                              experience: ExperienceLevel,
+                              preferredTemplateName: String? = nil) -> SplitTemplate {
+        if let preferredTemplateName,
+           let preferred = SplitTemplateLibrary.all.first(where: { $0.name == preferredTemplateName }),
+           preferred.sessionCount == sessionsPerWeek {
+            return preferred
+        }
         switch experience {
         case .beginner:
             return sessionsPerWeek <= 3

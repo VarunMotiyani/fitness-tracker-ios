@@ -77,7 +77,7 @@ struct ProviderProfileListView: View {
             pricePerMTokOut: 0,
             pricePerMTokCached: 0)
         context.insert(profile)
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 
     private func delete(at offsets: IndexSet) {
@@ -88,6 +88,6 @@ struct ProviderProfileListView: View {
             }
             context.delete(profile)
         }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 }

@@ -2,11 +2,11 @@
 
 > SDD ledger at `.superpowers/sdd/2026-09-03-phase-3c-session-runner/`. Steps use `- [ ]`.
 
-**Goal:** The live workout runner behaves like openGym's: rest fires after every completed set (including an exercise's last), unchecking/re‑checking never replays side effects, supersets rest once per round on the longest member's rest, per‑exercise rest overrides work, drop‑sets and rest‑pause bursts log on the set row, and an exercise can be reordered or swapped mid‑session.
+**Goal:** The live workout runner behaves like reference app's: rest fires after every completed set (including an exercise's last), unchecking/re‑checking never replays side effects, supersets rest once per round on the longest member's rest, per‑exercise rest overrides work, drop‑sets and rest‑pause bursts log on the set row, and an exercise can be reordered or swapped mid‑session.
 
 **Architecture:** Pure decision helpers in `FitnessCore` (`SupersetFlow`, `SetRowOps`), driven by `SessionRunner` (`@MainActor @Observable`). The rest‑timer and work‑timer state machine lives in a `WorkoutTimers` `@Observable`. Views (`SessionFocusView`, new sub‑rows) are thin.
 
-**Reference:** `~/Documents/person/opengym/frontend/src/lib/supersetFlow.js`, `workout-model.js`, `active-workout-order.js`, `active-exercise-swap.js`; `store/useUI.js` (rest/work timer); `views/Workout.jsx` (wiring). Read the JSDoc in `supersetFlow.js` for the uneven‑round and re‑check rules.
+**Reference:** `~/Documents/person/reference-app/frontend/src/lib/supersetFlow.js`, `workout-model.js`, `active-workout-order.js`, `active-exercise-swap.js`; `store/useUI.js` (rest/work timer); `views/Workout.jsx` (wiring). Read the JSDoc in `supersetFlow.js` for the uneven‑round and re‑check rules.
 
 ## Global Constraints
 
@@ -151,7 +151,7 @@ Rules: moving a *unit* (superset group moves as one) up/down, keeping `currentEn
 - A set row can expand a `.subrow` stack: drop entries (weight/reps steppers) or rest‑pause bursts (reps/rest steppers), with `+ drop` / `+ burst` seeded from `SetRowOps.nextDropLoad` / `nextBurstReps`.
 - Header: "Swap exercise", unit up/down chevrons (from Task 5), a per‑exercise rest field, a plate‑math button (opens `PlateMathSheet` with `PlateMath.plateSplit`).
 - Work‑timer overlay for timed holds: circular countdown, "finish early" (logs elapsed), driven by `WorkoutTimers`.
-- Compact "all exercises" list + focused current card (openGym's two‑pane runner).
+- Compact "all exercises" list + focused current card (reference app's two‑pane runner).
 
 - [ ] Build + one XCUITest smoke: start → log a set → drop row add/remove → rest timer appears → finish prompt.
 - [ ] Commit `SessionFocusView: drop/rest-pause sub-rows, swap/reorder, work timer, plate math`.

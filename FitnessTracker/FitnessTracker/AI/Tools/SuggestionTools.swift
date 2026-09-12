@@ -5,7 +5,9 @@ import ExerciseCatalog
 import LLMKit
 import RuleEngine
 
-private func mostRecentStoredPlan(in context: ModelContext) -> StoredPlan? {
+// Not `private`: `CoachActionTools.swift`'s direct-apply tools need the same
+// lookup as the propose-* tools here.
+func mostRecentStoredPlan(in context: ModelContext) -> StoredPlan? {
     (try? context.fetch(FetchDescriptor<StoredPlan>(sortBy: [SortDescriptor(\.generatedAt, order: .reverse)])))?.first
 }
 
@@ -27,6 +29,7 @@ struct ProposeExerciseSwapArgs: Decodable {
 struct ProposeExerciseSwapTool: CoachTool {
     let context: ModelContext
     let catalog: CatalogStore
+    let sink: CoachActionSink
 
     var descriptor: ToolDescriptor {
         ToolDescriptor(
@@ -52,7 +55,12 @@ struct ProposeExerciseSwapTool: CoachTool {
         suggestion.replacementExerciseID = args.replacementExerciseID
         suggestion.sourceMemoryID = args.sourceMemoryId.flatMap { UUID(uuidString: $0) }
         context.insert(suggestion)
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
+        // The same `SuggestionCard` Home already shows, now inline in chat too
+        // — `SuggestionCardPayload` just carries the id, since ChatView reads
+        // the live `PendingCoachSuggestion` for everything else (including
+        // whether it's since been resolved from Home).
+        sink.addCard(.suggestion, payload: SuggestionCardPayload(suggestionID: suggestion.id))
         return "{\"status\": \"proposed\"}"
     }
 }
@@ -71,6 +79,7 @@ struct ProposeSetChangeArgs: Decodable {
 @MainActor
 struct ProposeSetChangeTool: CoachTool {
     let context: ModelContext
+    let sink: CoachActionSink
 
     var descriptor: ToolDescriptor {
         ToolDescriptor(
@@ -106,7 +115,8 @@ struct ProposeSetChangeTool: CoachTool {
         suggestion.targetLoadKg = args.targetLoadKg
         suggestion.sourceMemoryID = args.sourceMemoryId.flatMap { UUID(uuidString: $0) }
         context.insert(suggestion)
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
+        sink.addCard(.suggestion, payload: SuggestionCardPayload(suggestionID: suggestion.id))
         return "{\"status\": \"proposed\"}"
     }
 }
@@ -130,24 +140,28 @@ struct GetUpcomingSessionsTool: CoachTool {
         }
         let cal = WorkoutScheduleStore.calendar
         let weekStart = cal.dateInterval(of: .weekOfYear, for: .now)?.start ?? cal.startOfDay(for: .now)
-        var scheduledDates: [UUID: (String, String)] = [:]
+        // Keep the effective session (one-day exercise edits applied), not just
+        // its id — the payload's exercise list must reflect what's actually
+        // scheduled for the date, not the recurring routine.
+        var scheduledByID: [UUID: (date: String, state: String, session: PlannedSession)] = [:]
         for offset in 0..<7 {
             guard let date = cal.date(byAdding: .day, value: offset, to: weekStart),
-                  let session = WorkoutScheduleStore.plannedSession(for: date, in: plan) else { continue }
+                  let session = WorkoutScheduleStore.effectiveSession(for: date, in: plan) else { continue }
             let key = Scheduling.isoDateKey(date, calendar: cal)
-            scheduledDates[session.id] = (key, WorkoutScheduleStore.isRescheduled(for: date) ? "rescheduled" : "scheduled")
+            scheduledByID[session.id] = (key, WorkoutScheduleStore.isRescheduled(for: date) ? "rescheduled" : "scheduled", session)
         }
-        let payload = plan.sessions.map { session -> [String: Any] in
-            let schedule = scheduledDates[session.id]
+        let payload = plan.sessions.map { planSession -> [String: Any] in
+            let scheduled = scheduledByID[planSession.id]
+            let session = scheduled?.session ?? planSession
             var item: [String: Any] = [
                 "plannedSessionID": session.id.uuidString,
                 "order": session.order,
                 "focusMuscles": session.focusMuscles.map(\.rawValue),
                 "exercises": session.items.map { catalog.exercise(id: $0.exerciseID)?.name ?? $0.exerciseID }
             ]
-            if let schedule {
-                item["scheduledDate"] = schedule.0
-                item["scheduleState"] = schedule.1
+            if let scheduled {
+                item["scheduledDate"] = scheduled.date
+                item["scheduleState"] = scheduled.state
             }
             return item
         }

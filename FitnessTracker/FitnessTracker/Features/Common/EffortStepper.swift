@@ -28,7 +28,7 @@ public struct EffortStepper: View {
                 }
             } label: {
                 Image(systemName: "minus")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.caption2.weight(.bold))
                     .foregroundStyle(.white)
                     .frame(width: 20, height: 36)
                     .contentShape(Rectangle())
@@ -39,13 +39,13 @@ public struct EffortStepper: View {
             HStack(spacing: 2) {
                 if let v = value {
                     Text(String(format: "%.1f", v))
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.footnote.weight(.semibold)).fontDesign(.rounded)
                         .foregroundStyle(GymTheme.green)
                         .monospacedDigit()
                         .lineLimit(1)
                 } else {
                     Text("—")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(GymTheme.label3)
                 }
             }
@@ -61,7 +61,7 @@ public struct EffortStepper: View {
                 }
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.caption2.weight(.bold))
                     .foregroundStyle(.white)
                     .frame(width: 20, height: 36)
                     .contentShape(Rectangle())
@@ -69,6 +69,6 @@ public struct EffortStepper: View {
             .buttonStyle(.plain)
         }
         .frame(height: 36)
-        .background(Color(white: 0.18), in: RoundedRectangle(cornerRadius: 8))
+        .background(Color(white: 0.60), in: RoundedRectangle(cornerRadius: 8))
     }
 }

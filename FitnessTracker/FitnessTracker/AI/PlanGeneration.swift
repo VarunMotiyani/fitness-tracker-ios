@@ -104,7 +104,7 @@ func generateAndStore(context: UserContext,
         modelContext.insert(record)
     }
 
-    try? modelContext.save()
+    _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
 
     if let providerErrorReason {
         return .providerError(providerErrorReason)

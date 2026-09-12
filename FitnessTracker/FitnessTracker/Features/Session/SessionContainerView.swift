@@ -15,6 +15,7 @@ struct SessionContainerView: View {
     let onFinished: () -> Void
 
     @Environment(\.modelContext) private var context
+    @Environment(\.scenePhase) private var scenePhase
     @Query private var profiles: [UserProfile]
     // Plain @Query + Swift-side filter, not a #Predicate on `isActive` — a
     // #Predicate<ProviderProfile> boolean filter thrashing CoreData's SQL
@@ -74,6 +75,18 @@ struct SessionContainerView: View {
                                            repository: repo, finalizer: fin, memoryKeeper: keeper)
                 }
             }
+            .onDisappear {
+                // Leaving via the ✕ guard (or any dismissal) must not lose the
+                // last coalesced set — commit before the runner goes away.
+                runner?.flushPendingSave()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // Backgrounding mid-workout is the one moment the 700ms coalescer
+                // window can't cover on its own (a phone call, the OS suspending
+                // the app) — flush eagerly the instant we're not foreground-active.
+                guard phase != .active else { return }
+                runner?.flushPendingSave()
+            }
     }
 
     @ViewBuilder
@@ -84,8 +97,17 @@ struct SessionContainerView: View {
             // a tap here would be a silent no-op against a nil runner.
             ProgressView("Preparing…")
         case .idle:
-            SessionStartView(planned: planned, catalog: catalog) { energy, minutes in
-                Task { await runner?.start(planned: planned, energy: energy, timeAvailableMin: minutes) }
+            NavigationStack {
+                SessionStartView(planned: planned, catalog: catalog,
+                                 onPrepare: { editedPlan, minutes in
+                    runner?.prepare(planned: editedPlan, energy: .normal,
+                                    timeAvailableMin: minutes)
+                }, onClose: onFinished) { editedPlan, minutes in
+                    // Energy is collected after setup by the check-in flow. Keep
+                    // the legacy runner contract neutral here while passing the
+                    // edited, session-scoped plan through unchanged.
+                    Task { await runner?.start(planned: editedPlan, energy: .normal, timeAvailableMin: minutes) }
+                }
             }
         case .finalizing:
             ProgressView("Building today's session…")

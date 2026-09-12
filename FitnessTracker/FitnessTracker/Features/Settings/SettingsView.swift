@@ -87,10 +87,10 @@ struct SettingsView: View {
             // 7. Equipment Profile
             equipmentSection
 
-            // 8. Appearance & Body Model (openGym)
+            // 8. Appearance and body model
             appearanceSection
 
-            // 9. Data & Backup (openGym)
+            // 9. Data and backup
             dataSection
         }
         .scrollContentBackground(.hidden)
@@ -170,7 +170,7 @@ struct SettingsView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                     .background(activeAccent, in: Capsule())
-                    .padding(.bottom, 90)
+                    .padding(.bottom, 100)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .onAppear {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
@@ -403,7 +403,7 @@ struct SettingsView: View {
                 .tint(activeAccent)
 
             if !notifAuthorized {
-                Text("Turn on notifications for PulseAI in iOS Settings to receive these.")
+                Text("Turn on notifications for TrainSage in iOS Settings to receive these.")
                     .font(.footnote)
                     .foregroundStyle(GymTheme.label3)
             }
@@ -429,8 +429,8 @@ struct SettingsView: View {
                         .foregroundStyle(GymTheme.label)
                     Spacer()
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(white: 0.45))
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color(white: 0.60))
                 }
             }
         } header: {
@@ -440,7 +440,7 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Appearance Section (openGym exact swatches)
+    // MARK: - Appearance Section
 
     @ViewBuilder
     private var appearanceSection: some View {
@@ -460,7 +460,7 @@ struct SettingsView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Accent color")
-                    .font(.system(size: 15))
+                    .font(.subheadline)
                     .foregroundStyle(GymTheme.label)
 
                 HStack(spacing: 12) {
@@ -496,7 +496,7 @@ struct SettingsView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Data Section (openGym Full Parity)
+    // MARK: - Data Section
 
     @ViewBuilder
     private var dataSection: some View {
@@ -619,7 +619,7 @@ struct SettingsView: View {
                         Text("How it felt").frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .font(.caption.bold())
-                    .foregroundStyle(Color(white: 0.50))
+                    .foregroundStyle(Color(white: 0.60))
                     .padding(.bottom, 8)
 
                     Divider().background(Color.white.opacity(0.1))
@@ -655,9 +655,9 @@ struct SettingsView: View {
     @ViewBuilder
     private func effortRow(rir: String, rpe: String, feel: String, isAnchor: Bool) -> some View {
         HStack {
-            Text(rir).frame(width: 44, alignment: .leading).font(.system(size: 14, weight: .bold))
-            Text(rpe).frame(width: 44, alignment: .leading).font(.system(size: 14, weight: .bold))
-            Text(feel).frame(maxWidth: .infinity, alignment: .leading).font(.system(size: 13))
+            Text(rir).frame(width: 44, alignment: .leading).font(.subheadline.weight(.bold))
+            Text(rpe).frame(width: 44, alignment: .leading).font(.subheadline.weight(.bold))
+            Text(feel).frame(maxWidth: .infinity, alignment: .leading).font(.footnote)
         }
         .foregroundStyle(isAnchor ? activeAccent : GymTheme.label)
         .padding(.vertical, 8)
@@ -710,10 +710,14 @@ struct SettingsView: View {
     }
 
     private func exportBackupJSON() {
-        guard let cat = catalog else { return }
-        if let url = HistoryExportManager.exportFullJSON(context: context, catalog: cat) {
+        do {
+            let data = try BackupRestoreService.exportData(context: context)
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("trainsage-backup-\(Date().timeIntervalSince1970).json")
+            try data.write(to: url, options: .atomic)
             self.exportURL = url
             self.showExportShare = true
+        } catch {
+            lastNote = "Backup export failed: \(error.localizedDescription)"
         }
     }
 
@@ -723,11 +727,12 @@ struct SettingsView: View {
             guard let url = urls.first else { return }
             if url.startAccessingSecurityScopedResource() {
                 defer { url.stopAccessingSecurityScopedResource() }
-                if let data = try? Data(contentsOf: url),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    lastNote = "Backup imported successfully (\(json["workouts"] != nil ? "Complete backup" : "JSON"))"
-                } else {
-                    lastNote = "Invalid backup file format"
+                do {
+                    let data = try Data(contentsOf: url)
+                    try BackupRestoreService.restore(data: data, into: context)
+                    lastNote = "Backup restored successfully"
+                } catch {
+                    lastNote = "Import failed: \(error.localizedDescription)"
                 }
             }
         case .failure(let error):
@@ -745,12 +750,20 @@ struct SettingsView: View {
                 if let text = try? String(contentsOf: url, encoding: .utf8) {
                     if text.contains("<?xml") || text.contains("<HealthData") {
                         let weights = AppleHealthXMLImporter.parse(xmlString: text)
-                        let count = HistoryIngestionService.ingestBodyweights(weights, into: context)
-                        lastNote = "Imported \(count) bodyweight entries from Apple Health XML"
+                        do {
+                            let count = try HistoryIngestionService.ingestBodyweights(weights, into: context)
+                            lastNote = "Imported \(count) bodyweight entries from Apple Health XML"
+                        } catch {
+                            lastNote = "Import failed: \(error.localizedDescription)"
+                        }
                     } else {
                         let (source, sessions) = ExternalAppImporter.importCSV(text)
-                        let (imported, skipped) = HistoryIngestionService.ingestSessions(sessions, catalog: cat, into: context)
-                        lastNote = "Imported \(imported) workouts from \(source.rawValue) (skipped \(skipped))"
+                        do {
+                            let (imported, skipped) = try HistoryIngestionService.ingestSessions(sessions, catalog: cat, into: context)
+                            lastNote = "Imported \(imported) workouts from \(source.rawValue) (skipped \(skipped))"
+                        } catch {
+                            lastNote = "Import failed: \(error.localizedDescription)"
+                        }
                     }
                 } else {
                     lastNote = "Could not read file"
@@ -762,26 +775,12 @@ struct SettingsView: View {
     }
 
     private func resetAllData() {
-        if let sessions = try? context.fetch(FetchDescriptor<CompletedSessionModel>()) {
-            for s in sessions { context.delete(s) }
+        do {
+            try BackupRestoreService.reset(context: context)
+            lastNote = "All data reset"
+        } catch {
+            lastNote = "Reset failed: \(error.localizedDescription)"
         }
-        if let storedPlans = try? context.fetch(FetchDescriptor<StoredPlan>()) {
-            for p in storedPlans { context.delete(p) }
-        }
-        if let bws = try? context.fetch(FetchDescriptor<BodyweightEntryModel>()) {
-            for b in bws { context.delete(b) }
-        }
-        if let prs = try? context.fetch(FetchDescriptor<PersonalRecordModel>()) {
-            for pr in prs { context.delete(pr) }
-        }
-        if let allProfiles = try? context.fetch(FetchDescriptor<UserProfile>()) {
-            for p in allProfiles { context.delete(p) }
-        }
-        if let suggestions = try? context.fetch(FetchDescriptor<PendingCoachSuggestion>()) {
-            for s in suggestions { context.delete(s) }
-        }
-        try? context.save()
-        lastNote = "All data reset"
     }
 
     private func refreshNotifAuthorized() async {

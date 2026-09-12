@@ -186,9 +186,9 @@ private let range = RepRange(min: 8, max: 10)
     #expect((d.targetLoadKg / 2.5).rounded() * 2.5 == d.targetLoadKg)
 }
 
-// MARK: - openGym Parity Tests
+// MARK: - Progression Parity Tests
 
-struct OpenGymProgressionParityTests {
+struct ProgressionParityTests {
     private let now = Date()
 
     private func makeReading(goal: Int, reps: [Int], weight: Double, ok: Bool) -> SessionReading {

@@ -30,7 +30,7 @@ struct HistoryListView: View {
                     } label: {
                         sessionRow(session)
                     }
-                    .listRowBackground(Color(white: 0.12))
+                    .listRowBackground(Color(white: 0.60))
                 }
             }
         }
@@ -113,7 +113,7 @@ struct HistoryListView: View {
                 context.insert(setModel)
             }
         }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 
     @ViewBuilder
@@ -197,7 +197,7 @@ struct HistoryListView: View {
                         }
                     }
                     .padding()
-                    .background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 12))
+                    .background(Color(white: 0.60), in: RoundedRectangle(cornerRadius: 12))
                     .padding(.horizontal)
                 }
             }

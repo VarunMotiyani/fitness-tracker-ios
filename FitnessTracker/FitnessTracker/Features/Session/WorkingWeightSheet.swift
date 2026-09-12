@@ -35,7 +35,8 @@ public struct WorkingWeightSheet: View {
 
     public var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
+            ScrollView {
+                VStack(spacing: 20) {
                 VStack(spacing: 6) {
                     Image(systemName: "checkmark.seal.fill")
                         .font(.system(size: 44))
@@ -101,8 +102,12 @@ public struct WorkingWeightSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Skip") { dismiss() }
                 }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
             }
         }
         .presentationDetents([.medium])
+        .keyboardHandling()
     }
 }

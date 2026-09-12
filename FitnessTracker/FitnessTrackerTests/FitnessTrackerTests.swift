@@ -18,13 +18,13 @@ struct FitnessTrackerTests {
         // https://developer.apple.com/documentation/testing
     }
 
-    @Test func tabBarUsesSharedIconMetrics() {
-        #expect(TabBarMetrics.iconFrame == CGSize(width: 28, height: 24))
-        #expect(TabBarMetrics.iconContentFrame == CGSize(width: 22, height: 22))
-        #expect(TabBarMetrics.iconFontSize == 20)
-        #expect(TabBarMetrics.titleFontSize == 10)
-        #expect(TabBarMetrics.centerActionOverlayWidth == 80)
-        #expect(TabBarMetrics.primaryTabCount == 5)
+    @Test func tabBarMetricsAreSane() {
+        // Liquid Glass floating bar: the Start disc must fit inside the capsule
+        // with margin, and touch targets stay comfortably large.
+        #expect(TabBarMetrics.startDiameter < TabBarMetrics.capsuleHeight)
+        #expect(TabBarMetrics.pillHeight >= 40)
+        #expect(TabBarMetrics.iconFontSize >= 17)
+        #expect(TabBarMetrics.sideInset > 0)
     }
 
 }

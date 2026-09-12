@@ -36,6 +36,16 @@ private struct DraftSetRow: Identifiable {
     var isWarmup: Bool
 }
 
+/// Keeps the primary workout flow deterministic: completing an exercise moves
+/// to the next entry when one exists, otherwise it enters the finish flow.
+enum SessionAdvancePolicy {
+    nonisolated static func nextIndex(currentIndex: Int, entryCount: Int) -> Int? {
+        let nextIndex = currentIndex + 1
+        guard currentIndex >= 0, nextIndex < entryCount else { return nil }
+        return nextIndex
+    }
+}
+
 /// Tactile Gym-Floor Workout Runner with complete UI parity:
 /// - Session header: ✕ close, live elapsed timer mm:ss, sets-based progress bar n/N sets, ✓ finish.
 /// - All-sets-editable interactive table with inline weight, reps, RIR steppers and ✓ check.
@@ -64,7 +74,12 @@ struct SessionFocusView: View {
     // Draft interactive state for upcoming sets in current exercise
     @State private var draftRows: [DraftSetRow] = []
     @State private var targetTotalSets: Int = 3
-    @State private var elapsedSeconds: Int = 0
+    /// Memoized per exercise in `seedCurrentExercise()` — these scans touch
+    /// every past session and must never run from `body` (they used to, at
+    /// the elapsed timer's 1 Hz rate).
+    @State private var lastTimeText: String?
+    @State private var bestText: String?
+    @State private var firstLoggedStart: Date?
     @State private var isSupersetWithNext: Bool = false
     @State private var restTimer = RestTimer()
     @State private var flashTriggerID = UUID()
@@ -76,8 +91,6 @@ struct SessionFocusView: View {
     @State private var activeSheet: ActiveFocusSheet? = nil
     @State private var showExitDialog = false
     @State private var showCompleteDialog = false
-
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     init(
         runner: SessionRunner,
@@ -92,7 +105,7 @@ struct SessionFocusView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                // Top Session-Level Navigation Header (openGym Parity)
+                // Top session-level navigation header
                 sessionTopHeader
 
                 // Pinned Total-Set Progress Bar
@@ -117,16 +130,6 @@ struct SessionFocusView: View {
         .background(GymTheme.bg.ignoresSafeArea())
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
-        .onReceive(timer) { _ in
-            // Clock starts from your first logged set, not from when this screen
-            // opened — you need a moment to look at the exercise before you actually
-            // start, and that shouldn't count against the workout's elapsed time.
-            if let start = firstLoggedSetTime {
-                elapsedSeconds = max(0, Int(Date().timeIntervalSince(start)))
-            } else {
-                elapsedSeconds = 0
-            }
-        }
         .onAppear {
             if keepAwake {
                 UIApplication.shared.isIdleTimerDisabled = true
@@ -206,15 +209,21 @@ struct SessionFocusView: View {
         HStack(spacing: 12) {
             // Close / Minimize ✕ button
             Button {
-                showExitDialog = true
+                if SessionExitPolicy.activeWorkoutRequiresConfirmation {
+                    showExitDialog = true
+                } else {
+                    dismiss()
+                }
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.body.weight(.bold))
                     .foregroundStyle(GymTheme.label2)
-                    .frame(width: 36, height: 36)
-                    .background(GymTheme.surface2, in: Circle())
+                    .frame(width: 44, height: 44)
+                    .background(GymTheme.surface2, in: Circle().inset(by: 4))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Close workout")
 
             Spacer()
 
@@ -226,15 +235,20 @@ struct SessionFocusView: View {
                 VStack(spacing: 2) {
                     HStack(spacing: 4) {
                         Text(routineName)
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.subheadline.weight(.bold))
                             .foregroundStyle(GymTheme.label)
                         Image(systemName: "list.bullet")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.caption.weight(.bold))
                             .foregroundStyle(GymTheme.label3)
                     }
-                    Text("\(formattedElapsedTime) · \(totalDoneSets)/\(totalTargetSets) sets")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(GymTheme.label3)
+                    // The clock owns its own 1 Hz tick, so the per-second
+                    // refresh invalidates this tiny Text, not the whole body.
+                    HStack(spacing: 0) {
+                        SessionElapsedClock(startDate: firstLoggedStart)
+                        Text(" · \(totalDoneSets)/\(totalTargetSets) sets")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(GymTheme.label3)
+                    }
                 }
             }
             .buttonStyle(.plain)
@@ -246,12 +260,14 @@ struct SessionFocusView: View {
                 showCompleteDialog = true
             } label: {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.body.weight(.bold))
                     .foregroundStyle(GymTheme.green)
-                    .frame(width: 36, height: 36)
-                    .background(GymTheme.green.opacity(0.18), in: Circle())
+                    .frame(width: 44, height: 44)
+                    .background(GymTheme.green.opacity(0.18), in: Circle().inset(by: 4))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Finish workout")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -298,14 +314,14 @@ struct SessionFocusView: View {
                 // 3. Meta Chips (Muscle · Equipment · Best PR)
                 metaChipsRow(exercise: exercise)
 
-                // 4. "Last Time" Performance Recap
-                if let lastRecap = lastPerformanceText(exerciseID: entry.exerciseID) {
+                // 4. "Last Time" Performance Recap (memoized per exercise)
+                if let lastRecap = lastTimeText {
                     HStack(spacing: 6) {
                         Image(systemName: "clock.arrow.circlepath")
-                            .font(.system(size: 12))
+                            .font(.caption)
                             .foregroundStyle(GymTheme.label3)
                         Text(lastRecap)
-                            .font(.system(size: 13, weight: .regular))
+                            .font(.footnote.weight(.regular))
                             .foregroundStyle(GymTheme.label2)
                     }
                     .padding(.horizontal, 2)
@@ -315,10 +331,10 @@ struct SessionFocusView: View {
                 if !rationale.isEmpty {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "info.circle.fill")
-                            .font(.system(size: 13))
+                            .font(.footnote)
                             .foregroundStyle(GymTheme.orange)
                         Text(rationale)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.footnote.weight(.medium))
                             .foregroundStyle(GymTheme.orange)
                     }
                     .padding(12)
@@ -334,7 +350,7 @@ struct SessionFocusView: View {
                     RestTimerView(timer: restTimer)
                 }
 
-                // 8. Interactive All-Sets Editable Table (openGym Item 3.10)
+                // 8. Interactive all-sets editable table
                 allSetsEditableTable(entry: entry, plannedRestSec: planned?.restSeconds ?? 90)
 
                 // 9. Inline Set Actions: Warm-up / Remove / Add Set
@@ -354,9 +370,10 @@ struct SessionFocusView: View {
     private func mediaStageCard(exercise: Exercise?) -> some View {
         // Free-exercise-db only has a same-named match for ~10% of exercises — most
         // will keep showing Gym Visual even with "Free" selected below.
-        let alternateImages = exercise.flatMap { AlternateMediaLookup.imagePaths(forExerciseNamed: $0.name) }
+        let alternateImages = exercise.flatMap { AlternateMediaLookup.imagePaths(forExerciseNamed: $0.name) }?
+            .compactMap { URL(string: $0) }
         let preferFree = ExerciseMediaSource(rawValue: mediaSourceRaw) == .freeStatic
-        let showingAlternate = preferFree && alternateImages != nil
+        let showingAlternate = preferFree && !(alternateImages ?? []).isEmpty
 
         VStack(alignment: .leading, spacing: 8) {
             Button {
@@ -364,14 +381,8 @@ struct SessionFocusView: View {
             } label: {
                 ZStack(alignment: .bottomLeading) {
                     Group {
-                        if showingAlternate, let firstAlt = alternateImages?.first, let url = URL(string: firstAlt) {
-                            AsyncImage(url: url) { phase in
-                                if case .success(let image) = phase {
-                                    image.resizable().scaledToFit()
-                                } else {
-                                    ProgressView()
-                                }
-                            }
+                        if showingAlternate, let alternateImages {
+                            CachedRemoteImageLoop(urls: alternateImages, maxPixelSize: 600)
                         } else if let gifPath = exercise?.gifImagePath, let url = URL(string: gifPath) {
                             AnimatedGifView(url: url)
                         } else {
@@ -386,9 +397,9 @@ struct SessionFocusView: View {
                     // Expand pill
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.caption2.weight(.bold))
                         Text("Expand")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.caption.weight(.bold))
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 8)
@@ -412,7 +423,7 @@ struct SessionFocusView: View {
 
                 if preferFree && alternateImages == nil {
                     Text("No free equivalent for this exercise")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.caption2.weight(.medium))
                         .foregroundStyle(GymTheme.label3)
                 }
             }
@@ -423,7 +434,7 @@ struct SessionFocusView: View {
     private func exerciseTitleHeader(exercise: Exercise?, entry: CompletedEntryModel) -> some View {
         HStack(alignment: .center, spacing: 10) {
             Text(exercise?.name ?? entry.exerciseID)
-                .font(.system(size: 26, weight: .bold))
+                .font(.title.weight(.bold))
                 .foregroundStyle(GymTheme.label)
                 .lineLimit(2)
 
@@ -435,7 +446,7 @@ struct SessionFocusView: View {
                     activeSheet = .exerciseDetail(exercise)
                 } label: {
                     Image(systemName: "info.circle")
-                        .font(.system(size: 20))
+                        .font(.title3)
                         .foregroundStyle(GymTheme.label3)
                 }
                 .buttonStyle(.plain)
@@ -448,7 +459,7 @@ struct SessionFocusView: View {
                 activeSheet = .exerciseNote(name: exName, id: entry.exerciseID, instruction: instr)
             } label: {
                 Image(systemName: "pencil")
-                    .font(.system(size: 16))
+                    .font(.body)
                     .foregroundStyle(GymTheme.label3)
                     .padding(8)
                     .background(GymTheme.surface2, in: Circle())
@@ -460,7 +471,7 @@ struct SessionFocusView: View {
                 activeSheet = .plateMath
             } label: {
                 Image(systemName: "circle.grid.2x1.fill")
-                    .font(.system(size: 14))
+                    .font(.subheadline)
                     .foregroundStyle(GymTheme.label3)
                     .padding(8)
                     .background(GymTheme.surface2, in: Circle())
@@ -478,7 +489,7 @@ struct SessionFocusView: View {
             if let equipment = exercise?.equipment {
                 metaPill(title: equipment.rawValue.capitalized)
             }
-            if let entry = runner.currentEntry, let best = bestPerformanceText(exerciseID: entry.exerciseID) {
+            if let best = bestText {
                 metaPill(title: best)
             }
             Spacer()
@@ -488,7 +499,7 @@ struct SessionFocusView: View {
     @ViewBuilder
     private func metaPill(title: String) -> some View {
         Text(title)
-            .font(.system(size: 12, weight: .medium))
+            .font(.caption.weight(.medium))
             .foregroundStyle(GymTheme.label2)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
@@ -502,9 +513,9 @@ struct SessionFocusView: View {
         } label: {
             HStack {
                 Image(systemName: isSupersetWithNext ? "link" : "link.badge.plus")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.footnote.weight(.bold))
                 Text(isSupersetWithNext ? "Superset linked with next exercise" : "Make superset with next")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.footnote.weight(.semibold))
             }
             .foregroundStyle(isSupersetWithNext ? GymTheme.sky : GymTheme.green)
             .frame(maxWidth: .infinity)
@@ -518,7 +529,7 @@ struct SessionFocusView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - All-Sets Editable Table (openGym Item 3.10 Parity)
+    // MARK: - All-Sets Editable Table
 
     @ViewBuilder
     private func allSetsEditableTable(entry: CompletedEntryModel, plannedRestSec: Int) -> some View {
@@ -538,7 +549,7 @@ struct SessionFocusView: View {
                 Text("DONE")
                     .frame(width: 40, alignment: .trailing)
             }
-            .font(.system(size: 11, weight: .bold))
+            .font(.caption.weight(.bold))
             .foregroundStyle(GymTheme.label3)
             .padding(.horizontal, 12)
 
@@ -569,21 +580,21 @@ struct SessionFocusView: View {
                     .fill(set.isWarmup ? Color.orange : GymTheme.green)
                     .frame(width: 26, height: 26)
                 Text(set.isWarmup ? "W" : "\(setIdx + 1)")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(.black)
             }
             .frame(width: 34, alignment: .leading)
 
             // Weight
             Text(String(format: "%.1f kg", set.actualLoadKg))
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .font(.subheadline.weight(.semibold)).fontDesign(.rounded)
                 .monospacedDigit()
                 .foregroundStyle(GymTheme.label)
                 .frame(maxWidth: .infinity)
 
             // Reps
             Text("\(set.actualReps)")
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .font(.subheadline.weight(.semibold)).fontDesign(.rounded)
                 .monospacedDigit()
                 .foregroundStyle(GymTheme.label)
                 .frame(maxWidth: .infinity)
@@ -591,19 +602,19 @@ struct SessionFocusView: View {
             // RIR
             if let rir = set.rir {
                 Text(String(format: "%.1f", rir))
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(GymTheme.green)
                     .frame(width: 76)
             } else {
                 Text("—")
-                    .font(.system(size: 14))
+                    .font(.subheadline)
                     .foregroundStyle(GymTheme.label3)
                     .frame(width: 76)
             }
 
             // Checked indicator
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 24))
+                .font(.title)
                 .foregroundStyle(GymTheme.green)
                 .frame(width: 40, alignment: .trailing)
         }
@@ -622,16 +633,18 @@ struct SessionFocusView: View {
                     .stroke(isW ? Color.orange : GymTheme.green.opacity(0.6), lineWidth: 1.5)
                     .frame(width: 26, height: 26)
                 Text(isW ? "W" : "\(setIdx + 1)")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(isW ? Color.orange : GymTheme.green)
             }
             .frame(width: 34, alignment: .leading)
 
             // Weight Stepper
-            GymStepper(value: $draftRows[draftIdx].loadKg, step: 2.5, minVal: 0, maxVal: 500, unit: "kg", isDecimal: true)
+            GymStepper(value: $draftRows[draftIdx].loadKg, step: 2.5, minVal: 0, maxVal: 500, unit: "kg", isDecimal: true,
+                       a11yLabel: "weight in kilograms for set \(setIdx + 1)")
 
             // Reps Stepper
-            GymStepper(value: $draftRows[draftIdx].reps, step: 1, minVal: 1, maxVal: 100, unit: "reps", isDecimal: false)
+            GymStepper(value: $draftRows[draftIdx].reps, step: 1, minVal: 1, maxVal: 100, unit: "reps", isDecimal: false,
+                       a11yLabel: "reps for set \(setIdx + 1)")
 
             // RIR Stepper (Always Accessible)
             EffortStepper(value: $draftRows[draftIdx].rir, mode: "rir")
@@ -642,12 +655,13 @@ struct SessionFocusView: View {
                 logDraftSet(draftIdx: draftIdx, plannedRestSec: plannedRestSec)
             } label: {
                 Image(systemName: "circle")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.title.weight(.semibold))
                     .foregroundStyle(GymTheme.green)
-                    .frame(width: 44, height: 38, alignment: .trailing)
+                    .frame(width: 44, height: 44, alignment: .trailing)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Log set \(setIdx + 1)")
         }
         .padding(.vertical, 6)
         .padding(.horizontal, 6)
@@ -664,7 +678,7 @@ struct SessionFocusView: View {
                 addWarmupSet()
             } label: {
                 Label("Add warm-up set", systemImage: "flame.fill")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.caption.weight(.bold))
                     .lineLimit(1)
                     .fixedSize()
                     .foregroundStyle(GymTheme.orange)
@@ -679,7 +693,7 @@ struct SessionFocusView: View {
                     removeSet(entry: entry)
                 } label: {
                     Label("Remove set", systemImage: "minus")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.caption.weight(.bold))
                         .lineLimit(1)
                         .fixedSize()
                         .foregroundStyle(GymTheme.red)
@@ -694,7 +708,7 @@ struct SessionFocusView: View {
                 addExtraSet()
             } label: {
                 Label("Add set", systemImage: "plus")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.caption.weight(.bold))
                     .lineLimit(1)
                     .fixedSize()
                     .foregroundStyle(GymTheme.green)
@@ -719,7 +733,7 @@ struct SessionFocusView: View {
                         Image(systemName: "chevron.left")
                         Text("Previous")
                     }
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                 }
@@ -734,7 +748,7 @@ struct SessionFocusView: View {
                     Text(runner.currentEntryIndex < runner.entriesInOrder.count - 1 ? "Next Exercise" : "Finish Workout")
                     Image(systemName: runner.currentEntryIndex < runner.entriesInOrder.count - 1 ? "chevron.right" : "checkmark")
                 }
-                .font(.system(size: 15, weight: .bold))
+                .font(.subheadline.weight(.bold))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
             }
@@ -747,22 +761,11 @@ struct SessionFocusView: View {
     // MARK: - Logic & Actions
 
     private var sessionRoutineName: String {
-        if let plannedID = runner.session?.plannedSessionID,
-           let items = runner.finalized?.session.items {
-            if items.first?.exerciseID == "0025" { return "Push Day" }
-            if items.first?.exerciseID == "2330" { return "Pull Day" }
-            if items.first?.exerciseID == "0043" { return "Legs Day" }
-        }
-        return "Workout Session"
+        guard let focusMuscles = runner.finalized?.session.focusMuscles else { return "Workout" }
+        return RoutineNaming.dayName(for: focusMuscles)
     }
 
-    private var formattedElapsedTime: String {
-        let min = elapsedSeconds / 60
-        let sec = elapsedSeconds % 60
-        return String(format: "%d:%02d", min, sec)
-    }
-
-    private var firstLoggedSetTime: Date? {
+    private var earliestLoggedSetStart: Date? {
         runner.entriesInOrder.flatMap(\.sets).map(\.startedAt).min()
     }
 
@@ -788,6 +791,14 @@ struct SessionFocusView: View {
         let neededDrafts = max(0, targetTotalSets - loggedCount)
         for _ in 0..<neededDrafts {
             draftRows.append(DraftSetRow(loadKg: baseLoad, reps: baseReps, rir: 2.0, isWarmup: false))
+        }
+
+        // Memoized history scans — computed once per exercise change instead of
+        // on every body evaluation.
+        lastTimeText = lastPerformanceText(exerciseID: entry.exerciseID)
+        bestText = bestPerformanceText(exerciseID: entry.exerciseID)
+        if firstLoggedStart == nil {
+            firstLoggedStart = earliestLoggedSetStart
         }
     }
 
@@ -816,6 +827,11 @@ struct SessionFocusView: View {
 
         // Remove the draft that was logged
         draftRows.remove(at: draftIdx)
+
+        // The elapsed clock starts at the first logged set, not at screen open.
+        if firstLoggedStart == nil {
+            firstLoggedStart = earliestLoggedSetStart
+        }
 
         // Start Rest Timer
         restTimer.start(seconds: plannedRestSec)
@@ -868,23 +884,40 @@ struct SessionFocusView: View {
         } else if !entry.sets.isEmpty {
             runner.removeLastSet(entryIndex: runner.currentEntryIndex)
             targetTotalSets = max(1, targetTotalSets - 1)
+            // `firstLoggedStart` is cached (only ever set once from nil) so the
+            // 1Hz clock doesn't re-scan every set every second — but that means
+            // removing the session's only logged set left it pointing at a
+            // deleted set's timestamp instead of resetting to "no sets yet".
+            firstLoggedStart = earliestLoggedSetStart
         }
     }
 
     private func advanceOrFinish() {
-        if let entry = runner.currentEntry {
+        guard activeSheet == nil, !showCompleteDialog, !showExitDialog else { return }
+
+        let nextIndex = SessionAdvancePolicy.nextIndex(
+            currentIndex: runner.currentEntryIndex,
+            entryCount: runner.entriesInOrder.count
+        )
+
+        // Working-weight capture only makes sense while the session continues —
+        // presenting it and the finish dialog at once used to collide, and the
+        // dialog was silently dropped, leaving the runner stuck on the last
+        // exercise.
+        if nextIndex != nil, let entry = runner.currentEntry {
             let maxW = entry.sets.filter { !$0.isWarmup }.map(\.actualLoadKg).max() ?? (draftRows.first?.loadKg ?? 60.0)
             let name = catalog.exercise(id: entry.exerciseID)?.name ?? "Exercise"
             activeSheet = .workingWeight(name: name, id: entry.exerciseID, maxWeight: maxW)
         }
 
-        if runner.currentEntryIndex < runner.entriesInOrder.count - 1 {
+        if let nextIndex {
             runner.markDone(entryIndex: runner.currentEntryIndex)
-            // Land on the exercise list, not straight into the next exercise — the
-            // one you just finished now shows green there, and you pick (or
-            // substitute) what's next instead of always taking it in plan order.
-            onOpenList()
+            // Continue in plan order. The exercise list remains available from
+            // the session header, but is no longer an involuntary stop after
+            // every completed exercise.
+            runner.currentEntryIndex = nextIndex
         } else {
+            runner.markDone(entryIndex: runner.currentEntryIndex)
             showCompleteDialog = true
         }
     }
@@ -926,5 +959,35 @@ struct SessionFocusView: View {
            let str = String(data: data, encoding: .utf8) {
             workingWeightsJSON = str
         }
+    }
+}
+
+
+/// Owns its own 1 Hz tick so the per-second refresh re-renders this
+/// one-line Text instead of the whole session body.
+private struct SessionElapsedClock: View {
+    let startDate: Date?
+    @State private var seconds: Int = 0
+    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        Text(Self.format(seconds))
+            .font(.caption.weight(.semibold))
+            .fontDesign(.rounded)
+            .monospacedDigit()
+            .foregroundStyle(GymTheme.label3)
+            .onReceive(tick) { _ in
+                // Clock starts from your first logged set, not from when this
+                // screen opened - the moment before your first rep shouldnt
+                // count against the workout.
+                let next = startDate.map { max(0, Int(Date().timeIntervalSince($0))) } ?? 0
+                if next != seconds { seconds = next }
+            }
+    }
+
+    private static func format(_ totalSeconds: Int) -> String {
+        let min = totalSeconds / 60
+        let sec = totalSeconds % 60
+        return String(format: "%d:%02d", min, sec)
     }
 }

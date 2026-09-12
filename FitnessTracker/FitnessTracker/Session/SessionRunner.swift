@@ -25,6 +25,17 @@ struct SetFlags: Sendable {
 @Observable
 final class SessionRunner {
 
+    private struct FinalizationKey: Equatable {
+        let planned: PlannedSession
+        let energy: EnergyRating
+        let timeAvailableMin: Int
+    }
+
+    private struct PreparedFinalization {
+        let key: FinalizationKey
+        let result: FinalizedResult
+    }
+
     enum Phase: Equatable {
         case idle
         case finalizing
@@ -48,6 +59,12 @@ final class SessionRunner {
     private let memoryKeeper: (any MemoryKeeperRunning)?
     private let now: () -> Date
 
+    /// Session setup starts this work before the athlete taps Start. The
+    /// result is consumed only when every input still matches this key, so a
+    /// reorder, exercise edit, or time change can never use stale targets.
+    private var preparedFinalization: PreparedFinalization?
+    private var preparationTask: (key: FinalizationKey, task: Task<FinalizedResult?, Never>)?
+
     /// The outcome computed by `finish`, replayed by `closeSummary`.
     private var resolvedOutcome: SessionOutcome = .partial
 
@@ -55,6 +72,35 @@ final class SessionRunner {
     /// the deterministic rule-engine fallback — drives the "backup coach"
     /// indicator (design spec §3).
     private(set) var coachSource: CoachSource = .rule
+
+    // MARK: - Save coalescing
+    // Per-action `context.save()` on the main thread made every logged set pay
+    // a full SwiftData commit plus a full revalidation of every mounted tab's
+    // @Query. Mutations now mark-dirty; one commit lands at most every 700 ms,
+    // and lifecycle checkpoints (start/finish) and view teardown flush eagerly.
+
+    private var savePending = false
+
+    private func markDirty() {
+        guard !savePending else { return }
+        savePending = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            self?.flushPendingSave()
+        }
+    }
+
+    /// Commit any coalesced mutation now. Idempotent — and on a failed save,
+    /// `savePending` stays `true` so the next checkpoint (or the 700ms timer)
+    /// retries instead of silently dropping the mutation (the whole point of
+    /// coalescing was never to be less safe than the per-action save it replaced).
+    @discardableResult
+    func flushPendingSave() -> Bool {
+        guard savePending else { return true }
+        let saved = PersistenceReporter.attemptSave(modelContext, operation: "persist model context (coalesced)")
+        if saved { savePending = false }
+        return saved
+    }
 
     init(modelContext: ModelContext,
          catalog: CatalogStore,
@@ -91,11 +137,54 @@ final class SessionRunner {
 
     // MARK: - Lifecycle
 
+    /// Prepares today's history-aware session while the setup screen is open.
+    /// Repeated calls for the same inputs are coalesced; changed inputs cancel
+    /// the old work and start a fresh preparation.
+    func prepare(planned: PlannedSession, energy: EnergyRating, timeAvailableMin: Int) {
+        guard phase == .idle else { return }
+        let key = FinalizationKey(planned: planned, energy: energy,
+                                 timeAvailableMin: timeAvailableMin)
+        if preparedFinalization?.key == key || preparationTask?.key == key { return }
+
+        preparationTask?.task.cancel()
+        preparedFinalization = nil
+
+        let finalizer = self.finalizer
+        let task: Task<FinalizedResult?, Never> = Task { @MainActor [weak self] in
+            guard !Task.isCancelled else { return nil }
+            let result = await finalizer.finalize(
+                planned, energy: energy, timeAvailableMin: timeAvailableMin)
+            guard !Task.isCancelled else { return nil }
+            guard let self, self.phase == .idle,
+                  self.preparationTask?.key == key else { return result }
+            self.preparedFinalization = PreparedFinalization(key: key, result: result)
+            return result
+        }
+        preparationTask = (key: key, task: task)
+    }
+
     func start(planned: PlannedSession, energy: EnergyRating, timeAvailableMin: Int) async {
         guard phase == .idle else { return }   // F4: no second CompletedSessionModel on a double-tap
         phase = .finalizing
 
-        let result = await finalizer.finalize(planned, energy: energy, timeAvailableMin: timeAvailableMin)
+        let key = FinalizationKey(planned: planned, energy: energy,
+                                 timeAvailableMin: timeAvailableMin)
+        let result: FinalizedResult
+        if let prepared = preparedFinalization, prepared.key == key {
+            result = prepared.result
+        } else if let pending = preparationTask, pending.key == key,
+                  let prepared = await pending.task.value {
+            result = prepared
+        } else {
+            // A user can tap Start before preflight completes (or after an
+            // unexpected setup transition). Preserve correctness by resolving
+            // the exact request once here, without starting a second call.
+            result = await finalizer.finalize(
+                planned, energy: energy, timeAvailableMin: timeAvailableMin)
+        }
+        preparationTask?.task.cancel()
+        preparationTask = nil
+        preparedFinalization = nil
         let fin = result.session
         self.finalized = fin
         self.coachSource = result.coachSource
@@ -126,7 +215,7 @@ final class SessionRunner {
             let entry = CompletedEntryModel(exerciseID: item.exerciseID, performedOrder: idx)
             it.entries.append(entry)
         }
-        try? modelContext.save()
+        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
 
         self.session = it
         currentEntryIndex = 0
@@ -167,7 +256,7 @@ final class SessionRunner {
 
         entry.sets.append(set)
         entry.stateRaw = EntryState.inProgress.rawValue
-        try? modelContext.save()
+        markDirty()
     }
 
     func removeLastSet(entryIndex: Int) {
@@ -180,7 +269,7 @@ final class SessionRunner {
             if entry.sets.isEmpty {
                 entry.stateRaw = EntryState.notStarted.rawValue
             }
-            try? modelContext.save()
+            markDirty()
         }
     }
 
@@ -188,7 +277,7 @@ final class SessionRunner {
         let entries = orderedEntries
         guard entries.indices.contains(entryIndex) else { return }
         entries[entryIndex].stateRaw = EntryState.done.rawValue
-        try? modelContext.save()
+        markDirty()
     }
 
     func markSkipped(entryIndex: Int) {
@@ -196,7 +285,7 @@ final class SessionRunner {
         guard entries.indices.contains(entryIndex) else { return }
         entries[entryIndex].stateRaw = EntryState.done.rawValue
         entries[entryIndex].skipped = true
-        try? modelContext.save()
+        markDirty()
     }
 
     func reorder(from: Int, to: Int) {
@@ -207,25 +296,26 @@ final class SessionRunner {
         for (idx, entry) in entries.enumerated() {
             entry.performedOrder = idx
         }
-        try? modelContext.save()
+        markDirty()
     }
 
     func setFeel(entryIndex: Int, _ feel: Feel) {
         let entries = orderedEntries
         guard entries.indices.contains(entryIndex) else { return }
         entries[entryIndex].feelRaw = feel.rawValue
-        try? modelContext.save()
+        markDirty()
     }
 
     func setEntryNote(entryIndex: Int, _ text: String) {
         let entries = orderedEntries
         guard entries.indices.contains(entryIndex) else { return }
         entries[entryIndex].note = text
-        try? modelContext.save()
+        markDirty()
     }
 
     func finish(partialReason: PartialReason?, overallNote: String?) {
         guard let session, session.finishedAt == nil else { return }   // F4: idempotent
+        flushPendingSave()
 
         // F1/F3: compute the outcome from the CURRENT entry states, BEFORE the
         // promotion loop below — a genuinely partial session (unfinished, or
@@ -246,7 +336,7 @@ final class SessionRunner {
         session.outcomeRaw = outcome.rawValue
         session.partialReasonRaw = partialReason?.rawValue
         session.overallNote = overallNote
-        try? modelContext.save()
+        _ = PersistenceReporter.attemptSave(modelContext, operation: "persist model context")
 
         let new = Self.detectAndPersistPRs(for: session, in: modelContext)
         lastSessionPRs = new
@@ -270,6 +360,7 @@ final class SessionRunner {
     /// calls `finish`.
     func requestSummary() {
         guard phase == .active else { return }
+        flushPendingSave()
         phase = .summary
     }
 
@@ -296,7 +387,7 @@ final class SessionRunner {
                 other.performedOrder += 1
             }
         }
-        try? modelContext.save()
+        markDirty()
     }
 
     // MARK: - Abandoned-session sweep
@@ -315,7 +406,7 @@ final class SessionRunner {
             // `finishedAt == startedAt` and `actualDurationMin == 0`.
             closeSessionAsPartial(session, in: context, now: session.startedAt)
         }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
     }
 
     /// F7: close a single in-progress session as `.partial` — promote its
@@ -334,7 +425,7 @@ final class SessionRunner {
         session.outcomeRaw = SessionOutcome.partial.rawValue
         session.partialReasonRaw = nil
         session.actualDurationMin = Int((now.timeIntervalSince(session.startedAt) / 60).rounded())
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
         _ = detectAndPersistPRs(for: session, in: context)
     }
 
@@ -362,7 +453,7 @@ final class SessionRunner {
         for pr in new {
             context.insert(personalRecordModel(from: pr))
         }
-        try? context.save()
+        _ = PersistenceReporter.attemptSave(context, operation: "persist context")
         return new
     }
 }

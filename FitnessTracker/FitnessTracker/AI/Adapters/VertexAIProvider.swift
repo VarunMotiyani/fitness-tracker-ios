@@ -30,28 +30,13 @@ nonisolated struct VertexAIProvider: LLMProvider {
         self.session = session
     }
 
-    var capabilities: ProviderCapabilities { .googleResponseSchema }
+    var capabilities: ProviderCapabilities { .googleResponseSchema.overriding(toolCalling: .native) }
 
-    func complete<Value: Decodable & Sendable>(system: String, user: String,
-                                               schema: JSONSchema,
-                                               as type: Value.Type) async throws -> LLMResult<Value> {
+    private func send(body: [String: Any]) async throws -> Data {
         var request = URLRequest(url: modelsBaseURL.appending(path: "\(modelID):generateContent"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
-
-        // Same proto quirk as the public Gemini API: `additionalProperties`
-        // in the schema yields a 400 on Vertex's `responseSchema` too.
-        let schemaObject = Self.sanitizeSchema(
-            try JSONSerialization.jsonObject(with: Data(schema.json.utf8)))
-        let body: [String: Any] = [
-            "system_instruction": ["parts": [["text": system]]],
-            "contents": [["role": "user", "parts": [["text": user]]]],
-            "generationConfig": [
-                "responseMimeType": "application/json",
-                "responseSchema": schemaObject,
-            ],
-        ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response): (Data, URLResponse)
@@ -63,6 +48,26 @@ nonisolated struct VertexAIProvider: LLMProvider {
                 String(decoding: data.prefix(300), as: UTF8.self))
             throw LLMError.transport("HTTP \(http.statusCode): \(body)")
         }
+        return data
+    }
+
+    func complete<Value: Decodable & Sendable>(system: String, user: String,
+                                               schema: JSONSchema,
+                                               as type: Value.Type) async throws -> LLMResult<Value> {
+        // Same proto quirk as the public Gemini API: `additionalProperties`
+        // in the schema yields a 400 on Vertex's `responseSchema` too.
+        let schemaObject = GeminiProvider.normalizeSchema(
+            try JSONSerialization.jsonObject(with: Data(schema.json.utf8)))
+        let body: [String: Any] = [
+            "system_instruction": ["parts": [["text": system]]],
+            "contents": [["role": "user", "parts": [["text": user]]]],
+            "generationConfig": [
+                "responseMimeType": "application/json",
+                "responseSchema": schemaObject,
+                "thinkingConfig": ["thinkingLevel": "low"],
+            ],
+        ]
+        let data = try await send(body: body)
 
         let envelope: Envelope
         do { envelope = try JSONDecoder().decode(Envelope.self, from: data) }
@@ -84,26 +89,139 @@ nonisolated struct VertexAIProvider: LLMProvider {
     func completeWithImage<Value: Decodable & Sendable>(system: String, user: String,
                                                         image: ImagePayload, schema: JSONSchema,
                                                         as type: Value.Type) async throws -> LLMResult<Value> {
-        throw LLMError.visionUnsupported
+        let schemaObject = GeminiProvider.normalizeSchema(
+            try JSONSerialization.jsonObject(with: Data(schema.json.utf8)))
+        let body: [String: Any] = [
+            "system_instruction": ["parts": [["text": system]]],
+            "contents": [[
+                "role": "user",
+                "parts": [
+                    ["text": user],
+                    ["inlineData": ["mimeType": image.mimeType, "data": image.data.base64EncodedString()]],
+                ],
+            ]],
+            "generationConfig": [
+                "responseMimeType": "application/json",
+                "responseSchema": schemaObject,
+                "thinkingConfig": ["thinkingLevel": "low"],
+            ],
+        ]
+        let data = try await send(body: body)
+        let envelope: Envelope
+        do { envelope = try JSONDecoder().decode(Envelope.self, from: data) }
+        catch { throw LLMError.decoding("envelope: \(error)") }
+        guard let text = envelope.candidates.first?.content.parts.first?.text else {
+            throw LLMError.emptyResponse
+        }
+        let value: Value
+        do { value = try JSONDecoder().decode(Value.self, from: Data(text.utf8)) }
+        catch { throw LLMError.decoding("text: \(error)") }
+        return LLMResult(value: value,
+                         inputTokens: envelope.usageMetadata?.promptTokenCount ?? 0,
+                         outputTokens: envelope.usageMetadata?.candidatesTokenCount ?? 0,
+                         cachedTokens: envelope.usageMetadata?.cachedContentTokenCount ?? 0,
+                         rawJSON: text)
     }
 
-    private static func sanitizeSchema(_ obj: Any) -> Any {
-        if let dict = obj as? [String: Any] {
-            var out: [String: Any] = [:]
-            for (key, value) in dict where key != "additionalProperties" {
-                out[key] = sanitizeSchema(value)
+    func completeToolTurn<Final: Decodable & Sendable>(
+        system: String,
+        messages: [ToolChatMessage],
+        tools: [ToolDescriptor],
+        finalSchema: JSONSchema,
+        as type: Final.Type
+    ) async throws -> NativeToolTurnResult<Final> {
+        var contents: [[String: Any]] = []
+        for message in messages {
+            switch message.role {
+            case .system:
+                continue
+            case .user:
+                contents.append(["role": "user", "parts": [["text": message.content ?? ""]]])
+            case .assistant:
+                if let calls = message.toolCalls, !calls.isEmpty {
+                    contents.append(["role": "model", "parts": calls.map { call -> [String: Any] in
+                        let args = (try? JSONSerialization.jsonObject(with: Data(call.argumentsJSON.utf8))) ?? [String: Any]()
+                        var functionCall: [String: Any] = ["name": call.name, "args": args]
+                        if !call.id.isEmpty { functionCall["id"] = call.id }
+                        var part: [String: Any] = ["functionCall": functionCall]
+                        if let signature = call.thoughtSignature { part["thoughtSignature"] = signature }
+                        return part
+                    }])
+                } else {
+                    contents.append(["role": "model", "parts": [["text": message.content ?? ""]]])
+                }
+            case .tool:
+                let responseObject = (try? JSONSerialization.jsonObject(with: Data((message.content ?? "{}").utf8)))
+                    ?? ["result": message.content ?? ""]
+                var functionResponse: [String: Any] = [
+                    "name": message.toolName ?? message.toolCallID ?? "",
+                    "response": responseObject,
+                ]
+                if let id = message.toolCallID, !id.isEmpty { functionResponse["id"] = id }
+                contents.append(["role": "user", "parts": [["functionResponse": functionResponse]]])
             }
-            return out
         }
-        if let array = obj as? [Any] {
-            return array.map { sanitizeSchema($0) }
+
+        let wireTools: [[String: Any]] = tools.map { tool in
+            let schemaObject = (try? GeminiProvider.normalizeSchema(
+                JSONSerialization.jsonObject(with: Data(tool.argsSchemaJSON.utf8)), uppercaseTypes: false))
+                ?? ["type": "object"]
+            return ["name": tool.name, "description": tool.description, "parameters": schemaObject]
         }
-        return obj
+        var body: [String: Any] = [
+            "system_instruction": ["parts": [["text": system + "\n\nWhen you are finished calling tools, reply with a JSON object matching: " + finalSchema.json]]],
+            "contents": contents,
+            "generationConfig": ["thinkingConfig": ["thinkingLevel": "low"]],
+        ]
+        if !wireTools.isEmpty {
+            body["tools"] = [["functionDeclarations": wireTools]]
+            body["toolConfig"] = ["functionCallingConfig": ["mode": "AUTO"]]
+        } else {
+            body["generationConfig"] = [
+                "responseMimeType": "application/json",
+                "responseSchema": (try? GeminiProvider.normalizeSchema(
+                    JSONSerialization.jsonObject(with: Data(finalSchema.json.utf8)))) ?? [String: Any](),
+                "thinkingConfig": ["thinkingLevel": "low"],
+            ]
+        }
+        let data = try await send(body: body)
+        let envelope: ToolEnvelope
+        do { envelope = try JSONDecoder().decode(ToolEnvelope.self, from: data) }
+        catch { throw LLMError.decoding("tool envelope: \(error)") }
+        guard let parts = envelope.candidates.first?.content.parts else { throw LLMError.emptyResponse }
+        let functionCalls = parts.compactMap { part in
+            part.functionCall.map { ($0, part.thoughtSignature) }
+        }
+        let turn: NativeToolTurn<Final>
+        if !functionCalls.isEmpty {
+            turn = .toolCalls(functionCalls.map { call, signature in
+                let args = call.args?.reduce(into: [String: Any]()) { result, entry in
+                    result[entry.key] = entry.value.value
+                } ?? [:]
+                let argsJSON = (try? JSONSerialization.data(withJSONObject: args))
+                    .map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+                return NativeToolCall(id: call.id ?? "", name: call.name,
+                                      argumentsJSON: argsJSON, thoughtSignature: signature)
+            })
+        } else if let text = parts.compactMap(\.text).first {
+            do { turn = .final(try OpenAICompatibleProvider.decodeFinal(Final.self, from: text)) }
+            catch { throw LLMError.decoding("final content: \(error)") }
+        } else {
+            throw LLMError.emptyResponse
+        }
+        return NativeToolTurnResult(
+            turn: turn,
+            inputTokens: envelope.usageMetadata?.promptTokenCount ?? 0,
+            outputTokens: envelope.usageMetadata?.candidatesTokenCount ?? 0,
+            cachedTokens: envelope.usageMetadata?.cachedContentTokenCount ?? 0)
     }
 
     private struct Envelope: Decodable {
         struct Candidate: Decodable {
-            struct Content: Decodable { struct Part: Decodable { let text: String }; let parts: [Part] }
+            struct Content: Decodable {
+                struct Part: Decodable { let text: String; let thoughtSignature: String? }
+                let parts: [Part]
+            }
             let content: Content
         }
         struct Usage: Decodable {
@@ -113,5 +231,42 @@ nonisolated struct VertexAIProvider: LLMProvider {
         }
         let candidates: [Candidate]
         let usageMetadata: Usage?
+    }
+
+    private struct ToolEnvelope: Decodable {
+        struct Candidate: Decodable {
+            struct Content: Decodable { let parts: [Part] }
+            let content: Content
+        }
+        struct Part: Decodable {
+            struct FunctionCall: Decodable {
+                let name: String
+                let id: String?
+                let args: [String: VertexAnyDecodableValue]?
+            }
+            let text: String?
+            let functionCall: FunctionCall?
+            let thoughtSignature: String?
+        }
+        let candidates: [Candidate]
+        let usageMetadata: Envelope.Usage?
+    }
+}
+
+private nonisolated struct VertexAnyDecodableValue: Decodable {
+    let value: Any
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let v = try? container.decode(Bool.self) { value = v }
+        else if let v = try? container.decode(Double.self) { value = v }
+        else if let v = try? container.decode(String.self) { value = v }
+        else if let v = try? container.decode([String: VertexAnyDecodableValue].self) {
+            value = v.reduce(into: [String: Any]()) { result, entry in result[entry.key] = entry.value.value }
+        }
+        else if let v = try? container.decode([VertexAnyDecodableValue].self) {
+            value = v.map(\.value)
+        }
+        else { value = NSNull() }
     }
 }

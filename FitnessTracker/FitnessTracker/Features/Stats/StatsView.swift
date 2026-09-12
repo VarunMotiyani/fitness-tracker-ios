@@ -43,6 +43,15 @@ struct StatsView: View {
     // Sheets
     @State private var showHistorySheet = false
     @State private var selectedSessionForDetail: CompletedSessionModel? = nil
+    @State private var selectedDayItem: DayActivityItem? = nil
+
+    // `sessionSnapshots` feeds recovery, streak, effort, trend, histogram and
+    // per-exercise analytics — six-plus computed props, each recomputed on
+    // every body pass. Building the snapshot trees once per data change and
+    // reusing them is the difference between a smooth and a janky Stats tab
+    // on-device.
+    @State private var snapshotCache = SessionSnapshotCache()
+    @State private var analyticsCache = StatsAnalyticsCache()
 
     enum MapMode: String, CaseIterable {
         case balance = "Muscle balance"
@@ -72,11 +81,13 @@ struct StatsView: View {
     // MARK: - Computed Domain Analytics (The Backend)
 
     private var sessionSnapshots: [CompletedSessionSnapshot] {
-        completedSessions.filter { $0.finishedAt != nil }.map { $0.toSnapshot() }
+        snapshotCache.snapshots(from: completedSessions)
     }
 
     private var recoveryStatuses: [MuscleGroup: MuscleRecoveryStatus] {
-        RecoveryModel.computeRecovery(from: sessionSnapshots, catalog: catalog, now: .now)
+        analyticsCache.value("recovery", deps: [snapshotCache.generation]) {
+            RecoveryModel.computeRecovery(from: sessionSnapshots, catalog: catalog, now: .now)
+        }
     }
 
     private var monthWorkoutsCount: Int {
@@ -104,31 +115,41 @@ struct StatsView: View {
         return latest.kg - first.kg
     }
 
+    // Both of these read `sessionSnapshots` (value types, built once and cached)
+    // rather than walking the `completedSessions` SwiftData rows, whose
+    // `entries`/`sets` relationships fault out of SQLite on every access.
     private var activityDays: [Date: (count: Int, volume: Double)] {
-        var map: [Date: (count: Int, volume: Double)] = [:]
-        let cal = Calendar.appWeek
-
-        for s in completedSessions where s.finishedAt != nil {
-            let day = cal.startOfDay(for: s.startedAt)
-            var sessionVol: Double = 0
-            for entry in s.entries where !entry.skipped {
-                for set in entry.sets where !set.isWarmup {
-                    sessionVol += (set.actualLoadKg * Double(set.actualReps))
+        analyticsCache.value("activityDays", deps: [snapshotCache.generation]) {
+            var map: [Date: (count: Int, volume: Double)] = [:]
+            let cal = Calendar.appWeek
+            for s in sessionSnapshots {
+                let day = cal.startOfDay(for: s.date)
+                var sessionVol: Double = 0
+                for entry in s.entries where !entry.skipped {
+                    for set in entry.sets where !set.isWarmup {
+                        sessionVol += (set.actualLoadKg * Double(set.actualReps))
+                    }
                 }
+                let prev = map[day] ?? (count: 0, volume: 0)
+                map[day] = (count: prev.count + 1, volume: prev.volume + sessionVol)
             }
-            let prev = map[day] ?? (count: 0, volume: 0)
-            map[day] = (count: prev.count + 1, volume: prev.volume + sessionVol)
+            return map
         }
-        return map
     }
 
     private var muscleSetCountsInWindow: [String: Double] {
+        analyticsCache.value("muscleSetCounts", deps: [snapshotCache.generation, balanceWindowDays, filterHardSetsOnly]) {
+            muscleSetCountsInWindowUncached
+        }
+    }
+
+    private var muscleSetCountsInWindowUncached: [String: Double] {
         let cal = Calendar.appWeek
         let cutoff = balanceWindowDays > 0 ? cal.date(byAdding: .day, value: -balanceWindowDays, to: .now) : nil
         var items: [MuscleBalanceModel.EffectiveSetItem] = []
 
-        for s in completedSessions where s.finishedAt != nil {
-            if let cutoff, s.startedAt < cutoff { continue }
+        for s in sessionSnapshots {
+            if let cutoff, s.date < cutoff { continue }
             for entry in s.entries where !entry.skipped {
                 guard let ex = catalog.exercise(id: entry.exerciseID) else { continue }
                 let doneSets = entry.sets.filter { set in
@@ -177,30 +198,43 @@ struct StatsView: View {
     }
 
     private var effortSummary: EffortSummary {
-        EffortAnalyticsEngine.computeSummary(from: sessionSnapshots, windowDays: effortWindowDays)
+        analyticsCache.value("effortSummary", deps: [snapshotCache.generation, effortWindowDays]) {
+            EffortAnalyticsEngine.computeSummary(from: sessionSnapshots, windowDays: effortWindowDays)
+        }
     }
 
     private var weeklyEffortTrends: [WeeklyEffortTrend] {
-        EffortAnalyticsEngine.computeWeeklyTrends(from: sessionSnapshots, windowDays: effortWindowDays)
+        analyticsCache.value("weeklyEffortTrends", deps: [snapshotCache.generation, effortWindowDays]) {
+            EffortAnalyticsEngine.computeWeeklyTrends(from: sessionSnapshots, windowDays: effortWindowDays)
+        }
     }
 
     private var effortHistogramBins: [EffortHistogramBin] {
-        EffortAnalyticsEngine.computeHistogram(from: sessionSnapshots, windowDays: effortWindowDays)
+        analyticsCache.value("effortHistogram", deps: [snapshotCache.generation, effortWindowDays]) {
+            EffortAnalyticsEngine.computeHistogram(from: sessionSnapshots, windowDays: effortWindowDays)
+        }
     }
 
     private var exercisePerformances: [ExerciseLoggedPerformance] {
-        EffortAnalyticsEngine.computeExercisePerformances(exerciseID: selectedExerciseID, sessions: sessionSnapshots, limit: 5)
+        analyticsCache.value("exercisePerf", deps: [snapshotCache.generation, selectedExerciseID]) {
+            EffortAnalyticsEngine.computeExercisePerformances(exerciseID: selectedExerciseID, sessions: sessionSnapshots, limit: 5)
+        }
     }
 
     // MARK: - Body View
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    // Header (Stats | Progress & history + History Icon)
-                    headerView
+            VStack(spacing: 0) {
+                // Keep the stats title and history action visible while the
+                // analytics cards scroll beneath them.
+                headerView
+                    .padding(.bottom, 8)
+                    .background(GymTheme.bg)
+                    .zIndex(1)
 
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
                     // 4-Metric Tiles Grid
                     metricsTilesGrid
 
@@ -221,9 +255,11 @@ struct StatsView: View {
 
                     // Recent Workouts Section (Matching User Reference Image 4)
                     recentWorkoutsSection
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 100)
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 90)
             }
             .background(GymTheme.bg.ignoresSafeArea())
             .sheet(isPresented: $showHistorySheet) {
@@ -231,6 +267,19 @@ struct StatsView: View {
             }
             .sheet(item: $selectedSessionForDetail) { session in
                 WorkoutDetailSheet(session: session, catalog: catalog)
+            }
+            .sheet(item: $selectedDayItem) { item in
+                DayActivitySheet(
+                    date: item.date,
+                    plan: plan,
+                    catalog: catalog,
+                    onSelectSession: { session in
+                        selectedDayItem = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            selectedSessionForDetail = session
+                        }
+                    }
+                )
             }
             .sheet(isPresented: $showLogWeightSheet) {
                 LogWeightSheet()
@@ -255,25 +304,26 @@ struct StatsView: View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Stats")
-                    .font(.system(size: 32, weight: .bold))
+                    .font(.largeTitle.weight(.bold))
                     .foregroundStyle(GymTheme.label)
                 Text("Progress & history")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(Color(white: 0.60))
+                    .font(.subheadline.weight(.regular))
+                    .foregroundStyle(GymTheme.label2)
             }
             Spacer()
             Button {
                 showHistorySheet = true
             } label: {
                 Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(Color(white: 0.85))
-                    .frame(width: 38, height: 38)
+                    .frame(width: 44, height: 44)
                     .background(GymTheme.surface2, in: Circle())
             }
+            .accessibilityLabel("Workout history")
         }
         .padding(.top, 12)
-        .padding(.bottom, 2)
+        .padding(.horizontal, 16)
     }
 
     // MARK: - 4 Metric Tiles Grid
@@ -283,13 +333,13 @@ struct StatsView: View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
             metricTile(icon: "dumbbell.fill", iconColor: GymTheme.green, title: "Workouts", value: "\(completedSessions.filter { $0.finishedAt != nil }.count)")
             metricTile(icon: "calendar", iconColor: GymTheme.blue, title: "This month", value: "\(monthWorkoutsCount)")
-            metricTile(icon: "flame.fill", iconColor: GymTheme.orange, title: "Week streak", value: "\(streakSummary.currentStreakWeeks > 0 ? streakSummary.currentStreakWeeks : 13)")
+            metricTile(icon: "flame.fill", iconColor: GymTheme.orange, title: "Week streak", value: "\(max(0, streakSummary.currentStreakWeeks))")
             metricTile(
                 icon: "scalemass.fill",
                 iconColor: GymTheme.yellow,
                 title: "Weight 30d",
-                value: weightDelta30d != nil ? String(format: "%+.1f kg", weightDelta30d!) : "-4.1 kg",
-                valueColor: (weightDelta30d ?? -4.1) <= 0 ? GymTheme.green : GymTheme.red
+                value: weightDelta30d != nil ? String(format: "%+.1f kg", weightDelta30d!) : "—",
+                valueColor: weightDelta30d == nil ? GymTheme.label : (weightDelta30d! <= 0 ? GymTheme.green : GymTheme.red)
             )
         }
     }
@@ -299,19 +349,22 @@ struct StatsView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.footnote.weight(.bold))
                     .foregroundStyle(iconColor)
+                    .accessibilityHidden(true)
                 Text(title)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.footnote.weight(.medium))
                     .foregroundStyle(Color(white: 0.60))
             }
             Text(value)
-                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .font(.title.weight(.bold)).fontDesign(.rounded)
                 .foregroundStyle(valueColor)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), \(value)")
     }
 
     // MARK: - Activity Heatmap Card
@@ -321,17 +374,36 @@ struct StatsView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Activity — last 12 months")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.body.weight(.bold))
                     .foregroundStyle(GymTheme.label)
                 Text("· by time trained")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(Color(white: 0.55))
+                    .font(.footnote.weight(.regular))
+                    .foregroundStyle(Color(white: 0.60))
             }
 
-            ActivityHeatmapView(activityDays: activityDays)
+            ActivityHeatmapView(
+                activityDays: activityDays,
+                accentColor: activeAccent,
+                onDay: { date in
+                    handleHeatmapDayTapped(date)
+                }
+            )
+            .accessibilityLabel("Activity heatmap, last 12 months. \(activityDays.count) days with training. Current streak \(streakSummary.currentStreakWeeks) weeks.")
         }
         .padding(16)
         .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func handleHeatmapDayTapped(_ date: Date) {
+        let cal = Calendar.appWeek
+        let daySessions = completedSessions.filter {
+            $0.finishedAt != nil && cal.isDate($0.startedAt, inSameDayAs: date)
+        }
+        if daySessions.count == 1, let session = daySessions.first {
+            selectedSessionForDetail = session
+        } else {
+            selectedDayItem = DayActivityItem(date: date)
+        }
     }
 
     // MARK: - Body Map Analytics Card
@@ -389,11 +461,11 @@ struct StatsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Muscle balance")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(GymTheme.label)
                 Text(filterHardSetsOnly ? "· by hard sets" : "· by sets worked")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color(white: 0.55))
+                    .font(.footnote)
+                    .foregroundStyle(Color(white: 0.60))
                 Spacer()
                 Button {
                     filterHardSetsOnly.toggle()
@@ -401,7 +473,7 @@ struct StatsView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "flame.fill")
                         Text(filterHardSetsOnly ? "Hard" : "All")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.caption.weight(.bold))
                     }
                     .foregroundStyle(filterHardSetsOnly ? GymTheme.yellow : Color(white: 0.70))
                     .padding(.horizontal, 10)
@@ -429,16 +501,16 @@ struct StatsView: View {
             // Legend
             HStack(spacing: 4) {
                 Text("Less")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color(white: 0.55))
+                    .font(.caption)
+                    .foregroundStyle(Color(white: 0.60))
                 levelBox(color: GymTheme.surface2)
                 levelBox(color: Color(red: 0.16, green: 0.33, blue: 0.20))
                 levelBox(color: Color(red: 0.16, green: 0.52, blue: 0.26))
                 levelBox(color: Color(red: 0.17, green: 0.68, blue: 0.31))
                 levelBox(color: GymTheme.green)
                 Text("More")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color(white: 0.55))
+                    .font(.caption)
+                    .foregroundStyle(Color(white: 0.60))
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
 
@@ -451,12 +523,12 @@ struct StatsView: View {
                 let selCount = counts[sel] ?? 0.0
                 HStack {
                     Text(displayName(for: sel))
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.subheadline.weight(.bold))
                         .foregroundStyle(GymTheme.label)
                     Spacer()
                     Text(selCount > 0 ? String(format: "%.1f sets", selCount) : "not trained")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(selCount > 0 ? GymTheme.green : Color(white: 0.55))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(selCount > 0 ? GymTheme.green : Color(white: 0.60))
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, 14)
@@ -473,7 +545,7 @@ struct StatsView: View {
                         } label: {
                             HStack {
                                 Text(displayName(for: slug))
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(.subheadline.weight(.medium))
                                     .foregroundStyle(GymTheme.label)
                                     .frame(width: 95, alignment: .leading)
 
@@ -488,7 +560,7 @@ struct StatsView: View {
                                 .frame(height: 8)
 
                                 Text(String(format: "%.1f sets", count))
-                                    .font(.system(size: 13, weight: .bold))
+                                    .font(.footnote.weight(.bold))
                                     .foregroundStyle(Color(white: 0.65))
                                     .frame(width: 65, alignment: .trailing)
                             }
@@ -503,8 +575,8 @@ struct StatsView: View {
             if !missedSlugs.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(filterHardSetsOnly ? "No hard sets in this period" : "Not trained in this period")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Color(white: 0.50))
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color(white: 0.60))
                     
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
@@ -515,7 +587,7 @@ struct StatsView: View {
                                     }
                                 } label: {
                                     Text(displayName(for: slug))
-                                        .font(.system(size: 12, weight: .semibold))
+                                        .font(.caption.weight(.semibold))
                                         .foregroundStyle(GymTheme.orange)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 5)
@@ -562,7 +634,7 @@ struct StatsView: View {
     private var fatigueView: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Fatigue")
-                .font(.system(size: 18, weight: .bold))
+                .font(.title3.weight(.bold))
                 .foregroundStyle(GymTheme.label)
 
             InteractiveBodyMapView(
@@ -586,11 +658,11 @@ struct StatsView: View {
                 
                 HStack {
                     Text(displayName(for: sel))
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.subheadline.weight(.bold))
                         .foregroundStyle(GymTheme.label)
                     Spacer()
                     Text(stateName)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(stateColor)
                 }
                 .padding(.vertical, 12)
@@ -598,8 +670,8 @@ struct StatsView: View {
                 .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 10))
             } else {
                 Text("Fatigue shows how recently each muscle was trained. High means rest.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(white: 0.55))
+                    .font(.caption)
+                    .foregroundStyle(Color(white: 0.60))
                     .padding(.top, 2)
             }
         }
@@ -609,7 +681,7 @@ struct StatsView: View {
     private var strengthView: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Strength")
-                .font(.system(size: 18, weight: .bold))
+                .font(.title3.weight(.bold))
                 .foregroundStyle(GymTheme.label)
 
             InteractiveBodyMapView(
@@ -621,27 +693,27 @@ struct StatsView: View {
             // Strength Legend
             HStack(spacing: 4) {
                 Text("1 full")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color(white: 0.55))
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Color(white: 0.60))
                 levelBox(color: GymTheme.yellow)
                 levelBox(color: Color(red: 0.17, green: 0.68, blue: 0.31))
                 levelBox(color: Color(red: 0.16, green: 0.52, blue: 0.26))
                 levelBox(color: Color(red: 0.16, green: 0.33, blue: 0.20))
                 levelBox(color: GymTheme.surface2)
                 Text("0.5 floor")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color(white: 0.55))
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Color(white: 0.60))
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
 
             if let sel = selectedMuscleSlug {
                 HStack {
                     Text(displayName(for: sel))
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.subheadline.weight(.bold))
                         .foregroundStyle(GymTheme.label)
                     Spacer()
                     Text("100% retained")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(GymTheme.green)
                 }
                 .padding(.vertical, 12)
@@ -649,18 +721,18 @@ struct StatsView: View {
                 .background(GymTheme.surface2, in: RoundedRectangle(cornerRadius: 10))
             } else {
                 Text("Strength shows retained muscle strength. Train again to reset it.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(white: 0.55))
+                    .font(.caption)
+                    .foregroundStyle(Color(white: 0.60))
 
                 Text("Tap a muscle to see its exercises.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(white: 0.55))
+                    .font(.caption)
+                    .foregroundStyle(Color(white: 0.60))
 
                 // Detrained Muscles Row
                 VStack(spacing: 8) {
                     HStack {
                         Text("Hip flexors")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.subheadline.weight(.medium))
                             .foregroundStyle(GymTheme.label)
                             .frame(width: 95, alignment: .leading)
                         GeometryReader { geo in
@@ -668,12 +740,12 @@ struct StatsView: View {
                         }
                         .frame(height: 8)
                         Text("0 sets")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.footnote.weight(.bold))
                             .foregroundStyle(Color(white: 0.65))
                     }
                     HStack {
                         Text("Shins")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.subheadline.weight(.medium))
                             .foregroundStyle(GymTheme.label)
                             .frame(width: 95, alignment: .leading)
                         GeometryReader { geo in
@@ -681,7 +753,7 @@ struct StatsView: View {
                         }
                         .frame(height: 8)
                         Text("0 sets")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.footnote.weight(.bold))
                             .foregroundStyle(Color(white: 0.65))
                     }
                 }
@@ -695,7 +767,7 @@ struct StatsView: View {
         HStack(spacing: 5) {
             Circle().fill(color).frame(width: 8, height: 8)
             Text(label)
-                .font(.system(size: 12, weight: .medium))
+                .font(.caption.weight(.medium))
                 .foregroundStyle(Color(white: 0.70))
         }
     }
@@ -716,11 +788,11 @@ struct StatsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Effort")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(GymTheme.label)
                 Text("· how close to failure")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color(white: 0.55))
+                    .font(.footnote)
+                    .foregroundStyle(Color(white: 0.60))
             }
 
             // Window Range Selector (30d, 90d, 1Y, All)
@@ -738,8 +810,8 @@ struct StatsView: View {
                         .font(.system(size: 34, weight: .bold, design: .rounded))
                         .foregroundStyle(GymTheme.label)
                     Text("average effort")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color(white: 0.55))
+                        .font(.caption)
+                        .foregroundStyle(Color(white: 0.60))
                 }
 
                 Spacer()
@@ -749,8 +821,8 @@ struct StatsView: View {
                         .font(.system(size: 34, weight: .bold, design: .rounded))
                         .foregroundStyle(GymTheme.yellow)
                     Text("at RIR 3 or harder")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color(white: 0.55))
+                        .font(.caption)
+                        .foregroundStyle(Color(white: 0.60))
                 }
             }
             .padding(.vertical, 2)
@@ -758,13 +830,13 @@ struct StatsView: View {
             Text(totalSetsCount > 0
                  ? "\(ratedSetsCount) of \(totalSetsCount) finished sets rated"
                  : "No finished sets in this window yet")
-                .font(.system(size: 13))
-                .foregroundStyle(Color(white: 0.55))
+                .font(.footnote)
+                .foregroundStyle(Color(white: 0.60))
 
             if !hasEnough {
                 Text("Rate a few sets during your workouts (RIR or RPE, in Settings) and this fills in.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(white: 0.45))
+                    .font(.caption)
+                    .foregroundStyle(Color(white: 0.60))
                     .padding(.top, 2)
             }
 
@@ -772,7 +844,7 @@ struct StatsView: View {
             let computedTrends = weeklyEffortTrends
             if !computedTrends.isEmpty {
                 Text("Week by week")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.subheadline.weight(.bold))
                     .foregroundStyle(Color(white: 0.75))
                     .padding(.top, 4)
 
@@ -783,7 +855,7 @@ struct StatsView: View {
                     return "\(d) · \(String(format: "%.1f", f.averageRIR)) RIR · \(f.setsCount) sets"
                 }()
 
-                OpenGymLineChart(
+                ProgressLineChart(
                     points: effortPts,
                     height: 140,
                     lineColor: GymTheme.yellow,
@@ -791,11 +863,12 @@ struct StatsView: View {
                     tooltipText: tipText,
                     yStepsOverride: [2.0, 4.0]
                 )
+                .accessibilityLabel("Weekly effort chart. \(computedTrends.count) weeks. First week \(String(format: "%.1f", computedTrends[0].averageRIR)) RIR, latest week \(String(format: "%.1f", computedTrends[computedTrends.count - 1].averageRIR)) RIR. Lower means harder.")
             }
 
             // Where the sets land
             Text("Where the sets land")
-                .font(.system(size: 14, weight: .bold))
+                .font(.subheadline.weight(.bold))
                 .foregroundStyle(Color(white: 0.75))
                 .padding(.top, 6)
 
@@ -811,8 +884,8 @@ struct StatsView: View {
             }
 
             Text("Most working sets belong close to failure without living there — half at the floor and half at the top average out to a healthy-looking middle.")
-                .font(.system(size: 12.5))
-                .foregroundStyle(Color(white: 0.50))
+                .font(.footnote)
+                .foregroundStyle(Color(white: 0.60))
                 .padding(.top, 4)
         }
         .padding(16)
@@ -823,22 +896,26 @@ struct StatsView: View {
     private func effortHistogramRow(rir: String, barRatio: Double, countText: String, isHard: Bool) -> some View {
         HStack(spacing: 12) {
             Text(rir)
-                .font(.system(size: 14, weight: .bold))
+                .font(.subheadline.weight(.bold))
                 .foregroundStyle(GymTheme.label)
                 .frame(width: 55, alignment: .leading)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color(white: 0.22))
+                    // Decorative track, not text — the a11y contrast bump that
+                    // raised every other 0.4x gray to 0.60 doesn't apply here,
+                    // and collided the track with the non-"hard" fill below
+                    // (both at 0.60 = an invisible bar). Keep the track dim.
+                    Capsule().fill(GymTheme.surface3)
                     Capsule()
-                        .fill(isHard ? GymTheme.yellow : Color(white: 0.40))
+                        .fill(isHard ? GymTheme.yellow : Color(white: 0.60))
                         .frame(width: geo.size.width * CGFloat(barRatio))
                 }
             }
             .frame(height: 7)
 
             Text(countText)
-                .font(.system(size: 13, weight: .medium))
+                .font(.footnote.weight(.medium))
                 .foregroundStyle(Color(white: 0.65))
                 .frame(width: 75, alignment: .trailing)
         }
@@ -857,7 +934,7 @@ struct StatsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Body weight")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(GymTheme.label)
                 Spacer()
                 Button {
@@ -865,9 +942,9 @@ struct StatsView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "target")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.caption.weight(.bold))
                         Text(String(format: "%.0f", targetWeightKg))
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.footnote.weight(.bold))
                     }
                     .foregroundStyle(GymTheme.yellow)
                     .padding(.horizontal, 10)
@@ -881,9 +958,9 @@ struct StatsView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "plus")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.caption.weight(.bold))
                         Text("Log")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.footnote.weight(.bold))
                     }
                     .foregroundStyle(GymTheme.green)
                     .padding(.horizontal, 10)
@@ -902,14 +979,17 @@ struct StatsView: View {
             }
 
             // Weight Chart Points with Goal — themed to the active accent, like
-            // openGym's weight chart (`<LineChart>` defaults to `var(--acc)`).
-            OpenGymLineChart(
+            // Weight trend chart using the app accent palette.
+            ProgressLineChart(
                 points: pts,
                 goal: targetWeightKg,
                 height: 150,
                 lineColor: activeAccent,
                 yStepsOverride: [82.5, 80.0, 77.5]
             )
+            .accessibilityLabel(pts.isEmpty
+                ? "Body weight chart, no entries yet"
+                : "Body weight chart. First \(String(format: "%.1f", pts[0].value)) kilograms, latest \(String(format: "%.1f", pts[pts.count - 1].value)) kilograms, target \(String(format: "%.1f", targetWeightKg)) kilograms.")
         }
         .padding(16)
         .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 16))
@@ -924,7 +1004,7 @@ struct StatsView: View {
 
         VStack(alignment: .leading, spacing: 12) {
             Text("Exercise progress")
-                .font(.system(size: 18, weight: .bold))
+                .font(.title3.weight(.bold))
                 .foregroundStyle(GymTheme.label)
 
             // Exercise Selection Button
@@ -933,17 +1013,17 @@ struct StatsView: View {
             } label: {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Exercise")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(white: 0.55))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color(white: 0.60))
                     HStack {
-                        Text(currentEx?.name ?? "sled 45° leg...")
-                            .font(.system(size: 16, weight: .bold))
+                        Text(currentEx?.name ?? "Choose an exercise")
+                            .font(.body.weight(.bold))
                             .foregroundStyle(GymTheme.label)
                             .lineLimit(1)
                         Spacer()
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color(white: 0.50))
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Color(white: 0.60))
                     }
                 }
                 .padding(.vertical, 6)
@@ -978,7 +1058,7 @@ struct StatsView: View {
             let bestWeight = performances.map(\.topSetWeightKg).max() ?? 0
             if performances.isEmpty {
                 Text("No logged sets for this exercise yet.")
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundStyle(Color(white: 0.5))
                     .frame(maxWidth: .infinity, minHeight: 100, alignment: .center)
             } else {
@@ -987,13 +1067,22 @@ struct StatsView: View {
                         : ((exerciseMetricMode == .effort) ? (perf.averageRIR ?? 0) : perf.topSetWeightKg)
                     return ChartDataPoint(date: perf.date, value: val)
                 }
-                OpenGymLineChart(
+                ProgressLineChart(
                     points: chartPoints,
                     height: 140,
                     lineColor: exerciseMetricMode == .effort ? GymTheme.yellow : Color(red: 0.18, green: 0.52, blue: 0.98),
                     invertY: exerciseMetricMode == .effort,
                     yStepsOverride: [140.0, 120.0]
                 )
+                .accessibilityLabel({
+                    var text = "Exercise progress, \(currentEx?.name ?? "exercise"), \(exerciseMetricMode.rawValue)."
+                    if !chartPoints.isEmpty {
+                        let unit = exerciseMetricMode == .effort ? "RIR" : "kilograms"
+                        text += " First \(String(format: "%.1f", chartPoints[0].value)) \(unit), latest \(String(format: "%.1f", chartPoints[chartPoints.count - 1].value)) \(unit)."
+                    }
+                    text += " Best set weight \(String(format: "%.1f", bestWeight)) kilograms."
+                    return text
+                }())
 
                 VStack(spacing: 8) {
                     ForEach(performances) { perf in
@@ -1010,17 +1099,17 @@ struct StatsView: View {
             if !performances.isEmpty {
                 HStack(spacing: 4) {
                     Text("Best set weight per workout · Best:")
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(Color(white: 0.55))
+                        .font(.footnote)
+                        .foregroundStyle(Color(white: 0.60))
                     Text(String(format: "%.1f kg", bestWeight))
-                        .font(.system(size: 12.5, weight: .bold))
+                        .font(.footnote.weight(.bold))
                         .foregroundStyle(GymTheme.green)
                 }
                 .padding(.top, 2)
 
                 Text("A fuller dot means less left in the tank — the same weight at a lower RIR is progress the line alone does not show.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(white: 0.45))
+                    .font(.caption)
+                    .foregroundStyle(Color(white: 0.60))
             }
         }
         .padding(16)
@@ -1032,18 +1121,18 @@ struct StatsView: View {
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(day)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.footnote.weight(.medium))
                     .foregroundStyle(Color(white: 0.65))
                 Text(month)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color(white: 0.45))
+                    .font(.caption.weight(.regular))
+                    .foregroundStyle(Color(white: 0.60))
             }
             .frame(width: 48, alignment: .leading)
 
             Spacer()
 
             Text(sets)
-                .font(.system(size: 13, weight: .medium))
+                .font(.footnote.weight(.medium))
                 .foregroundStyle(GymTheme.label)
                 .multilineTextAlignment(.trailing)
         }
@@ -1060,7 +1149,7 @@ struct StatsView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Recent workouts")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(GymTheme.label)
                 Spacer()
                 Button {
@@ -1070,13 +1159,13 @@ struct StatsView: View {
                         Text("All \(completedSessions.filter { $0.finishedAt != nil }.count)")
                         Image(systemName: "chevron.right")
                     }
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(GymTheme.green)
                 }
                 .buttonStyle(.plain)
             }
 
-            // Cards in exact openGym list style
+            // Compact metric cards
             VStack(spacing: 8) {
                 ForEach(completedSessions.filter { $0.finishedAt != nil }.prefix(6), id: \.id) { session in
                     let d = session.startedAt.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
@@ -1085,7 +1174,11 @@ struct StatsView: View {
                     let totalSets = session.entries.flatMap(\.sets).filter { !$0.isWarmup }.count
                     let totalTonnage = session.entries.flatMap(\.sets).reduce(0.0) { $0 + ($1.actualLoadKg * Double($1.actualReps)) }
                     let tonnageStr = NumberFormatter.localizedString(from: NSNumber(value: Int(totalTonnage)), number: .decimal)
-                    let routineName = session.entries.contains(where: { $0.exerciseID == "0043" || $0.exerciseID == "0739" }) ? "Leg Day" : (session.entries.contains(where: { $0.exerciseID == "2330" || $0.exerciseID == "0027" }) ? "Pull Day" : "Push Day")
+                    let routineMuscles = session.entries.compactMap { entry -> [MuscleGroup]? in
+                        guard let ex = catalog.exercise(id: entry.exerciseID) else { return nil }
+                        return [ex.primaryMuscle] + ex.secondaryMuscles
+                    }.flatMap { $0 }
+                    let routineName = RoutineNaming.dayName(for: routineMuscles)
                     let iconName = routineName == "Leg Day" ? "figure.cross.training" : (routineName == "Pull Day" ? "figure.arms.open" : "figure.strengthtraining.traditional")
 
                     recentWorkoutCard(
@@ -1114,17 +1207,17 @@ struct StatsView: View {
                         .fill(iconBg)
                         .frame(width: 36, height: 36)
                     Image(systemName: icon)
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.body.weight(.bold))
                         .foregroundStyle(.black)
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.subheadline.weight(.bold))
                         .foregroundStyle(GymTheme.label)
                     Text(dateText)
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(Color(white: 0.55))
+                        .font(.caption.weight(.regular))
+                        .foregroundStyle(Color(white: 0.60))
                 }
 
                 Spacer()
@@ -1133,9 +1226,9 @@ struct StatsView: View {
                 if prs > 0 {
                     HStack(spacing: 4) {
                         Image(systemName: "trophy.fill")
-                            .font(.system(size: 11))
+                            .font(.caption)
                         Text("\(prs) PR")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.caption.weight(.bold))
                     }
                     .foregroundStyle(GymTheme.yellow)
                     .padding(.horizontal, 9)
@@ -1147,8 +1240,8 @@ struct StatsView: View {
                 }
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(white: 0.45))
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color(white: 0.60))
             }
             .padding(12)
             .background(GymTheme.surface, in: RoundedRectangle(cornerRadius: 14))
@@ -1222,16 +1315,16 @@ struct ExercisePickerSheet: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(ex.name)
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(GymTheme.label)
                             Text("\(ex.primaryMuscle.label) · \(ex.equipment.label)")
-                                .font(.system(size: 12))
-                                .foregroundStyle(Color(white: 0.55))
+                                .font(.caption)
+                                .foregroundStyle(Color(white: 0.60))
                         }
                         Spacer()
                         if selectedExerciseID == ex.id {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 14, weight: .bold))
+                                .font(.subheadline.weight(.bold))
                                 .foregroundStyle(GymTheme.green)
                         }
                     }

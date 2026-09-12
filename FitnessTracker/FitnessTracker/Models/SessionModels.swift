@@ -21,6 +21,10 @@ final class CompletedSessionModel {
     var coachSourceRaw: String
     var plannedSessionID: UUID?
     var overallNote: String?
+    /// Stable source key used to make external history imports idempotent.
+    /// Nil for sessions created natively in TrainSage.
+    var importSource: String?
+    var importSourceID: String?
 
     @Relationship(deleteRule: .cascade, inverse: \CompletedEntryModel.session)
     var entries: [CompletedEntryModel]
@@ -42,6 +46,8 @@ final class CompletedSessionModel {
         self.coachSourceRaw = "rule"
         self.plannedSessionID = plannedSessionID
         self.overallNote = nil
+        self.importSource = nil
+        self.importSourceID = nil
         self.entries = []
     }
 }
