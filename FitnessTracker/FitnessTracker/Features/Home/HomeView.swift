@@ -388,7 +388,9 @@ struct HomeView: View {
                 catalog: catalog,
                 provider: chatProvider,
                 activeProfile: activeProviderProfile,
-                onClose: { showCoachInbox = false }
+                onClose: { showCoachInbox = false },
+                plan: plan,
+                onStartSession: onStartSession
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.hidden)

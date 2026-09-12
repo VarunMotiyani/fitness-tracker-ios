@@ -5,7 +5,9 @@ import ExerciseCatalog
 import LLMKit
 import RuleEngine
 
-private func mostRecentStoredPlan(in context: ModelContext) -> StoredPlan? {
+// Not `private`: `CoachActionTools.swift`'s direct-apply tools need the same
+// lookup as the propose-* tools here.
+func mostRecentStoredPlan(in context: ModelContext) -> StoredPlan? {
     (try? context.fetch(FetchDescriptor<StoredPlan>(sortBy: [SortDescriptor(\.generatedAt, order: .reverse)])))?.first
 }
 

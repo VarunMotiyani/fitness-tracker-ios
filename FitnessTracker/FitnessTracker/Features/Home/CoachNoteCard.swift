@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import FitnessDomain
 import ExerciseCatalog
 import LLMKit
 
@@ -378,6 +379,8 @@ struct CoachInboxView: View {
     let provider: (any LLMProvider)?
     let activeProfile: ProviderProfile?
     var onClose: (() -> Void)? = nil
+    var plan: WeeklyPlan? = nil
+    var onStartSession: ((PlannedSession) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
@@ -440,6 +443,8 @@ struct CoachInboxView: View {
                     provider: provider,
                     activeProfile: activeProfile,
                     showsHeader: false,
+                    plan: plan,
+                    onStartSession: onStartSession,
                     reservesTabBarSpace: false
                 )
             }

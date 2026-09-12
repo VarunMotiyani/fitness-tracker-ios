@@ -13,6 +13,10 @@ import LLMKit
 struct AskCoachReply: Sendable {
     let text: String
     let isError: Bool
+    /// Set when the coach called `start_workout` this turn. The coordinator
+    /// can't navigate the UI itself — whichever screen hosts the chat resolves
+    /// this against its own `WeeklyPlan` and starts the session.
+    var startSessionID: UUID? = nil
 }
 
 /// Ask Coach's orchestrator (design spec §3): read-only tools plus
@@ -69,7 +73,8 @@ struct AskCoachCoordinator {
             newMessage: modelMessage
         )
 
-        let tools = ToolRegistry(tools: buildTools())
+        let sink = CoachActionSink()
+        let tools = ToolRegistry(tools: buildTools(sink: sink))
 
         let calls: [CallOutcome]
         let dto: AskCoachDTO
@@ -109,10 +114,21 @@ struct AskCoachCoordinator {
             await ChatSummarizer(context: context, provider: provider, activeProfile: activeProfile).summarizeIfNeeded()
         }
 
-        return AskCoachReply(text: dto.reply, isError: false)
+        // `regenerate_plan` only records the request (a tool can't await);
+        // the actual generation needs the network and happens here, where
+        // `send()` is already in an async context — same `generateAndStore`
+        // path Settings/onboarding use, so it's billed and stored identically.
+        var replyText = dto.reply
+        if sink.requestedPlanRegeneration, let profile = (try? context.fetch(FetchDescriptor<UserProfile>()))?.first {
+            let outcome = await generateAndStore(context: profile.makeUserContext(), activeProfile: activeProfile,
+                                                 catalog: catalog, modelContext: context)
+            replyText += "\n\n" + outcome.note
+        }
+
+        return AskCoachReply(text: replyText, isError: false, startSessionID: sink.startSessionID)
     }
 
-    private func buildTools() -> [any CoachTool] {
+    private func buildTools(sink: CoachActionSink) -> [any CoachTool] {
         let sessions = ((try? context.fetch(FetchDescriptor<CompletedSessionModel>())) ?? []).map { $0.toSnapshot() }
         let recoveryStatuses = RecoveryModel.computeRecovery(from: sessions, catalog: catalog, now: .now)
 
@@ -133,7 +149,13 @@ struct AskCoachCoordinator {
             ProposeExerciseSwapTool(context: context, catalog: catalog),
             ProposeSetChangeTool(context: context),
             GetUpcomingSessionsTool(context: context, catalog: catalog),
-            ProposeRoutineRevisionTool(context: context)
+            ProposeRoutineRevisionTool(context: context),
+            StartWorkoutTool(context: context, sink: sink),
+            RegeneratePlanTool(sink: sink),
+            SetDayToRestTool(),
+            ApplyExerciseSwapTool(context: context, catalog: catalog),
+            ApplySetChangeTool(context: context),
+            LogBodyweightTool(context: context)
         ]
     }
 

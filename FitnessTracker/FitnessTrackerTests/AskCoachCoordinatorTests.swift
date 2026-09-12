@@ -14,7 +14,7 @@ import LLMKit
             CompletedSessionModel.self, CompletedEntryModel.self, LoggedSetModel.self,
             BodyweightEntryModel.self, DailyCheckinModel.self, ObservationModel.self,
             PersonalRecordModel.self, CoachMemoryModel.self,
-            StoredPlan.self, PendingCoachSuggestion.self,
+            StoredPlan.self, PendingCoachSuggestion.self, UserProfile.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true))
     }
 
@@ -129,6 +129,54 @@ import LLMKit
         #expect(!reply.text.isEmpty)
         #expect(reply.isError == true)
         #expect(try ctx.fetch(FetchDescriptor<ChatMessageModel>()).isEmpty)
+    }
+
+    @Test func sendExecutesStartWorkoutToolAndSetsReplyStartSessionID() async throws {
+        let ctx = ModelContext(try container())
+        let sessionID = try seedPlan(in: ctx)
+        let toolTurn = """
+        {"decision":"tool_call","toolCall":{"name":"start_workout","argsJSON":"{\\"plannedSessionID\\": \\"\(sessionID.uuidString)\\"}"}}
+        """
+        let finalTurn = """
+        {"decision":"final","final":{"reply":"Starting your session now."}}
+        """
+        let provider = StubLLMProvider(responses: [.success(toolTurn), .success(finalTurn)])
+        let coordinator = AskCoachCoordinator(catalog: catalog(), context: ctx, provider: provider, activeProfile: nil)
+
+        let reply = await coordinator.send("Start today's workout")
+
+        #expect(reply.isError == false)
+        #expect(reply.startSessionID == sessionID)
+    }
+
+    /// `regenerate_plan` can't await inside the synchronous tool call, so the
+    /// coordinator does the actual generation itself after the tool loop
+    /// finishes — with no active provider, `generateAndStore` falls back to
+    /// the rule engine, and its outcome note is appended to the reply text.
+    @Test func sendExecutesRegeneratePlanToolAndAppendsOutcomeNote() async throws {
+        let ctx = ModelContext(try container())
+        let profile = UserProfile(
+            goalRaw: "buildMuscle", experienceRaw: "intermediate", heightCm: 178, weightKg: 75,
+            birthYear: 2000, sexRaw: "male", sessionsPerWeek: 4, sessionLengthMinutes: 60,
+            availableEquipmentRaws: ["barbell"], excludedMuscleRaws: [], excludedExerciseIDs: [])
+        ctx.insert(profile)
+        try ctx.save()
+        let toolTurn = """
+        {"decision":"tool_call","toolCall":{"name":"regenerate_plan","argsJSON":"{\\"reason\\": \\"switch to 5 days\\"}"}}
+        """
+        let finalTurn = """
+        {"decision":"final","final":{"reply":"On it, rebuilding your plan."}}
+        """
+        let provider = StubLLMProvider(responses: [.success(toolTurn), .success(finalTurn)])
+        let coordinator = AskCoachCoordinator(catalog: catalog(), context: ctx, provider: provider, activeProfile: nil)
+
+        let reply = await coordinator.send("I want to switch to 5 days a week")
+
+        #expect(reply.isError == false)
+        #expect(reply.text.hasPrefix("On it, rebuilding your plan."))
+        #expect(reply.text.contains("Coach updated (rule engine)"))
+        let plans = try ctx.fetch(FetchDescriptor<StoredPlan>())
+        #expect(!plans.isEmpty)
     }
 
     @Test func providerFailureReturnsErrorMessageButKeepsUserMessage() async throws {

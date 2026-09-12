@@ -3,9 +3,14 @@ import Foundation
 @testable import FitnessTracker
 
 @Suite struct AskCoachPromptBuilderTests {
-    @Test func systemPromptStatesReadOnlyConstraint() {
-        let prompt = AskCoachPromptBuilder.system()
-        #expect(prompt.lowercased().contains("cannot") || prompt.lowercased().contains("does not change"))
+    /// The coach can now change things directly (apply_*/start_workout/
+    /// regenerate_plan/etc.) — read-only is no longer the constraint. What's
+    /// still true, and still worth the model being told explicitly, is that
+    /// every one of those tools only ever reaches a session that hasn't
+    /// started yet; the live session screen owns the one currently active.
+    @Test func systemPromptStatesActiveSessionIsOffLimits() {
+        let prompt = AskCoachPromptBuilder.system().lowercased()
+        #expect(prompt.contains("hasn't started") || prompt.contains("currently in"))
     }
 
     @Test func userPromptIncludesNewMessage() {

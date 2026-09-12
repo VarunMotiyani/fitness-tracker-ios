@@ -142,7 +142,8 @@ struct PlanView: View {
             }
         }
         .sheet(isPresented: $showChat) {
-            ChatView(catalog: catalog, provider: chatProvider, activeProfile: activeProviderProfile, onClose: { showChat = false })
+            ChatView(catalog: catalog, provider: chatProvider, activeProfile: activeProviderProfile, onClose: { showChat = false },
+                    plan: plan, onStartSession: onStartSession)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
                 .presentationContentInteraction(.scrolls)

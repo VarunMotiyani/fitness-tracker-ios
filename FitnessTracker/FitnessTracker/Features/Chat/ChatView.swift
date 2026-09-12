@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import FitnessDomain
 import ExerciseCatalog
 import LLMKit
 
@@ -14,6 +15,11 @@ struct ChatView: View {
     let activeProfile: ProviderProfile?
     var onClose: (() -> Void)? = nil
     var showsHeader: Bool = true
+    /// Needed to resolve a `start_workout` tool call's plannedSessionID back
+    /// into a real `PlannedSession` — nil where starting a workout doesn't
+    /// make sense (e.g. the chat embedded in an already-active session).
+    var plan: WeeklyPlan? = nil
+    var onStartSession: ((PlannedSession) -> Void)? = nil
     /// Sheet/tab presentations reserve the bottom tab-bar inset; embedded
     /// Coach hub chat should use the full sheet height instead.
     var reservesTabBarSpace: Bool = true
@@ -338,6 +344,10 @@ struct ChatView: View {
             } else {
                 lastSentText = nil
                 lastReplyContext = nil
+            }
+            if let sessionID = result.startSessionID,
+               let session = plan?.sessions.first(where: { $0.id == sessionID }) {
+                onStartSession?(session)
             }
             isSending = false
         }
